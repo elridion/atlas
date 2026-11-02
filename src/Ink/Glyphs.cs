@@ -33,7 +33,7 @@ namespace Atlas
                 case Kind.Peak:
                     Peak(g.m_x, g.m_y, g.m_size, g.m_seed);
                     break;
-                case Kind.Hill: Hill(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+                case Kind.Hill: Hill(g.m_x, g.m_y, g.m_size, g.m_seed, g.m_lone); break;
                 case Kind.Broadleaf: Broadleaf(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Conifer: Conifer(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.PlainsTree: PlainsTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
@@ -224,43 +224,234 @@ namespace Atlas
         }
 
 
-        // A hill: an open, unshaded hump.
         // A hill as the classic map draws its downs: a low,
-        // lopsided dome stroke with a few short hatch dashes under its eastern side, sometimes a
-        // smaller dome behind it to the west, so groups of hills read as rolling country.
-        private void Hill(float x, float y, float width, int seed)
+        // lopsided dome stroke with a few hatch dashes under its eastern side, often with a
+        // smaller dome behind, so groups of hills read as rolling country. Each hill varies by
+        // seed as the peaks do (a stamp repeated over a plain): its proportions,
+        // which side is steeper, the crest (one dome, a long ridge, a double crest, a shoulder),
+        // none, one or two domes behind, the hatching hand and a slight wobble of the pen.
+        // (x, y) is the middle of the front dome's foot; FitHill sets it so the crown, wherever
+        // the crest puts it, lands on the hilltop. lone drops the domes behind, which keeps a hill
+        // by the water off it (FitHill).
+        private void Hill(float x, float y, float width, int seed, bool lone = false)
         {
-            if (Unit(seed, 12) < 0.55f)
+            int behind = lone ? 0 : DomesBehind(seed);
+            for (int k = behind - 1; k >= 0; k--)
             {
-                float small = width * Mathf.Lerp(0.5f, 0.7f, Unit(seed, 13));
-                Dome(x - width * 0.45f, y - width * 0.12f, small, seed + 1);
+                DomeBehind(x, y, width, seed, k, out float bx, out float by, out float small);
+                Dome(bx, by, small, seed + 1 + k, true);
             }
-            Dome(x, y, width, seed);
+            Dome(x, y, width, seed, false);
         }
 
-        private void Dome(float x, float y, float width, int seed)
+        // How many smaller domes stand behind a hill: none, one, or now and then two.
+        private static int DomesBehind(int seed)
         {
-            float height = width * 0.3f * Vary(seed, 10, 0.2f);
-            // The crown sits a little west or east of centre.
-            float skew = Mathf.Lerp(0.75f, 1.3f, Unit(seed, 11));
-            m_points.Clear();
-            const int steps = 10;
-            for (int i = 0; i <= steps; i++)
-            {
-                float u = Mathf.Pow((float)i / steps, skew);
-                m_points.Add(new Vector2(x + (u - 0.5f) * width, y - Mathf.Pow(Mathf.Max(0f, Mathf.Sin(Mathf.PI * u)), 0.8f) * height));
-            }
+            float roll = Unit(seed, 12);
+            return roll < 0.4f ? 0 : roll < 0.9f ? 1 : 2;
+        }
+
+        // The k-th dome behind a hill (0 nearest): mostly to the west, sometimes to the east, at
+        // seed-set offsets and sizes; a second one stands on the other side, smaller and further
+        // back. Hill draws them furthest first, so the nearer ones and the front dome hide them.
+        private static void DomeBehind(float x, float y, float width, int seed, int k, out float bx, out float by, out float small)
+        {
+            float side = Unit(seed, 55) < 0.78f ? -1f : 1f;
+            if (k == 1) side = -side;
+            small = width * (k == 0 ? Mathf.Lerp(0.48f, 0.7f, Unit(seed, 13)) : Mathf.Lerp(0.4f, 0.52f, Unit(seed, 56)));
+            bx = x + side * width * Mathf.Lerp(0.38f, 0.52f, Unit(seed, 57 + k));
+            by = y - width * (Mathf.Lerp(0.08f, 0.15f, Unit(seed, 59 + k)) + k * 0.04f);
+        }
+
+        // A dome inked as a pen would trace it (hills should feel hand-drawn,
+        // as the peaks do): the line swells over the crest and thins toward the feet, lifts once
+        // somewhere along the back and is set down again a hair off with a small overshoot, and
+        // runs out at each foot in a short tail.
+        private void Dome(float x, float y, float width, int seed, bool behind)
+        {
+            DomeShape shape = DomeOutline(m_points, x, y, width, seed, behind);
             m_canvas.Erase(m_points);
-            m_canvas.Polyline(m_points, 1.2f);
-            // The shade: short dashes under the eastern flank, longer near the crown.
-            for (int k = 0; k < 3; k++)
+            float pen = Mathf.Lerp(1.1f, 1.3f, Unit(seed, 54));
+            int n = m_points.Count - 1;
+            int lift = Mathf.RoundToInt(Mathf.Lerp(0.35f, 0.7f, Unit(seed, 91)) * n);
+            var setDown = new Vector2(0f, Mathf.Lerp(-0.3f, 0.3f, Unit(seed, 92)));
+            for (int i = 1; i <= n; i++)
             {
-                float u = 0.58f + 0.12f * k;
-                Vector2 top = Along(m_points, u);
-                float length = height * Mathf.Lerp(0.55f, 0.25f, k / 2f);
-                m_canvas.Stroke(top.x - 0.15f * width * 0.1f, top.y + height * 0.18f,
-                    top.x - width * 0.08f, top.y + height * 0.18f + length, Pen);
+                Vector2 a = m_points[i - 1], b = m_points[i];
+                if (i == lift + 1) a += setDown;
+                if (i == lift) b += (b - a).normalized * 0.5f;
+                if (i == 1) a += new Vector2(-0.45f, 0.15f);
+                if (i == n) b += new Vector2(0.5f, 0.1f);
+                float swell = 0.8f + 0.32f * Mathf.Sin(Mathf.PI * (i - 0.5f) / n);
+                m_canvas.Stroke(a.x, a.y, b.x, b.y, Mathf.Max(Pen, pen * swell * Vary(seed, 130 + i, 0.07f)));
             }
+            for (int k = 0; k < shape.m_dashes; k++)
+            {
+                if (!DomeDash(shape, x, y, width, seed, k, out Vector2 a, out Vector2 b)) continue;
+                m_canvas.Stroke(a.x, a.y, b.x, b.y, Pen);
+            }
+        }
+
+        // A dome's drawn shape: its height, the crest whose east flank carries the hatching (as a
+        // share u of the width, 0 at the west foot), the crown (the outline's highest point,
+        // relative to the foot's middle) and the hatching hand.
+        private struct DomeShape
+        {
+            public float m_height, m_shadeFrom, m_crownX, m_crownRise;
+            public int m_seed, m_style, m_dashes;
+            public float m_west, m_east, m_crest, m_wobble;
+            public float m_dashLength, m_dashGap, m_dashSlant;
+        }
+
+        // Crest styles: one dome, a long low ridge with a flattish back, a double crest with a
+        // saddle, a dome with a shoulder on one flank.
+        private const int DomeSingle = 0;
+        private const int DomeRidge = 1;
+        private const int DomeTwin = 2;
+        private const int DomeShoulder = 3;
+        private const int DomeSteps = 18;
+        // How far a ridge's back bows up over its middle, as a share of the dome's height.
+        private const float RidgeBow = 0.12f;
+
+        // A dome's outline from its west foot to its east foot, into points. Shared by the
+        // drawing, the hill's water test and its placement (the crown), so all three see the
+        // drawn shape. Domes behind keep to a single crest or a shoulder: doubled crests on the
+        // domes behind as well made a hill busy.
+        private static DomeShape DomeOutline(List<Vector2> points, float x, float y, float width, int seed, bool behind)
+        {
+            var shape = new DomeShape { m_seed = seed };
+            float roll = Unit(seed, 50);
+            shape.m_style = behind
+                ? (roll < 0.75f ? DomeSingle : DomeShoulder)
+                : roll < 0.5f ? DomeSingle : roll < 0.65f ? DomeRidge : roll < 0.82f ? DomeTwin : DomeShoulder;
+            // From broad and low to rounder and taller: the taller domes also have the fuller sides.
+            float tall = Unit(seed, 10);
+            shape.m_height = width * Mathf.Lerp(0.22f, 0.37f, tall) * (shape.m_style == DomeRidge ? 0.8f : 1f);
+            float fullness = Mathf.Lerp(1f, 0.68f, tall);
+            // Lopsided: the crest off centre, each flank its own steepness.
+            shape.m_crest = Mathf.Lerp(0.38f, 0.62f, Unit(seed, 11));
+            shape.m_west = fullness * Vary(seed, 51, 0.22f);
+            shape.m_east = fullness * Vary(seed, 52, 0.22f);
+            shape.m_wobble = Mathf.Lerp(0.015f, 0.045f, Unit(seed, 53));
+            shape.m_shadeFrom = shape.m_style == DomeTwin ? TwinEastCrest(seed) : shape.m_crest;
+
+            points.Clear();
+            int crown = 0;
+            for (int i = 0; i <= DomeSteps; i++)
+            {
+                // Points close up toward the feet, where the flanks are steepest, unevenly spaced
+                // and nudged a little off the curve, so the line is drawn in short facets as the
+                // peaks' ridges are rather than as one smooth arc.
+                float step = i == 0 || i == DomeSteps ? 0f : (Unit(seed, 90 + i) - 0.5f) * 0.4f;
+                float u = 0.5f - 0.5f * Mathf.Cos(Mathf.PI * (i + step) / DomeSteps);
+                float nudge = i == 0 || i == DomeSteps ? 0f : (Unit(seed, 110 + i) - 0.5f) * 0.06f * Mathf.Sin(Mathf.PI * u);
+                var p = new Vector2(x + (u - 0.5f) * width, y - (DomeRise(shape, u) + nudge) * shape.m_height);
+                points.Add(p);
+                if (p.y < points[crown].y) crown = i;
+            }
+            shape.m_crownX = points[crown].x - x;
+            shape.m_crownRise = y - points[crown].y;
+
+            // The hatching hands: a sparse pair of long dashes, the usual three tapering, a
+            // dense row of short ones, or three long even ones.
+            float hand = Unit(seed, 62);
+            shape.m_dashes = hand < 0.25f ? 2 : hand < 0.65f ? 3 : hand < 0.88f ? 4 + (Unit(seed, 63) < 0.5f ? 1 : 0) : 3;
+            shape.m_dashLength = hand < 0.25f ? 0.6f : hand < 0.65f ? 0.55f : hand < 0.88f ? 0.42f : 0.5f;
+            shape.m_dashGap = Mathf.Lerp(0.15f, 0.22f, Unit(seed, 64));
+            shape.m_dashSlant = Mathf.Lerp(0.03f, 0.085f, Unit(seed, 65));
+            if (behind) shape.m_dashes = Mathf.Min(shape.m_dashes, 3);
+            return shape;
+        }
+
+        // The double crest's eastern top (share of the width), which the hatching hangs from.
+        private static float TwinEastCrest(int seed) => Mathf.Lerp(0.64f, 0.72f, Unit(seed, 66));
+
+        // The dome's height at u (0 at the west foot, 1 at the east), as a share of its height.
+        private static float DomeRise(DomeShape s, float u)
+        {
+            float f;
+            switch (s.m_style)
+            {
+                case DomeRidge:
+                {
+                    // A long back: steeper ends and a crest line that sinks a little to one end.
+                    float half = Mathf.Lerp(0.12f, 0.2f, Unit(s.m_seed, 67));
+                    float a = Mathf.Max(0.12f, s.m_crest - half), b = Mathf.Min(0.88f, s.m_crest + half);
+                    float sink = (Unit(s.m_seed, 68) < 0.5f ? -1f : 1f) * 0.07f;
+                    if (u < a) f = DomeFlank(u / a, s.m_west) * (1f + Mathf.Min(sink, 0f));
+                    else if (u > b) f = DomeFlank((1f - u) / (1f - b), s.m_east) * (1f - Mathf.Max(sink, 0f));
+                    else
+                    {
+                        // The back bows up in a gentle dome rather than running level: a flat
+                        // back read as a lid at close zoom.
+                        float t = (u - a) / (b - a);
+                        f = 1f - Mathf.Max(sink, 0f) * t + Mathf.Min(sink, 0f) * (1f - t) + RidgeBow * Mathf.Sin(Mathf.PI * t);
+                    }
+                    break;
+                }
+                case DomeTwin:
+                {
+                    // Two tops on one hill, the saddle between them softened.
+                    float west = Mathf.Lerp(0.28f, 0.36f, Unit(s.m_seed, 69)), east = TwinEastCrest(s.m_seed);
+                    float second = Mathf.Lerp(0.7f, 0.88f, Unit(s.m_seed, 70));
+                    bool westTaller = Unit(s.m_seed, 71) < 0.5f;
+                    float hw = Hump(u, 0f, west, 0.62f, s.m_west) * (westTaller ? 1f : second);
+                    float he = Hump(u, 0.38f, east, 1f, s.m_east) * (westTaller ? second : 1f);
+                    f = SoftMax(hw, he, 4f);
+                    break;
+                }
+                case DomeShoulder:
+                {
+                    // A lower knoll on one flank, run into the main dome.
+                    bool east = Unit(s.m_seed, 72) < 0.5f;
+                    float main = Hump(u, 0f, s.m_crest, 1f, s.m_west, s.m_east);
+                    float at = east ? Mathf.Lerp(0.78f, 0.84f, Unit(s.m_seed, 73)) : Mathf.Lerp(0.16f, 0.22f, Unit(s.m_seed, 73));
+                    float knoll = Hump(u, at - 0.16f, at, at + 0.16f, 0.9f) * Mathf.Lerp(0.5f, 0.64f, Unit(s.m_seed, 74));
+                    f = SoftMax(main, knoll, 6f);
+                    break;
+                }
+                default:
+                    f = Hump(u, 0f, s.m_crest, 1f, s.m_west, s.m_east);
+                    break;
+            }
+            // A slight wobble of the pen, nothing at the feet, so no two domes are perfect arcs.
+            float phase = Unit(s.m_seed, 75) * 6.28f, phase2 = Unit(s.m_seed, 76) * 6.28f;
+            float wobble = s.m_wobble * (Mathf.Sin(u * 9.4f + phase) * 0.6f + Mathf.Sin(u * 17f + phase2) * 0.4f);
+            return Mathf.Max(0f, f + wobble * Mathf.Sin(Mathf.PI * u));
+        }
+
+        // A hump over [a, b] topped at c, 1 there and 0 at its ends, each flank its own fullness.
+        private static float Hump(float u, float a, float c, float b, float west, float east = -1f)
+        {
+            if (east < 0f) east = west;
+            if (u <= a || u >= b) return 0f;
+            return u < c ? DomeFlank((u - a) / (c - a), west) : DomeFlank((b - u) / (b - c), east);
+        }
+
+        // A flank rising from its foot (s = 0) to its crest (s = 1); fuller below 1.
+        private static float DomeFlank(float s, float fullness) => Mathf.Pow(Mathf.Sin(Mathf.PI * 0.5f * Mathf.Clamp01(s)), fullness);
+
+        private static float SoftMax(float a, float b, float k) => Mathf.Pow(Mathf.Pow(a, k) + Mathf.Pow(b, k), 1f / k);
+
+        // The k-th shade dash under a dome's eastern flank, from a to b, hung a gap below the
+        // outline and slanting back toward the crest; false when the flank there is too shallow
+        // for one. Shared by the drawing and the hill's water test.
+        private static bool DomeDash(DomeShape shape, float x, float y, float width, int seed, int k, out Vector2 a, out Vector2 b)
+        {
+            float from = shape.m_shadeFrom + (1f - shape.m_shadeFrom) * 0.14f;
+            float to = shape.m_shadeFrom + (1f - shape.m_shadeFrom) * 0.78f;
+            float u = shape.m_dashes == 1 ? from : Mathf.Lerp(from, to, (float)k / (shape.m_dashes - 1));
+            float depth = DomeRise(shape, u) * shape.m_height;
+            var top = new Vector2(x + (u - 0.5f) * width, y - depth);
+            float gap = shape.m_height * shape.m_dashGap;
+            // Tapering toward the foot, a little uneven, and never reaching below it.
+            float taper = shape.m_dashes == 1 ? 1f : Mathf.Lerp(1f, 0.5f, (float)k / (shape.m_dashes - 1));
+            float length = shape.m_height * shape.m_dashLength * taper * Vary(seed, 80 + k, 0.15f);
+            length = Mathf.Min(length, depth - gap - shape.m_height * 0.06f);
+            a = new Vector2(top.x - width * 0.015f, top.y + gap);
+            // Each dash at its own angle, as a hand never repeats one exactly.
+            b = new Vector2(top.x - width * shape.m_dashSlant * Vary(seed, 95 + k, 0.35f), top.y + gap + length);
+            return length >= shape.m_height * 0.1f;
         }
 
         // A broadleaf tree: an egg-shaped crown on a short trunk. Packed densely, the crowns hide

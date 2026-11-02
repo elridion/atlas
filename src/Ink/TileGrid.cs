@@ -90,6 +90,7 @@ namespace Atlas
             field.Compute(i => IsWoodCell(i % n, i / n), m_woodDistance, 1f);
         }
 
+
         private bool IsLandCell(int x, int y) => x < m_columns && y < m_rows && m_height[y * m_columns + x] > m_waterLevel;
 
         private bool IsWoodCell(int x, int y) => x < m_columns && y < m_rows && m_wood[y * m_columns + x] > 0f;

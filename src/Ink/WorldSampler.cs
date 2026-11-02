@@ -16,7 +16,10 @@ namespace Atlas
     /// limited to the minimap's 12 m pixels. These are the calls vanilla's minimap is built from
     /// (Minimap.GenerateWorldMap), and vanilla makes them off the main thread too, from its
     /// terrain build thread (HeightmapBuilder); the river cache they read is behind a lock. The
-    /// wood field follows vanilla's forest mask (Minimap.GetMaskColor) as a continuous value.
+    /// wood field follows vanilla's forest mask (Minimap.GetMaskColor) as a continuous value, and
+    /// in the Deep North, which the mask leaves out, the forest factor its trees grow by; in the
+    /// Mountains, which it leaves out too, and on the Mistlands pools raised to land, the sheet's
+    /// own wood field.
     /// </summary>
     internal sealed class GeneratorSampler : IWorldSampler
     {
@@ -26,6 +29,12 @@ namespace Atlas
         private const float MeadowsForest = 1.15f;
         private const float PlainsForest = 0.8f;
         private const float MistlandsForest = 1.2f;
+        // Every Deep North tree grows under this forest factor (ZoneSystem's vegetation from
+        // _LocationList_DeepNorth: snowy firs and pines, forest threshold 0 to 1.15), though
+        // vanilla's mask marks no forest there. Its woods stop below the peaks' ground, falling
+        // by NorthHeightFall a metre towards it, so the edge lies where the sheet's does.
+        public const float DeepNorthForest = 1.15f;
+        private const float NorthHeightFall = 0.01f;
 
         private readonly WorldGenerator m_generator;
         private readonly float m_waterLevel;
@@ -49,6 +58,16 @@ namespace Atlas
             if (land == Land.Swamp && height <= m_waterLevel && !(height <= m_waterLevel - WorldSource.SwampShallow && m_world.IsSwampSea(wx, wz)))
                 height = m_waterLevel + WorldSource.SwampFloor;
             wood = -1f;
+            // The Mistlands pools the sheet raised (WorldSource.MarkMistPools) are raised here
+            // too, rim included, to the sheet's own filled ground, and take the sheet's wood
+            // field, since the forest factor knows nothing of the pool and would grow trees in
+            // clearings the sheet keeps open.
+            if (height <= m_waterLevel && m_world.IsMistPool(wx, wz))
+            {
+                height = Mathf.Max(m_world.HeightAt(wx, wz), m_waterLevel + WorldSource.MistPoolFloor);
+                wood = m_world.Sample(m_world.m_wood, wx, wz) - 0.5f;
+                return;
+            }
             if (height <= m_waterLevel) return;
             switch (land)
             {
@@ -56,6 +75,16 @@ namespace Atlas
                 case Land.Meadows: wood = MeadowsForest - Factor(wx, wz); break;
                 case Land.Plains: wood = PlainsForest - Factor(wx, wz); break;
                 case Land.Mistlands: wood = MistlandsForest - Factor(wx, wz); break;
+                case Land.DeepNorth:
+                    float below = InkPainter.DeepNorthPeakHeight - (height - m_waterLevel);
+                    wood = Mathf.Min(DeepNorthForest - Factor(wx, wz), below * NorthHeightFall);
+                    break;
+                // The Mountains' firs follow the ground's slope (WorldSource.MarkMountainForest),
+                // which one generator sample cannot tell; worked out here on the generator's
+                // finer heights it would break the woods into the copses and clearings the sheet
+                // dropped. So close-ups take the sheet's own field, and their edge lies where the
+                // sheet's does.
+                case Land.Mountain: wood = m_world.Sample(m_world.m_wood, wx, wz) - 0.5f; break;
             }
         }
 

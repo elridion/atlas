@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
@@ -51,6 +52,13 @@ namespace Atlas
             DrawTileCoast();
             MarkTileRivers(record);
             m_canvas.m_layer = InkLayer.Tree;
+            // The sheet's peaks near the tile, whose bases the Mountains' trees keep clear of as
+            // on the sheet: the tile's trees stand up to GlyphReach beyond it, and a peak's base
+            // reaches half its width (51 px at most) from its foot.
+            var peaks = new List<Vector3>();
+            float reach = GlyphReach + PeakCell;
+            record.Peaks(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, peaks);
+            foreach (Vector3 peak in peaks) AddPeakBase(peak);
             PlaceTrees();
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             // The sheet's other glyphs (peaks, spires, hills) are sorted in with the tile's own
@@ -67,14 +75,7 @@ namespace Atlas
             }
             while (next < groups.Count) record.Replay(m_canvas, groups[next++]);
             m_cancel.ThrowIfCancellationRequested();
-            // The waves at a pen of their own in screen pixels, finer than the coast's (thinned by
-            // the level of detail alone they stood almost as heavy as it at 4x), and only where the
-            // tile's finer coast still has water.
-            float pen = m_canvas.m_penScale;
-            m_canvas.m_penScale = TileRipplePixels / m_tileScale;
-            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Ripple),
-                (a, b) => !m_grid.IsLand(a.x, a.y) && !m_grid.IsLand(b.x, b.y));
-            m_canvas.m_penScale = pen;
+            DrawTileWaves(record);
             record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Floe, InkLayer.Frame), null);
         }
 
@@ -92,6 +93,104 @@ namespace Atlas
         {
             float width = TileCoastPixels / m_tileScale / m_pen;
             Contour(m_grid.m_height, m_grid.m_waterLevel, (p, q) => m_canvas.Stroke(p.x, p.y, q.x, q.y, width));
+        }
+
+        // How far either side of a wave's sheet anchor the tile looks for its own coast, in sheet
+        // pixels, and the paper left between that coast and the wave, in screen pixels: enough to
+        // clear the coast's pen so the wave starts right at it without touching.
+        private const float TileWaveSearch = 4f;
+        private const float TileWaveGapPixels = 2.6f;
+
+        // The sheet's waves drawn again, at a pen of their own in screen pixels, finer than the
+        // coast's (thinned by the level of detail alone they stood almost as heavy as it at 4x).
+        // A wave that starts at the coast is moved to the tile's own coast, which runs up to a few
+        // sheet pixels from the sheet's: replayed where the sheet drew them, they stood off it
+        //. Its crests are then cut to the water ahead. An anchor outside the
+        // tile's ground is left where it is, as the tile cannot see that coast. Floating waves
+        // stay put and are left out where the tile has land.
+        private void DrawTileWaves(InkRecord record)
+        {
+            float reach = (WaveLongCrests + 1) * WaveCrest * 1.1f + TileWaveSearch;
+            var waves = new List<InkRecord.Wave>();
+            record.Waves(m_left - reach, m_top - 2f, m_right + reach, m_bottom + 2f, waves);
+            if (waves.Count == 0) return;
+            TileGrid grid = m_grid;
+            float gridRight = grid.m_left + (grid.m_columns - 1) * grid.m_step;
+            float gap = TileWaveGapPixels / m_tileScale;
+            float pen = m_canvas.m_penScale;
+            m_canvas.m_penScale = TileRipplePixels / m_tileScale;
+            foreach (InkRecord.Wave wave in waves)
+            {
+                float x = wave.m_x, y = wave.m_y, length = wave.m_length;
+                int crests = wave.m_crests;
+                int dir = wave.m_anchor;
+                if (dir == CutAnchor)
+                {
+                    // An islet cluster's stroke, cut by the close-up's own finer islets. Its
+                    // ground outside the grid repeats the edge, but a part that reaches into the
+                    // tile from beyond the grid is longer than two crests either way.
+                    Vector2 along = wave.m_dir == Vector2.zero ? Vector2.right : wave.m_dir;
+                    WaterParts(new Vector2(x, y), along, length, crests, m_grid.IsLand, m_parts);
+                    foreach (Vector2 part in m_parts) WaveStroke(new Vector2(x, y), along, length, crests, wave.m_phase, wave.m_lift, part.x, part.y);
+                    continue;
+                }
+                if (dir != 0)
+                {
+                    // A lake's line (lift 0) starts on the coast's pen itself, touching it (user,
+                    //); its room is measured from just off the shore.
+                    bool lake = wave.m_lift == 0f;
+                    float tip = dir > 0 ? x : x + length, from = 0f;
+                    if (tip - TileWaveSearch > grid.m_left && tip + TileWaveSearch < gridRight && TileShore(tip, y, dir, out float shore))
+                        tip = lake ? shore : shore + dir * gap;
+                    if (lake) from = grid.m_step;
+                    float crest = length / crests;
+                    float room = TileRoom(tip + dir * from, y, dir, length, gap) + from;
+                    // A lake's line keeps its three dashes, as on the sheet.
+                    int least = lake ? LakeLeastDashes : 2;
+                    while (crests > least && crests * crest > room) crests--;
+                    if (crests * crest > room) continue;
+                    length = crests * crest;
+                    x = dir > 0 ? tip : tip - length;
+                }
+                else if (TileRoom(x, y, 1, length, 0f) < length)
+                {
+                    continue;
+                }
+                WaveStroke(new Vector2(x, y), Vector2.right, length, crests, wave.m_phase, wave.m_lift);
+            }
+            m_canvas.m_penScale = pen;
+        }
+
+        // The tile's coast on the row through y nearest x within TileWaveSearch, where land gives
+        // way to water going dir.
+        private bool TileShore(float x, float y, int dir, out float shore)
+        {
+            float step = Math.Min(0.25f, m_grid.m_step * 0.5f);
+            shore = 0f;
+            float best = float.MaxValue;
+            bool before = m_grid.IsLand(x - dir * TileWaveSearch, y);
+            for (float s = -TileWaveSearch + step; s <= TileWaveSearch; s += step)
+            {
+                float at = x + dir * s;
+                bool land = m_grid.IsLand(at, y);
+                if (before && !land && Math.Abs(s) < best)
+                {
+                    best = Math.Abs(s);
+                    shore = at - dir * step * 0.5f;
+                }
+                before = land;
+            }
+            return best < float.MaxValue;
+        }
+
+        // Water ahead of x along dir on the row through y, up to length and the gap beyond it:
+        // where land comes, the room ends the gap short of it.
+        private float TileRoom(float x, float y, int dir, float length, float gap)
+        {
+            float step = Math.Min(0.25f, m_grid.m_step * 0.5f);
+            for (float s = 0f; s <= length + gap; s += step)
+                if (m_grid.IsLand(x + dir * s, y)) return Math.Max(0f, s - gap);
+            return length;
         }
 
         // The tile's river courses, from the sheet's river strokes, which its trees keep off: a

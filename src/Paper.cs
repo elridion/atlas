@@ -401,7 +401,13 @@ namespace Atlas
                             Mathf.Lerp(tint.m_strength, s_ash.m_strength, ash * 0.6f));
                     }
                     float s = tint.m_strength;
-                    if (world.Sample(world.m_wood, wx, wz) > 0.5f) s += WoodWash;
+                    // A wood is washed a little stronger, which darkens every biome's tint but the
+                    // Deep North's chalk, which it would whiten; there the snow keeps one colour
+                    // and the dark pines alone mark the wood. The Mountains' fir woods keep the
+                    // mountain wash too, so the biome reads as mountains under its trees, the
+                    // same grey the peaks' bodies are filled with.
+                    Land ground = world.m_biome[world.Index(wx, wz)];
+                    if (world.Sample(world.m_wood, wx, wz) > 0.5f && ground != Land.DeepNorth && ground != Land.Mountain) s += WoodWash;
                     red[i] = Filter(tint.m_color.r, PaperColor.r) * s * land;
                     green[i] = Filter(tint.m_color.g, PaperColor.g) * s * land;
                     blue[i] = Filter(tint.m_color.b, PaperColor.b) * s * land;

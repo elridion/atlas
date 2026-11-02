@@ -14,11 +14,25 @@
   outer crowns, with the open land around it kept clear.
 - Every biome has its own pen marks: ranges of jagged, hatched peaks washed in the mountains' grey, ringed by foothills, grass and woods of
   round crowns in the Meadows, stones and dark pine woods in the Black Forest, patches of marsh lines with reeds
-  and tall ancient dead trees in the Swamp, a dry stipple and copses on the Plains, veils of mist over gnarled trees
-  and black crags in the Mistlands, a cinder stipple, rocky peaks, hatched vermilion lava fields and volcano cones in the Ashlands, and a
+  and tall ancient dead trees in the Swamp, a dry stipple and copses on the Plains, rolling hills on the real hilltops of the
+  Meadows and Plains, each drawn a little differently (low or round, a long ridge, a double crest or a shoulder), veils of mist over gnarled trees
+  and black crags in the Mistlands (its many tiny pools drawn as ground, so only its real lakes show), a cinder stipple, rocky peaks, hatched vermilion lava fields and volcano cones in the Ashlands, and a
   near-blank snowfield with ice ridges in the Deep North, kept clear of the shore, the peaks and each other.
-- Coastlines are drawn with a fine pen and accented by groups of small level wave strokes in bays,
-  straits, river mouths and off capes, as on a classic map, with ice floes in the northern sea, white as the northern snow; rivers and
+- The Deep North's snowy forests are drawn as woods of dense dark pines, as in the Black Forest,
+  wherever the game grows its firs and pines there; its ice ridges keep to the open snow.
+- The Mountains' fir woods are drawn too, as dark pine woods on the gentler slopes where the game
+  grows its firs, from the lush woods at the mountains' feet up between the peaks, which stand
+  in front of them; the ground under the trees keeps the mountains' grey.
+- Coastlines are drawn with a fine pen. Groups of up to seven level wave strokes mark the
+  bays and headlands, and now and then a long straight coast: each starts right at the shore and
+  runs out to sea, long and short strokes in turn, and a headland pointing north or south may
+  have a stroke or two off its tip. Islets outside the Mistlands are gathered into clusters, and
+  each cluster gets one group of smaller level strokes centred on it, long and short in turn,
+  its rows shifted to follow a slanting chain, with the islets lying on top of it; the Mistlands'
+  islet fields, the tiniest specks on their own and the open sea stay blank. Lakes get straight
+  lines instead, stacked on consecutive rows from one shore, each touching the shore and running
+  into the lake, at the lake's bends and along its straight shores, never across it, so still
+  water reads apart from the sea; ponds stay bare. Ice floes in the northern sea are white as the northern snow; rivers and
   streams are drawn as ink lines.
 - "Read map" at a cartography table opens the game's own interactive map, where you can place and
   edit pins. Your pins appear on the atlas the next time you record your discoveries, inked black

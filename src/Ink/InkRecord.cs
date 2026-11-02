@@ -131,6 +131,50 @@ namespace Atlas
             }
         }
 
+        // One wave of the sheet: a stroke from (x, y), length long, with its crests, their lift
+        // (a lake's lie lower than the sea's) and phase, level unless dir is set (an islet
+        // cluster's strokes run along the cluster). anchor is +1 when its left end starts at a
+        // coast west of it, -1 when its right end does, 0 when it floats, 2 when it lies under
+        // islets and is cut where it crosses land. Close-ups draw the waves again from these,
+        // moving each anchored one to their own finer coast, since a replayed stroke stood off
+        // it, and cutting the islets' against their own finer islets.
+        public struct Wave
+        {
+            public float m_x, m_y, m_length, m_phase, m_lift;
+            public int m_crests;
+            public int m_anchor;
+            public Vector2 m_dir;
+        }
+
+        private readonly List<Wave> m_waves = new List<Wave>();
+
+        public void AddWave(Wave wave) => m_waves.Add(wave);
+
+        // The waves overlapping the sheet rectangle, in the order they were drawn.
+        public void Waves(float left, float top, float right, float bottom, List<Wave> into)
+        {
+            foreach (Wave wave in m_waves)
+            {
+                float endY = wave.m_y + wave.m_dir.y * wave.m_length;
+                float endX = wave.m_dir == Vector2.zero ? wave.m_x + wave.m_length : wave.m_x + wave.m_dir.x * wave.m_length;
+                if (Math.Max(wave.m_y, endY) >= top && Math.Min(wave.m_y, endY) <= bottom && Math.Min(wave.m_x, endX) <= right && Math.Max(wave.m_x, endX) >= left)
+                    into.Add(wave);
+            }
+        }
+
+        // Every peak of the sheet: its foot (x, y) and width (z), so close-ups keep the Mountains'
+        // trees off the peaks' bases as the sheet does (InkPainter.ClearOfPeakBases).
+        private readonly List<Vector3> m_peaks = new List<Vector3>();
+
+        public void AddPeak(float x, float y, float width) => m_peaks.Add(new Vector3(x, y, width));
+
+        // The peaks whose foot lies in the sheet rectangle.
+        public void Peaks(float left, float top, float right, float bottom, List<Vector3> into)
+        {
+            foreach (Vector3 peak in m_peaks)
+                if (peak.x >= left && peak.x <= right && peak.y >= top && peak.y <= bottom) into.Add(peak);
+        }
+
         // Builds the spatial index once painting is done.
         public void Seal(int sheetSize)
         {

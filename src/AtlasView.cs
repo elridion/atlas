@@ -23,6 +23,10 @@ namespace Atlas
         // Zoom: the largest scale, the opening scale relative to fitting the whole sheet, and the
         // step per wheel notch and per second of gamepad stick.
         private const float MaxScale = 4f;
+        // Above this magnification (screen pixels per sheet pixel) the view asks for a sharp detail
+        // tile, inked at up to MaxDetail screen pixels per sheet pixel.
+        private const float DetailFrom = 1.25f;
+        private const int MaxDetail = 8;
         private const float OpenZoom = 2.5f;
         private const float WheelStep = 1.18f;
         private const float StickZoom = 1.8f;
@@ -40,7 +44,9 @@ namespace Atlas
         private RectTransform m_pinLayer;
         private RawImage m_paper;
         private RawImage m_ink;
+        private RawImage m_detail;
         private RawImage m_fog;
+        private readonly Vector3[] m_corners = new Vector3[4];
         private readonly List<RectTransform> m_pins = new List<RectTransform>();
         private Snapshot m_pinSnapshot;
         private Canvas m_canvas;
@@ -205,6 +211,55 @@ namespace Atlas
                 if (pin) pin.localScale = counter;
         }
 
+        // Whether the view is zoomed in far enough for a sharp detail tile, the part of the sheet in
+        // view (sheet pixels, y running south) and the magnification to ink it at.
+        public bool DetailWanted(out RectInt visible, out int scale)
+        {
+            visible = default;
+            scale = 0;
+            if (!IsOpen || !m_root) return false;
+            float onScreen = m_scale * (m_canvas ? m_canvas.scaleFactor : 1f);
+            if (onScreen < DetailFrom) return false;
+            scale = Mathf.Clamp(Mathf.CeilToInt(onScreen), 2, MaxDetail);
+
+            // The viewport's corners in the sheet's own units, centred on the sheet.
+            m_viewport.GetWorldCorners(m_corners);
+            float half = InkPainter.CanvasSize * 0.5f;
+            float left = float.MaxValue, right = float.MinValue, top = float.MaxValue, bottom = float.MinValue;
+            foreach (Vector3 corner in m_corners)
+            {
+                Vector3 local = m_content.InverseTransformPoint(corner);
+                left = Mathf.Min(left, local.x + half);
+                right = Mathf.Max(right, local.x + half);
+                top = Mathf.Min(top, half - local.y);
+                bottom = Mathf.Max(bottom, half - local.y);
+            }
+            int x0 = Mathf.Clamp(Mathf.FloorToInt(left), 0, InkPainter.CanvasSize);
+            int x1 = Mathf.Clamp(Mathf.CeilToInt(right), 0, InkPainter.CanvasSize);
+            int y0 = Mathf.Clamp(Mathf.FloorToInt(top), 0, InkPainter.CanvasSize);
+            int y1 = Mathf.Clamp(Mathf.CeilToInt(bottom), 0, InkPainter.CanvasSize);
+            if (x1 <= x0 || y1 <= y0) return false;
+            visible = new RectInt(x0, y0, x1 - x0, y1 - y0);
+            return true;
+        }
+
+        // Lays a detail tile over the sheet rectangle it was inked for.
+        public void ShowDetail(Texture tile, RectInt region)
+        {
+            if (!m_root) return;
+            float half = InkPainter.CanvasSize * 0.5f;
+            RectTransform rect = m_detail.rectTransform;
+            rect.sizeDelta = new Vector2(region.width, region.height);
+            rect.anchoredPosition = new Vector2(region.center.x - half, half - region.center.y);
+            m_detail.texture = tile;
+            if (!m_detail.gameObject.activeSelf) m_detail.gameObject.SetActive(true);
+        }
+
+        public void HideDetail()
+        {
+            if (m_detail && m_detail.gameObject.activeSelf) m_detail.gameObject.SetActive(false);
+        }
+
         private bool Build()
         {
             if (m_root) return true;
@@ -231,6 +286,9 @@ namespace Atlas
 
             m_paper = NewLayer("Paper");
             m_ink = NewLayer("Ink");
+            m_detail = NewLayer("Detail");
+            m_detail.rectTransform.anchorMin = m_detail.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+            m_detail.gameObject.SetActive(false);
             m_fog = NewLayer("Fog");
             m_pinLayer = NewRect("Pins", m_content);
             Stretch(m_pinLayer, 0f);

@@ -95,7 +95,12 @@ namespace Atlas
         /// returns true are left out.
         /// </summary>
         public static void Contour(int size, Func<int, int, float> value, float level, Func<int, int, bool> skip,
-            Action<Vector2, Vector2> segment)
+            Action<Vector2, Vector2> segment) =>
+            Contour(size, value, level, skip, (x, y, a, b) => segment(a, b));
+
+        // As above, also telling each segment's cell.
+        public static void Contour(int size, Func<int, int, float> value, float level, Func<int, int, bool> skip,
+            Action<int, int, Vector2, Vector2> segment)
         {
             var points = new Vector2[4];
             for (int y = 0; y < size - 1; y++)
@@ -114,7 +119,7 @@ namespace Atlas
                     if ((d < 0f) != (a < 0f)) points[count++] = new Vector2(x, y + 1 - d / (d - a));
                     if (count == 2)
                     {
-                        segment(points[0], points[1]);
+                        segment(x, y, points[0], points[1]);
                     }
                     else if (count == 4)
                     {
@@ -123,13 +128,13 @@ namespace Atlas
                         // otherwise they cut off a and c.
                         if ((a + b + c + d) * 0.25f < 0f == a < 0f)
                         {
-                            segment(points[0], points[1]);
-                            segment(points[2], points[3]);
+                            segment(x, y, points[0], points[1]);
+                            segment(x, y, points[2], points[3]);
                         }
                         else
                         {
-                            segment(points[0], points[3]);
-                            segment(points[1], points[2]);
+                            segment(x, y, points[0], points[3]);
+                            segment(x, y, points[1], points[2]);
                         }
                     }
                 }

@@ -60,14 +60,23 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   painter's stages), so a quick relog does not run two paintings at once.
 - The canvas is 4096² over ±10800 m (5.27 m per pixel), y running south; textures run north, so
   `Paper.InkWithMips` flips it. The frame is a double ring at vanilla's world edge (10500 m).
-- The coastline is traced (marching squares) on a cleaned copy of the heights: swamp water
-  shallower than 3 m counts as land, a 3x3 blur, and islands under 12 or enclosed lakes under 16
-  map pixels removed. Without that, swamps and rocky shores became black thickets (seen in the
-  offline preview). Ripples are contours of the distance to land, only where water is
-  open (at least `OpenWidth` wide), so rivers keep just their banks.
+- **Atlas is a navigation tool**, meant to be as accurate as vanilla's map but only as current as
+  the last table visit. Accuracy wins over looks.
+- The coastline is traced (marching squares) on vanilla's own heights, unsmoothed, keeping every
+  island, lake and swamp pool; only single 12 m pixels are dropped. Water joined to the world's
+  edge (`MarkSea`, four-way flood fill) is the sea: heavy coast and ripples. Inland water gets a
+  1 px shore and no ripples. An earlier version blurred the coast and deleted small islands and
+  lakes for looks; that was undone for accuracy, so swamps are busy by nature. The offline
+  harness can overlay vanilla's own 12 m water boundary in red to check the coast. Ripples are
+  contours of the distance to land, on the sea only, where it is wide enough for each ring and
+  around land big enough for it.
+- Peaks stand on real summits: local height maxima within `SummitCells` that rise
+  `SummitProminence` above their surroundings, sized by prominence, the glyph placed so its apex
+  is on the summit. Smaller filler peaks mass between them in staggered rows and keep clear of
+  the summits. Hills sit on real hilltops found the same way.
 - Glyphs are scattered on jittered grids per rule, sorted by their foot (north first) and drawn so
   that each scrapes its outline back to parchment before inking: southern glyphs hide northern ones.
-- Peaks are packed in staggered rows (16 G across, 9 G down, half-cell stagger) so ranges read as
+- Filler peaks are packed in staggered rows (16 G across, 9 G down, half-cell stagger) so ranges read as
   one dark mass, as on the classic map; with that overlap the front peak hides the lower half of
   the one behind, so the shaded wedge has to stay wide near the summit. Forests are packed so
   densely that only their southern edge shows trunks. Both came from an art review against the
@@ -79,6 +88,14 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   since a fill underneath was scraped away by its dense giant trees.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
+- Zoomed in past 1.25 screen pixels per sheet pixel, the view gets a detail tile: every pen call
+  of the painting is kept in an `InkRecord` (about 720k calls, 20 MB, indexed in 64 px cells) and
+  the calls touching the visible part (plus a quarter margin) are replayed into an `InkCanvas` at
+  the on-screen magnification (up to 8x) on a worker thread, composited on the parchment and laid
+  over the sheet (opaque, under the fog) once the view has held still for 0.15 s. Replaying at 1x
+  matches the sheet exactly. Because only painting yields the record, the world is painted once
+  per session in the background even when the sheet came from the disk cache. In game
+  the plain sheet looked too pixelated at 4x zoom, which is what led to this.
 - Rivers and streams come from `WorldGenerator.GetRivers()`/`GetStreams()`, copied in
   `WorldSource.Capture` and inked along vanilla's own sine curve (`RiverPath.PointAt`, from
   `WorldGenerator.RenderRivers`) over land only, on a scraped band. Streams run from their low

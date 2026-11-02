@@ -27,17 +27,18 @@ namespace Atlas
         // keep their texture while each tree reads as a tree at the closer zoom.
         private const float T = 0.75f * G;
 
-        // Coast and ripples, in canvas pixels. Ripples only run along water at least OpenWidth wide
-        // on both sides of a point, so rivers and narrow straits keep just their two banks.
+        // Coast and ripples, in canvas pixels. Ripples run only on the sea, and only where it is at
+        // least OpenWidth wide on both sides of a point, so rivers and straits keep just their banks.
         private const float CoastWidth = 2.1f;
         // Ripple lines out from the coast, and for each the share of its length drawn (noise
-        // threshold; 1 is unbroken).
-        private static readonly float[] s_ripples = { 4.5f * G, 8.5f * G, 13f * G, 18f * G };
+        // threshold; 1 is unbroken). The first sits well off the shore, so small islands and narrow
+        // channels stay readable.
+        private static readonly float[] s_ripples = { 6f * G, 11f * G, 17f * G, 24f * G };
         private static readonly float[] s_rippleGaps = { 1f, 0.68f, 0.55f, 0.45f };
-        // A ring needs water RippleWidth times its distance from land within reach, and (beyond the
-        // first) land in a box RippleLandBox times its distance across of at least RippleLandShare
-        // times its distance squared: a straight coast gives three times that, an islet of about 0.4
-        // times the ring's distance in radius just passes.
+        // A ring needs sea RippleWidth times its distance from land within reach, and land in a box
+        // RippleLandBox times its distance across of at least RippleLandShare times its distance
+        // squared: a straight coast gives three times that, an islet of about 0.4 times the ring's
+        // distance in radius just passes, smaller ones get no ring.
         private const float RippleWidth = 1.5f;
         private const float RippleLandBox = 1.5f;
         private const float RippleLandShare = 0.5f;
@@ -50,19 +51,26 @@ namespace Atlas
         private const float Pen = 1f;
         // Plains stipple dots, one pen width across.
         private const float StippleRadius = 0.6f;
-        // Coast clean-up: swamp water shallower than SwampDeep metres counts as land, and islands
-        // or enclosed lakes smaller than these many map pixels (12 m each) are not drawn.
-        private const float SwampDeep = 3f;
-        private const int MinIsland = 12;
-        private const int MinLake = 16;
+        // Patches of land or water smaller than this many map pixels (12 m each) are dropped as noise.
+        private const int SpeckCells = 2;
+        // Shores of lakes, ponds and swamp pools, lighter than the sea coast so inland water does not
+        // turn swamps into thickets of heavy lines.
+        private const float LakeShore = 1f;
 
         // Terrain thresholds: metres above the water and height change per metre of slope.
         private const float PeakHeight = 50f;
         private const float DeepNorthPeakHeight = 45f;
+        // Summits and hilltops: a map pixel (12 m) is a summit when it is the highest within
+        // SummitCells and rises SummitProminence metres above the lowest point within
+        // ProminenceCells; hilltops likewise with smaller numbers. Filler peaks keep SummitClearance
+        // times the two glyphs' widths away from a summit's glyph.
+        private const int SummitCells = 6;
+        private const float SummitProminence = 20f;
+        private const int HilltopCells = 4;
+        private const float HillProminence = 6f;
+        private const int ProminenceCells = 10;
+        private const float SummitClearance = 0.55f;
         private const float HillSlope = 0.35f;
-        // Around a range, gentler ground already counts as foothills once this high above the water.
-        private const float FoothillSlope = 0.25f;
-        private const float FoothillHeight = 25f;
         // Mist banks: the gap between a bank's two lines, the parchment band scraped under each line
         // (canvas pixels, narrower than the gap so one line never scrapes the other) and the step
         // between points along a line.
@@ -95,9 +103,14 @@ namespace Atlas
         // Canvas pixels covered by peaks and spires, which the mist banks drawn later must not cut.
         private byte[] m_solid;
         private readonly List<Glyph> m_glyphs = new List<Glyph>(200000);
+        // Real summits placed so far: apex position (x, y) and glyph width (z).
+        private readonly List<Vector3> m_summits = new List<Vector3>(1024);
         // Ice floes sit on the water, so they are drawn after the coast's ripple lines, over them.
         private readonly List<Glyph> m_floes = new List<Glyph>(4096);
         private float[] m_coast;
+        // Map pixels of water joined to the sea, and canvas pixels of sea.
+        private bool[] m_seaCell;
+        private byte[] m_sea;
         private byte[] m_land;
         private byte[] m_waterDistance;
         private byte[] m_landDistance;
@@ -144,11 +157,14 @@ namespace Atlas
         }
 
         // Throws OperationCanceledException between stages once cancel is set, so a drawing for a
-        // world the player already left stops instead of holding its memory to the end.
-        public static byte[] Paint(WorldSource world, CancellationToken cancel)
+        // world the player already left stops instead of holding its memory to the end. When record
+        // is given, every pen call is kept in it (and indexed) for sharp detail tiles.
+        public static byte[] Paint(WorldSource world, CancellationToken cancel, InkRecord record)
         {
             var painter = new InkPainter(world, cancel);
+            if (record != null) painter.m_canvas.Record(record);
             painter.Run();
+            record?.Seal(CanvasSize);
             return painter.m_canvas.m_ink;
         }
 
@@ -172,59 +188,18 @@ namespace Atlas
             DrawFrame();
         }
 
-        // The height field the coastline is traced on: vanilla's heights, lightly smoothed, with the
-        // swamp's standing water counted as land and specks of land or water too small to draw
-        // removed. Raw heights hover at the water line in swamps and along rocky shores, which
-        // otherwise traces a thicket of tiny islands and ponds.
+        // The coastline is traced on vanilla's own heights, unsmoothed, so it runs where vanilla's
+        // map puts the water's edge: every island, lake, pond and swamp pool stays. Only single map
+        // pixels of land or water (12 m) are dropped, which are noise at any zoom. Water connected to
+        // the world's edge is the sea; the rest (lakes, ponds, swamp pools) gets a lighter shore.
         private void BuildCoastHeights()
         {
             int size = m_world.m_size;
             float water = m_world.m_waterLevel;
-            float[] raw = m_world.m_height;
-            var heights = new float[size * size];
-            for (int i = 0; i < raw.Length; i++)
-            {
-                float h = raw[i];
-                if (m_world.m_biome[i] == Land.Swamp && h > water - SwampDeep) h = Math.Max(h, water + 0.3f);
-                heights[i] = h;
-            }
-
-            // Two blurs before the specks go and one after: one pass left small islands as angular
-            // lozenges and the swamp's flat water level as straight chords along the coast.
-            m_coast = new float[size * size];
-            Blur(heights, m_coast, size);
-            Blur(m_coast, heights, size);
-            Array.Copy(heights, m_coast, heights.Length);
-            RemoveSpecks(water, land: true, MinIsland);
-            RemoveSpecks(water, land: false, MinLake);
-            Blur(m_coast, heights, size);
-            m_coast = heights;
-        }
-
-        // 3x3 box blur of a square grid, edges averaged over the cells that exist.
-        private static void Blur(float[] source, float[] target, int size)
-        {
-            for (int z = 0; z < size; z++)
-            {
-                for (int x = 0; x < size; x++)
-                {
-                    float sum = 0f;
-                    int count = 0;
-                    for (int dz = -1; dz <= 1; dz++)
-                    {
-                        int zz = z + dz;
-                        if (zz < 0 || zz >= size) continue;
-                        for (int dx = -1; dx <= 1; dx++)
-                        {
-                            int xx = x + dx;
-                            if (xx < 0 || xx >= size) continue;
-                            sum += source[zz * size + xx];
-                            count++;
-                        }
-                    }
-                    target[z * size + x] = sum / count;
-                }
-            }
+            m_coast = (float[])m_world.m_height.Clone();
+            RemoveSpecks(water, land: true, SpeckCells);
+            RemoveSpecks(water, land: false, SpeckCells);
+            MarkSea(water, size);
         }
 
         // Flattens connected patches of land (or of water) smaller than minCells map pixels into
@@ -264,19 +239,67 @@ namespace Atlas
             }
         }
 
+        // Flood fills the water connected to the edge of the map (four-way, so a river mouth joined
+        // only at a corner stays a lake) into m_seaCell.
+        private void MarkSea(float water, int size)
+        {
+            m_seaCell = new bool[size * size];
+            var queue = new int[size * size];
+            int head = 0, tail = 0;
+            for (int i = 0; i < size; i++)
+            {
+                Seed(i);
+                Seed((size - 1) * size + i);
+                Seed(i * size);
+                Seed(i * size + size - 1);
+            }
+            while (head < tail)
+            {
+                int i = queue[head++];
+                int x = i % size, z = i / size;
+                if (x > 0) Seed(i - 1);
+                if (x < size - 1) Seed(i + 1);
+                if (z > 0) Seed(i - size);
+                if (z < size - 1) Seed(i + size);
+            }
+
+            void Seed(int j)
+            {
+                if (m_seaCell[j] || m_coast[j] > water) return;
+                m_seaCell[j] = true;
+                queue[tail++] = j;
+            }
+        }
+
         private void BuildFields()
         {
             int n = CanvasSize;
             m_land = new byte[n * n];
+            m_sea = new byte[n * n];
             float edgeSqr = EdgeRadius * EdgeRadius;
+            int size = m_world.m_size;
             for (int y = 0; y < n; y++)
             {
                 float wz = HalfExtent - (y + 0.5f) * MetresPerPixel;
                 for (int x = 0; x < n; x++)
                 {
                     float wx = (x + 0.5f) * MetresPerPixel - HalfExtent;
-                    if (wx * wx + wz * wz >= edgeSqr) continue;
-                    if (m_world.Sample(m_coast, wx, wz) > m_world.m_waterLevel) m_land[y * n + x] = 1;
+                    int pixel = y * n + x;
+                    if (wx * wx + wz * wz >= edgeSqr)
+                    {
+                        m_sea[pixel] = 1;
+                        continue;
+                    }
+                    if (m_world.Sample(m_coast, wx, wz) > m_world.m_waterLevel)
+                    {
+                        m_land[pixel] = 1;
+                        continue;
+                    }
+                    // Sea if any of the four map pixels around it is sea water.
+                    int sx = Mathf.Clamp((int)m_world.ToSourceX(wx), 0, size - 2);
+                    int sz = Mathf.Clamp((int)m_world.ToSourceZ(wz), 0, size - 2);
+                    int i = sz * size + sx;
+                    if (m_seaCell[i] || m_seaCell[i + 1] || m_seaCell[i + size] || m_seaCell[i + size + 1]) m_sea[pixel] = 1;
                 }
             }
 
@@ -292,7 +315,7 @@ namespace Atlas
             field.Compute(i => m_land[i] == 0 && m_waterDistance[i] >= open, m_openDistance, 1f);
         }
 
-        private bool IsOpenWater(int pixel) => m_land[pixel] == 0 && m_openDistance[pixel] <= OpenWidth + 1.5f;
+        private bool IsOpenWater(int pixel) => m_sea[pixel] != 0 && m_openDistance[pixel] <= OpenWidth + 1.5f;
 
         private Spot Look(float x, float y)
         {
@@ -430,32 +453,121 @@ namespace Atlas
             });
         }
 
+        // Summits and hilltops are the terrain's real local height maxima, found on vanilla's own
+        // map pixels, so the landmarks on the atlas are the ones on the ground: a peak glyph's summit
+        // sits on the actual summit, a hill's crown on the actual hilltop.
+        private void PlaceSummitsAndHills()
+        {
+            int size = m_world.m_size;
+            float water = m_world.m_waterLevel;
+            float[] h = m_world.m_height;
+            for (int z = ProminenceCells; z < size - ProminenceCells; z++)
+            {
+                for (int x = ProminenceCells; x < size - ProminenceCells; x++)
+                {
+                    int i = z * size + x;
+                    float above = h[i] - water;
+                    if (above < 3f) continue;
+                    Land land = m_world.m_biome[i];
+                    bool high = (land == Land.Mountain && above >= PeakHeight) || (land == Land.DeepNorth && above >= DeepNorthPeakHeight);
+                    bool hillCountry = (land == Land.Meadows && m_world.m_forest[i] <= 127) || land == Land.Plains
+                        || (land == Land.Mountain && above < PeakHeight);
+                    if (!high && !hillCountry) continue;
+                    int radius = high ? SummitCells : HilltopCells;
+                    if (!IsHighest(h, size, x, z, radius)) continue;
+                    float prominence = h[i] - Lowest(h, size, x, z, ProminenceCells);
+
+                    float wx = (x - size / 2 + 0.5f) * m_world.m_pixelSize;
+                    float wz = (z - size / 2 + 0.5f) * m_world.m_pixelSize;
+                    float cx = (wx + HalfExtent) / MetresPerPixel, cy = (HalfExtent - wz) / MetresPerPixel;
+                    float dx = cx - CanvasSize * 0.5f, dy = cy - CanvasSize * 0.5f;
+                    float edge = EdgeRadius / MetresPerPixel * EdgeFraction;
+                    if (dx * dx + dy * dy > edge * edge || !IsLandAt(cx, cy)) continue;
+                    int seed = HashInt(x, z, m_world.m_seed + 77);
+
+                    if (high)
+                    {
+                        if (prominence < SummitProminence) continue;
+                        float width = Mathf.Lerp(22f, 34f, Mathf.Clamp01((prominence - SummitProminence) / 80f)) * G;
+                        // The peak glyph rises from its foot to an apex offset a little east of the
+                        // foot; place the foot so the apex lands on the summit.
+                        float height = width * 0.78f * Vary(seed, 10, 0.2f);
+                        float footX = cx - width * Unit(seed, 11) * 0.12f, footY = cy + height;
+                        if (!IsLandColumn(footX, footY, height)) continue;
+                        m_glyphs.Add(new Glyph { m_x = footX, m_y = footY, m_size = width, m_kind = Kind.Peak, m_seed = seed });
+                        m_summits.Add(new Vector3(cx, cy, width));
+                    }
+                    else
+                    {
+                        if (prominence < HillProminence) continue;
+                        float width = Mathf.Lerp(9f, 15f, Mathf.Clamp01((prominence - HillProminence) / 25f)) * G;
+                        float height = width * 0.42f * Vary(seed, 10, 0.15f);
+                        if (m_landDistance[PixelAt(cx, cy + height)] < width * 0.5f) continue;
+                        m_glyphs.Add(new Glyph { m_x = cx, m_y = cy + height, m_size = width, m_kind = Kind.Hill, m_seed = seed });
+                    }
+                }
+            }
+        }
+
+        private static bool IsHighest(float[] h, int size, int x, int z, int radius)
+        {
+            float centre = h[z * size + x];
+            for (int dz = -radius; dz <= radius; dz++)
+            {
+                int row = (z + dz) * size;
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    if (dx == 0 && dz == 0) continue;
+                    float other = h[row + x + dx];
+                    // Ties go to the first pixel in scan order, so a flat top gets one glyph.
+                    if (other > centre || (other == centre && (dz < 0 || (dz == 0 && dx < 0)))) return false;
+                }
+            }
+            return true;
+        }
+
+        private static float Lowest(float[] h, int size, int x, int z, int radius)
+        {
+            float lowest = float.MaxValue;
+            for (int dz = -radius; dz <= radius; dz++)
+            {
+                int row = (z + dz) * size;
+                for (int dx = -radius; dx <= radius; dx++) lowest = Math.Min(lowest, h[row + x + dx]);
+            }
+            return lowest;
+        }
+
+        private static int PixelAt(float x, float y) =>
+            Mathf.Clamp((int)y, 0, CanvasSize - 1) * CanvasSize + Mathf.Clamp((int)x, 0, CanvasSize - 1);
+
+        // Whether a filler peak at this foot would crowd a real summit's glyph.
+        private bool NearSummit(float x, float y, float width)
+        {
+            foreach (Vector3 summit in m_summits)
+            {
+                float reach = (summit.z + width) * SummitClearance;
+                float dx = x - summit.x, dy = y - (summit.y + summit.z * 0.6f);
+                if (dx * dx + dy * dy < reach * reach) return true;
+            }
+            return false;
+        }
+
         private void PlaceGlyphs()
         {
-            // Mountains: staggered rows of overlapping peaks, half a peak's height apart and three
-            // quarters of a width across, so a range reads as one dark mass, as on the classic maps.
-            // Sized by height, in the Mountain biome and the high Deep North.
+            PlaceSummitsAndHills();
+            // Mountains between the summits: staggered rows of smaller overlapping peaks, so a range
+            // still reads as one mass while its real summits stand out above it. In the Mountain
+            // biome and the high Deep North.
             Scatter(16f * G, 9f * G, 0.3f, 0.5f, 21, s =>
             {
                 if (!s.m_isLand || !(s.m_roll < 0.97f)) return;
                 bool mountain = s.m_land == Land.Mountain && s.m_above >= PeakHeight;
                 bool north = s.m_land == Land.DeepNorth && s.m_above >= DeepNorthPeakHeight;
                 if (!mountain && !north) return;
-                float width = Mathf.Lerp(18f, 30f, Mathf.Clamp01((s.m_above - PeakHeight) / 160f)) * G;
+                float width = Mathf.Lerp(14f, 22f, Mathf.Clamp01((s.m_above - PeakHeight) / 160f)) * G;
                 if (s.m_shore < width * 0.45f || !IsLandColumn(s.m_x, s.m_y, width * 0.75f)) return;
+                if (NearSummit(s.m_x, s.m_y, width)) return;
                 Add(s, Kind.Peak, width);
-            });
-            // Hills: groups of open humps on steep open ground, and a ring of foothills around each
-            // range. None under forest: the trees cover the hills there.
-            Scatter(10f * G, 22, s =>
-            {
-                if (!s.m_isLand || s.m_above < 3f || !(s.m_roll < 0.75f)) return;
-                bool open = (s.m_land == Land.Meadows && !s.m_forest) || s.m_land == Land.Plains;
-                bool foothill = s.m_land == Land.Mountain && s.m_above < PeakHeight;
-                bool steep = s.m_slope >= HillSlope || (foothill && s.m_slope >= FoothillSlope && s.m_above >= FoothillHeight);
-                float width = Mathf.Lerp(9f, 13f, Unit(s.m_seed, 4)) * G;
-                if (!(open || foothill) || !steep || s.m_shore < width * 0.5f) return;
-                Add(s, Kind.Hill, width);
             });
             // Meadows woods: egg-shaped crowns packed so tightly that only the southern edge shows
             // trunks, the rest hidden behind the row in front.
@@ -526,7 +638,7 @@ namespace Atlas
             });
             Scatter(15f * G, 33, s =>
             {
-                if (s.m_isLand || s.m_water < 4f * G || !(s.m_roll < 0.5f)) return;
+                if (m_sea[s.m_pixel] == 0 || s.m_water < 4f * G || !(s.m_roll < 0.5f)) return;
                 if (!WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
                 m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
@@ -547,10 +659,13 @@ namespace Atlas
                     float wz = (y + 1f - half) * m_world.m_pixelSize;
                     return wx * wx + wz * wz >= edgeSqr;
                 },
-                (a, b) =>
+                (x, y, a, b) =>
                 {
+                    // The sea coast where the cell's water is sea, a light shore around inland water.
+                    int i = y * size + x;
+                    bool sea = m_seaCell[i] || m_seaCell[i + 1] || m_seaCell[i + size] || m_seaCell[i + size + 1];
                     Vector2 p = SourceToCanvas(a), q = SourceToCanvas(b);
-                    m_canvas.Stroke(p.x, p.y, q.x, q.y, CoastWidth);
+                    m_canvas.Stroke(p.x, p.y, q.x, q.y, sea ? CoastWidth : LakeShore);
                 });
         }
 
@@ -688,16 +803,16 @@ namespace Atlas
                 m_cancel.ThrowIfCancellationRequested();
                 float ring = s_ripples[i];
                 byte deep = (byte)Math.Min(255f, ring * RippleWidth * DistanceScale);
-                field.Compute(j => m_land[j] == 0 && m_waterDistance[j] >= deep, deepReach, 1f);
+                field.Compute(j => m_sea[j] != 0 && m_waterDistance[j] >= deep, deepReach, 1f);
                 float reach = ring * (RippleWidth - 1f) + 2.5f;
                 int box = (int)(ring * RippleLandBox);
-                float landNeeded = i == 0 ? 0f : RippleLandShare * ring * ring;
+                float landNeeded = RippleLandShare * ring * ring;
                 Func<int, int, bool> skip = (x, y) =>
                 {
                     float dx = x + 1f - centre, dy = y + 1f - centre;
-                    if (dx * dx + dy * dy > edge * edge || m_land[y * n + x] != 0) return true;
+                    if (dx * dx + dy * dy > edge * edge || m_sea[y * n + x] == 0) return true;
                     if (deepReach[y * n + x] > reach) return true;
-                    return landNeeded > 0f && LandInBox(landSum, x, y, box) < landNeeded;
+                    return LandInBox(landSum, x, y, box) < landNeeded;
                 };
                 float gaps = s_rippleGaps[i];
                 int salt = seed + 5 + i;

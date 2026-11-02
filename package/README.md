@@ -35,11 +35,11 @@ Every biome except the mountains has a ground fill of its own (the first mark in
 
 | Biome | Marks |
 | --- | --- |
-| Ocean | A heavy coastline ringed by ripple lines that fade out over open water; wave marks further out |
+| Ocean | A heavy coastline traced on the game's own water line, ringed by ripple lines that fade out over open water; wave marks further out. Lakes, ponds and swamp pools get a lighter shore |
 | Meadows | Tufts of grass, dense woods of egg-shaped trees, groups of open hills |
 | Black Forest | Stones on the forest floor under dense dark pines, with a few clearings |
 | Swamp | Wavelets and still water, marsh tufts, crooked dead trees |
-| Mountain | Ranges of overlapping peaks with a solid shaded eastern face, sized by height, ringed by foothills |
+| Mountain | Real summits as large peaks with a solid shaded eastern face, smaller peaks massed between them, foothills on the real hilltops below |
 | Plains | A stipple of dry ground, a few lone round trees, open hills |
 | Mistlands | Banks of mist drifting across the woods, giant three-crowned trees, hatched rock pillars |
 | Ashlands | Burnt, hatched ground, lava cracks and a few large smoking volcanoes |

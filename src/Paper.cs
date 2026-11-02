@@ -11,7 +11,8 @@ namespace Atlas
     /// </summary>
     internal static class Paper
     {
-        public const int FogSize = 1024;
+        // 2048 over the sheet is 10.5 m a pixel, a little finer than vanilla's 12 m exploration grid.
+        public const int FogSize = 2048;
 
         // Parchment and sepia ink.
         private static readonly Color32 s_paper = new Color32(232, 218, 182, 255);
@@ -20,6 +21,8 @@ namespace Atlas
         // How strongly the paper is mottled and darkened towards its corners.
         private const float Mottle = 0.07f;
         private const float Vignette = 0.2f;
+        // The mottling was tuned on a 1024 sheet; this keeps its grain the same size on the paper.
+        private const float PaperScale = FogSize / 1024f;
         // Fog is lifted inside this band at the world edge, so the frame always shows.
         private const float FrameBand = 120f;
 
@@ -32,9 +35,9 @@ namespace Atlas
                 for (int x = 0; x < n; x++)
                 {
                     float shade = 1f
-                        + (Noise.Value(x / 90f, y / 90f, seed) - 0.5f) * Mottle * 2f
-                        + (Noise.Value(x / 17f, y / 17f, seed + 1) - 0.5f) * Mottle
-                        + (Noise.Value(x / 3f, y / 3f, seed + 2) - 0.5f) * Mottle * 0.5f;
+                        + (Noise.Value(x / (90f * PaperScale), y / (90f * PaperScale), seed) - 0.5f) * Mottle * 2f
+                        + (Noise.Value(x / (17f * PaperScale), y / (17f * PaperScale), seed + 1) - 0.5f) * Mottle
+                        + (Noise.Value(x / (3f * PaperScale), y / (3f * PaperScale), seed + 2) - 0.5f) * Mottle * 0.5f;
                     float u = (x + 0.5f) / n * 2f - 1f, v = (y + 0.5f) / n * 2f - 1f;
                     float corner = Mathf.Clamp01((Mathf.Sqrt(u * u + v * v) - 0.75f) / 0.66f);
                     shade *= 1f - Vignette * corner * corner;

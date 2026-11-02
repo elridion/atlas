@@ -22,7 +22,7 @@ namespace Atlas
 
         // Zoom: the largest scale, the opening scale relative to fitting the whole sheet, and the
         // step per wheel notch and per second of gamepad stick.
-        private const float MaxScale = 2f;
+        private const float MaxScale = 4f;
         private const float OpenZoom = 2.5f;
         private const float WheelStep = 1.18f;
         private const float StickZoom = 1.8f;

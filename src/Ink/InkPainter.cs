@@ -23,6 +23,9 @@ namespace Atlas
 
         // Every glyph size and spacing below is in these units; 1.5 canvas pixels (about 8 m).
         private const float G = 1.5f;
+        // Trees use a smaller unit than other glyphs, packed as densely in their own unit, so woods
+        // keep their texture while each tree reads as a tree at the closer zoom.
+        private const float T = 0.75f * G;
 
         // Coast and ripples, in canvas pixels. Ripples only run along water at least OpenWidth wide
         // on both sides of a point, so rivers and narrow straits keep just their two banks.
@@ -456,26 +459,26 @@ namespace Atlas
             });
             // Meadows woods: egg-shaped crowns packed so tightly that only the southern edge shows
             // trunks, the rest hidden behind the row in front.
-            Scatter(5.2f * G, 23, s =>
+            Scatter(5.2f * T, 23, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Meadows || !s.m_forest || s.m_shore < 4f || !(s.m_roll < 0.95f)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 8f * G)) return;
-                Add(s, Kind.Broadleaf, G);
+                if (!IsLandColumn(s.m_x, s.m_y, 8f * T)) return;
+                Add(s, Kind.Broadleaf, T);
             });
             // Black Forest: dense pines with a few clearings.
-            Scatter(5.5f * G, 24, s =>
+            Scatter(5.5f * T, 24, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.BlackForest || s.m_shore < 4f || !(s.m_roll < 0.9f)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 11f * G)) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 11f * T)) return;
                 if (Noise(s.m_x / (40f * G), s.m_y / (40f * G), m_world.m_seed) > 0.72f) return;
-                Add(s, Kind.Conifer, G);
+                Add(s, Kind.Conifer, T);
             });
             // Plains: a few lone round trees where vanilla puts its sparse woods.
-            Scatter(12f * G, 25, s =>
+            Scatter(12f * T, 25, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Plains || !s.m_forest || s.m_shore < 3f || !(s.m_roll < 0.5f)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 6f * G)) return;
-                Add(s, Kind.PlainsTree, G);
+                if (!IsLandColumn(s.m_x, s.m_y, 6f * T)) return;
+                Add(s, Kind.PlainsTree, T);
             });
             // Swamp: a few marsh tufts among the water strokes, and some dead trees.
             Scatter(11f * G, 26, s =>
@@ -483,10 +486,10 @@ namespace Atlas
                 if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 3f || !(s.m_roll < 0.35f)) return;
                 Add(s, Kind.MarshTuft, G);
             });
-            Scatter(24f * G, 27, s =>
+            Scatter(24f * T, 27, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f || !(s.m_roll < 0.35f)) return;
-                Add(s, Kind.DeadTree, G);
+                Add(s, Kind.DeadTree, T);
             });
             // Mistlands: rock spires on the steep or high ground, and woods of giant trees packed
             // closely enough to read as the biome's dark forest.
@@ -497,11 +500,11 @@ namespace Atlas
                 if (!IsLandColumn(s.m_x, s.m_y, 22f * G)) return;
                 Add(s, Kind.Spire, G);
             });
-            Scatter(8f * G, 29, s =>
+            Scatter(8f * T, 29, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || !s.m_mist || s.m_slope >= SpireSlope || s.m_shore < 5f || !(s.m_roll < 0.75f)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 14f * G)) return;
-                Add(s, Kind.GiantTree, G);
+                if (!IsLandColumn(s.m_x, s.m_y, 14f * T)) return;
+                Add(s, Kind.GiantTree, T);
             });
             // Ashlands: a few large smoking volcanoes on the heights, lava cracks in the flows.
             Scatter(34f * G, 30, s =>

@@ -16,7 +16,7 @@ namespace Atlas
         // square root of the zoom past 2x (where the tile draws what the sheet draws, only
         // sharper): trees true to scale at 8x packed into a uniform texture, so glyphs are let to
         // grow a little on screen instead.
-        public static byte[] Render(InkRecord record, byte[] parchment, WorldSource world, SampleCache cache, RectInt region,
+        public static byte[] Render(InkRecord record, Paper.Wash wash, WorldSource world, SampleCache cache, RectInt region,
             int scale, float gridPixels, int threads, CancellationToken cancel)
         {
             int left = region.x, top = region.y, width = region.width, height = region.height;
@@ -29,34 +29,56 @@ namespace Atlas
             TileGrid grid = TileGrid.Build(cache, world.m_waterLevel, left - margin, top - margin, left + width + margin, top + height + margin,
                 level, threads, cancel);
             var canvas = new InkCanvas(w, h, left, top, scale);
-            InkPainter.PaintTile(world, record, grid, canvas, region, lod, cancel);
+            InkPainter.PaintTile(world, record, grid, canvas, region, lod, scale, cancel);
             cancel.ThrowIfCancellationRequested();
 
             int paper = Paper.FogSize;
             float perSheet = paper / (float)InkPainter.CanvasSize;
             Color32 ink = Paper.InkColor;
+            // The frame's radius in sheet pixels: beyond it is the sheet's bare margin, not water.
+            float frame = InkPainter.EdgeRadius / InkPainter.MetresPerPixel;
             var rgba = new byte[w * h * 4];
             for (int ty = 0; ty < h; ty++)
             {
                 // Parchment rows run from the south, the sheet's from the north.
                 float py = (InkPainter.CanvasSize - (top + (ty + 0.5f) / scale)) * perSheet - 0.5f;
                 int row = h - 1 - ty;
+                float sy = top + (ty + 0.5f) / scale;
                 for (int tx = 0; tx < w; tx++)
                 {
-                    float px = (left + (tx + 0.5f) / scale) * perSheet - 0.5f;
+                    float sx = left + (tx + 0.5f) / scale;
+                    float px = sx * perSheet - 0.5f;
                     float a = canvas.m_ink[ty * w + tx] / 255f;
                     int o = (row * w + tx) * 4;
-                    for (int channel = 0; channel < 3; channel++)
+                    // The land's wash, with the tile's own water over it: its fine heights put the
+                    // blue exactly where its coast runs, which the paper's 10 m pixels cannot.
+                    float depth = world.m_waterLevel - grid.Sample(grid.m_height, sx, sy);
+                    float ex = sx - InkPainter.CanvasSize * 0.5f, ey = sy - InkPainter.CanvasSize * 0.5f;
+                    if (ex * ex + ey * ey >= frame * frame) depth = float.NegativeInfinity;
+                    // The depth's change over one tile pixel sets the edge's one-pixel ramp. Streams
+                    // show in the tile's own heights; the paper's stream band is for the sheet.
+                    float step = 1f / scale;
+                    float slope = Mathf.Max(Mathf.Abs(grid.Sample(grid.m_height, sx + step, sy) - grid.Sample(grid.m_height, sx, sy)),
+                        Mathf.Abs(grid.Sample(grid.m_height, sx, sy + step) - grid.Sample(grid.m_height, sx, sy)));
+                    float water = Paper.Waterness(depth, slope, 0f);
+                    float lr = PaperAt(wash.m_land, paper, px, py, 0), lg = PaperAt(wash.m_land, paper, px, py, 1), lb = PaperAt(wash.m_land, paper, px, py, 2);
+                    if (water > 0f)
                     {
-                        float back = PaperAt(parchment, paper, px, py, channel);
-                        float front = channel == 0 ? ink.r : channel == 1 ? ink.g : ink.b;
-                        rgba[o + channel] = (byte)(back + (front - back) * a + 0.5f);
+                        Paper.WaterColor(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
+                            PaperAt(wash.m_parchment, paper, px, py, 2), out float wr, out float wg, out float wb);
+                        lr += (wr - lr) * water;
+                        lg += (wg - lg) * water;
+                        lb += (wb - lb) * water;
                     }
+                    rgba[o] = (byte)(lr + (ink.r - lr) * a + 0.5f);
+                    rgba[o + 1] = (byte)(lg + (ink.g - lg) * a + 0.5f);
+                    rgba[o + 2] = (byte)(lb + (ink.b - lb) * a + 0.5f);
                     rgba[o + 3] = 255;
                 }
             }
             return rgba;
         }
+
 
         // Bilinear parchment sample, so the paper's grain stays smooth at any magnification.
         private static float PaperAt(byte[] parchment, int size, float x, float y, int channel)

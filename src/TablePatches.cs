@@ -28,7 +28,7 @@ namespace Atlas
         {
             if (!__result || item != null || !Game.m_noMap || !user || user != Player.m_localPlayer) return;
             if (!PrivateArea.CheckAccess(__instance.transform.position, 0f, flash: false)) return;
-            AtlasMap.Record();
+            AtlasMap.Record(__instance);
         }
 
         // Vanilla asks this before moving the camera, attacking, capturing the mouse or opening the

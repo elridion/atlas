@@ -16,14 +16,20 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - `src/AtlasMap.cs` the controller: per world it loads or paints the ink sheet, lays the fog for the
   current snapshot, and opens `AtlasView` on the map key.
 - `src/AtlasView.cs` the window (parchment, ink and fog `RawImage`s plus pin markers) with zoom and
-  drag. Pins are inked black (the user likes that) with a crisp parchment outline of even width:
-  12 parchment copies of the icon shifted 3 units in a ring behind it. Names are bold with a
+  drag. Pins are inked black (the user likes that) on a flat parchment padding: the icon's alpha,
+  read once through a render texture (sprite textures are not readable), grown 3.5 units by a
+  distance transform, cached per sprite. Twelve shifted parchment copies kept the icon's own
+  shading and did not read as one padding. Names are bold with a
   hard parchment TextMeshPro underlay on a copy of the font material. Rejected by the user on
 : a soft parchment disc, the icon enlarged behind itself (outlines wide parts far,
   thin parts barely), and red icons on parchment labels. Each pin is a holder whose first
   children are the outline copies, since a UI parent draws before its children.
 - `src/TablePatches.cs` the `MapTable.OnRead`/`OnWrite` postfixes and the `Minimap.IsOpen` postfix.
 - `src/InteractiveMap.cs` opens vanilla's large map in a nomap world.
+- `src/TableSparkles.cs` golden motes over the table while the atlas updates after "Record
+  discoveries", bursting and fading once it is done (vanilla's
+  scribble and chime play before the atlas has caught up). A local particle system with a mote
+  texture made in code on a copy of `vfx_odin_despawn`'s particle material; untested in game.
 - `src/Snapshot.cs` the recorded exploration and pins, in `Player.m_customData`.
 - `src/Paper.cs` parchment, the biome wash, fog and the ink texture's pixel data (mip chain).
 - `src/Ink/`: `WorldSource.cs` vanilla minimap data, `Woods.cs` the wood field, `InkPainter.cs`
@@ -76,8 +82,25 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the last table visit. Accuracy wins over looks.
 - The coastline is traced (marching squares) on vanilla's own heights, unsmoothed, keeping every
   island, lake and swamp pool; only single 12 m pixels are dropped. Water joined to the world's
-  edge (`MarkSea`, four-way flood fill) is the sea: heavy coast and ripples. Inland water gets a
-  1 px shore and no ripples. An earlier version blurred the coast and deleted small islands and
+  edge (`MarkSea`, four-way flood fill) is the sea and gets ripples; every shore, sea or inland,
+  has the same pen (a 1 px lake shore read as unexplained inland lines to the;
+  the water's blue now tells lakes apart). In close-ups the coast pen is 3.5 screen pixels. Water
+  is one even indigo wash (`Paper.WaterColor`; a pale-to-dark shading by depth was dropped as
+  too exact for a hand-tinted map). Rivers and the coast are drawn before the
+  glyphs, so crowns over a bank or shore hide the line instead of being cut by it, and trees
+  keep off river courses (`m_riverMask` on the sheet, `MarkTileRivers` from the record in
+  close-ups) so streams still show; land
+  tints are blurred among land only, and the water's edge is anti-aliased over one pixel by the
+  ground's local slope, so the blue ends at the water line (a fixed 1.5 m height ramp spilled it
+  far inland over flat beaches). Streams get an 8 m band on the sheet
+  (`Paper.Rivers`); rivers show by their heights, since the generator's river width includes the
+  banks. Close-ups lay their own water from their fine heights over the land-only wash
+  (`Paper.Wash.m_land`) and need no stream band.
+- The palette (paper, ink, biome washes, water) was rechecked against pigments of the period by
+  a research pass: aged calfskin paper, aged iron-gall ink, and thin glazes of green
+  earth, verdigris with indigo, yellow and red ochre, folium, chalk and soot, and indigo, all
+  muted earth tones. Values are estimates from Raman/XRF pigment studies of Insular and Nordic
+  manuscripts, not measured colours. An earlier version blurred the coast and deleted small islands and
   lakes for looks; that was undone for accuracy, so swamps are busy by nature. The offline
   harness can overlay vanilla's own 12 m water boundary in red to check the coast. Ripples are
   contours of the distance to land, on the sea only, where it is wide enough for each ring and
@@ -93,10 +116,22 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the one behind, so the shaded wedge has to stay wide near the summit. Woods are packed so
   densely that only their southern edge shows trunks. Both came from an art review against the
   classic map style that the user liked.
-- The parchment carries stains (`Paper.Stains`, user's request): large water stains,
-  dried drop rings with a tide line and foxing spots, ragged by noise, placed by hash of the seed.
-  They are world-anchored on the 2048 paper, and numerous enough that the explored-bounds view
-  always shows some; the fog shares the stained parchment, so they run on unbroken.
+- The parchment carries stains (`Paper.Stains`, user's request), reworked the same
+  day from a research pass (Quilez domain warping, coffee-ring physics, Curtis et al. watercolour
+  glazing, conservation notes on foxing) after the user asked for stains that look more natural
+  and carry into the painted parts. Stains are optical density: the paper is multiplied by
+  `pow(tint, D)` per channel (brown for blots, redder for foxing), densities add and are softly
+  capped. Blots (old water stains with re-wetting rims, drop rings) are domain-warped, turned
+  and stretched, with a tide line that rises sharply at the edge and fades inward, at least
+  1.5 paper pixels wide. Foxing comes in Gaussian clusters, biased toward the sheet's edge, plus
+  lone spots, each a ragged core with a soft halo. The biome wash and the water's blue are glazes
+  (`Paper.Filter`: the tint relative to clean paper multiplies the paper), so stains show through
+  them; on clean paper the colours are as before. Water stops at the frame; beyond it is bare
+  margin. The fog shares the stained parchment, so stains run on unbroken. After the user found
+  the map "a bit too clean", coverage was doubled and an uneven patina (`Paper.Age`, warped fBm
+  blotches, worked out every 4 paper pixels) laid over the whole sheet. The parchment is made
+  once per world (`AtlasMap.Parchment`, shared by fog and wash) with its blots and rows in
+  parallel: about 1.4 s offline, against 4.3 s single-threaded.
 - A faint watercolour wash per biome lies under the ink (`Paper.Washed`, darker in woods, pale on
   water, blurred so it bleeds softly across edges); it replaced the earlier pure-black-ink rule
   when the user found the map hard to read. The fog keeps the bare parchment, so
@@ -135,7 +170,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   ground fills, trees and coast are drawn afresh (`InkPainter.PaintTile`) from a
   `TileGrid` sampled every few tile pixels; everything else is replayed from the `InkRecord`
   (every pen call of the painting with its `InkLayer`, about 720k calls, 20 MB, indexed in 64 px
-  cells, plus the sheet's sea pixels as bits, which tell sea coast from lake shore). Because only
+  cells). Because only
   painting yields the record, the world is painted once per session in the background even when
   the sheet came from the disk cache. In game the plain sheet looked too pixelated at
   4x zoom, and the user then found close zoom lacking detail, which is what led to this.

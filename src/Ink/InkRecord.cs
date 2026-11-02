@@ -59,10 +59,6 @@ namespace Atlas
         private List<int>[] m_cells;
         private readonly List<int> m_wide = new List<int>();
         private int m_cellsAcross;
-        // The sheet's sea pixels, one bit each: a detail tile tells the sea coast from a lake shore
-        // by them, since it cannot flood fill from the world's edge itself.
-        private uint[] m_sea;
-        private int m_seaSize;
 
         public int Count => m_calls.Count;
 
@@ -81,21 +77,26 @@ namespace Atlas
             for (int i = 0; i < polygon.Count; i++) m_points.Add(polygon[i]);
         }
 
-        public void KeepSea(byte[] sea, int size)
+        // Calls visit with the ends and width of every stroke of a layer touching the sheet
+        // rectangle (each once). Scrapes are left out.
+        public void Strokes(InkLayer layer, float left, float top, float right, float bottom, Action<Vector2, Vector2, float> visit)
         {
-            m_seaSize = size;
-            m_sea = new uint[(sea.Length + 31) / 32];
-            for (int i = 0; i < sea.Length; i++)
-                if (sea[i] != 0) m_sea[i >> 5] |= 1u << (i & 31);
-        }
-
-        // Whether the sheet pixel holding (x, y) is sea.
-        public bool IsSea(float x, float y)
-        {
-            if (m_sea == null) return true;
-            int px = Mathf.Clamp((int)x, 0, m_seaSize - 1), py = Mathf.Clamp((int)y, 0, m_seaSize - 1);
-            int i = py * m_seaSize + px;
-            return (m_sea[i >> 5] & (1u << (i & 31))) != 0;
+            int x0 = Cell(left), x1 = Cell(right), y0 = Cell(top), y1 = Cell(bottom);
+            var seen = new HashSet<int>();
+            for (int y = y0; y <= y1; y++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    List<int> cell = m_cells[y * m_cellsAcross + x];
+                    if (cell == null) continue;
+                    foreach (int i in cell)
+                    {
+                        Call c = m_calls[i];
+                        if (c.m_layer != layer || c.m_op != Op.Stroke || !seen.Add(i)) continue;
+                        visit(new Vector2(c.m_a, c.m_b), new Vector2(c.m_c, c.m_d), c.m_e);
+                    }
+                }
+            }
         }
 
         // Builds the spatial index once painting is done.

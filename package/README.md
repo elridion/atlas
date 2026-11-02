@@ -12,7 +12,7 @@ nothing changes.
 
 | Where | What happens |
 | --- | --- |
-| Cartography table, "Record discoveries" | As in the game, your discoveries are written to the table and you learn what others wrote there. Atlas also updates your atlas with everything you and the table know, and with your pins. |
+| Cartography table, "Record discoveries" | As in the game, your discoveries are written to the table and you learn what others wrote there. Atlas also updates your atlas with everything you and the table know, and with your pins; golden sparkles rise from the table until it is done. |
 | Cartography table, "Read map" | Opens the game's interactive map, as in a world with a map. Place, name, check and remove pins here. Close it with the map key or Escape. |
 | Map key (M) anywhere | Unrolls your atlas as it was when you last recorded your discoveries. Close it with the map key or Escape. |
 
@@ -40,7 +40,7 @@ snowfield.
 
 | Biome | Marks |
 | --- | --- |
-| Ocean | A heavy coastline traced on the game's own water line, ringed by ripple lines that fade out over open water; wave marks further out. Lakes, ponds and swamp pools get a lighter shore |
+| Ocean | A heavy coastline traced on the game's own water line, ringed by ripple lines that fade out over open water; wave marks further out. Water is washed in indigo; lakes, ponds and swamp pools share the same shore line |
 | Meadows | Tufts of grass on open ground, woods of egg-shaped trees, groups of open hills |
 | Black Forest | Stones on open ground, woods of dense dark pines |
 | Swamp | Wavelets and still water, marsh tufts, crooked dead trees |

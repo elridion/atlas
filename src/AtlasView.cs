@@ -28,14 +28,14 @@ namespace Atlas
         private const float StickZoom = 1.8f;
         private const float StickPan = 900f;
 
-        // Pins are inked black, set off from the map by a crisp parchment outline that follows the
-        // icon: OutlineCopies parchment copies shifted OutlineWidth (canvas units) around it.
-        // Names are bold with a hard parchment underlay of LabelUnderlay (TextMeshPro's 0 to 1;
-        // much more runs into the font atlas's padding and shows boxes).
+        // Pins are inked black on a flat parchment padding that follows the icon: its silhouette
+        // grown by OutlineWidth (canvas units). Names are bold with a hard parchment underlay of
+        // LabelUnderlay (TextMeshPro's 0 to 1; much more runs into the font atlas's padding and
+        // shows boxes).
         private const float PinSize = 30f;
         private const float PinFontSize = 18f;
-        private const int OutlineCopies = 12;
-        private const float OutlineWidth = 3f;
+        private const float OutlineWidth = 3.5f;
+        private static readonly Dictionary<Sprite, PaddingSprite> s_paddings = new Dictionary<Sprite, PaddingSprite>();
         private const float LabelUnderlay = 0.6f;
         private static Material s_labelMaterial;
         private static TMP_FontAsset s_labelFont;
@@ -337,14 +337,7 @@ namespace Atlas
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
                 holder.sizeDelta = new Vector2(PinSize, PinSize);
-                // A crisp parchment outline of even width that follows the icon's shape: the icon
-                // in parchment, shifted OutlineWidth in a ring of OutlineCopies directions. An
-                // enlarged copy outlined wide parts far and thin parts hardly at all.
-                for (int k = 0; k < OutlineCopies; k++)
-                {
-                    float angle = k * Mathf.PI * 2f / OutlineCopies;
-                    AddBacking(holder, sprite, new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * OutlineWidth);
-                }
+                AddPadding(holder, sprite);
                 GameObject marker = Object.Instantiate(minimap.m_pinPrefab, holder);
                 var rect = (RectTransform)marker.transform;
                 rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
@@ -384,17 +377,105 @@ namespace Atlas
             text.text = label;
         }
 
-        // A parchment copy of the pin's icon behind it, shifted by offset.
-        private static void AddBacking(RectTransform parent, Sprite sprite, Vector2 offset)
+        // A flat parchment padding behind the pin: its icon's silhouette grown by OutlineWidth.
+        private static void AddPadding(RectTransform parent, Sprite sprite)
         {
-            var rect = NewRect("Outline", parent, typeof(Image));
+            Sprite padding = Padding(sprite, out float grow);
+            if (!padding) return;
+            var rect = NewRect("Padding", parent, typeof(Image));
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(PinSize, PinSize);
-            rect.anchoredPosition = offset;
+            rect.sizeDelta = new Vector2(PinSize * grow, PinSize * grow);
             var image = rect.GetComponent<Image>();
-            image.sprite = sprite;
-            image.color = Paper.PaperColor;
+            image.sprite = padding;
             image.raycastTarget = false;
+        }
+
+        // Main thread. The icon's silhouette grown by OutlineWidth canvas units, in one flat
+        // parchment colour, cached per sprite; grow is its size against the icon's. Copies of the
+        // icon tinted parchment kept the icon's own shading, so the padding was not one colour.
+        // The sprite's texture is not readable, so its pixels are fetched through a render
+        // texture; only their alpha is used, so a texture reduced by quality settings is fine.
+        private static Sprite Padding(Sprite sprite, out float grow)
+        {
+            grow = 1f;
+            if (s_paddings.TryGetValue(sprite, out PaddingSprite cached))
+            {
+                grow = cached.m_grow;
+                return cached.m_sprite;
+            }
+            Sprite made = null;
+            try
+            {
+                made = MakePadding(sprite, out grow);
+            }
+            catch (System.Exception e)
+            {
+                Jotunn.Logger.LogWarning($"The atlas could not outline pin icon {sprite.name}: {e.Message}");
+            }
+            s_paddings[sprite] = new PaddingSprite { m_sprite = made, m_grow = grow };
+            return made;
+        }
+
+        private static Sprite MakePadding(Sprite sprite, out float grow)
+        {
+            Rect area = sprite.textureRect;
+            int w = Mathf.RoundToInt(area.width), h = Mathf.RoundToInt(area.height);
+            Texture source = sprite.texture;
+            RenderTexture target = RenderTexture.GetTemporary(source.width, source.height, 0, RenderTextureFormat.ARGB32);
+            RenderTexture previous = RenderTexture.active;
+            var read = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: false);
+            try
+            {
+                Graphics.Blit(source, target);
+                RenderTexture.active = target;
+                read.ReadPixels(new Rect(area.x, area.y, w, h), 0, 0);
+                read.Apply(updateMipmaps: false);
+            }
+            finally
+            {
+                RenderTexture.active = previous;
+                RenderTexture.ReleaseTemporary(target);
+            }
+            Color32[] icon = read.GetPixels32();
+            Object.Destroy(read);
+
+            // The padding in the icon's own pixels, then a square grid holding the icon centred
+            // with that much room all round, and each pixel's distance to the icon's shape.
+            float pad = OutlineWidth * Mathf.Max(w, h) / PinSize;
+            int margin = Mathf.CeilToInt(pad) + 1;
+            int n = Mathf.Max(w, h) + 2 * margin;
+            int ox = (n - w) / 2, oy = (n - h) / 2;
+            var solid = new bool[n * n];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    solid[(y + oy) * n + x + ox] = icon[y * w + x].a > 127;
+            var distance = new byte[n * n];
+            new DistanceField(n).Compute(i => solid[i], distance, 16f);
+            var pixels = new Color32[n * n];
+            Color32 paper = Paper.PaperColor;
+            for (int i = 0; i < pixels.Length; i++)
+            {
+                float d = distance[i] / 16f;
+                paper.a = (byte)(Mathf.Clamp01(pad + 0.5f - d) * 255f);
+                pixels[i] = paper;
+            }
+            var texture = new Texture2D(n, n, TextureFormat.RGBA32, mipChain: false)
+            {
+                name = "Atlas pin padding",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            texture.SetPixels32(pixels);
+            texture.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            // Sized against the icon's own image: the pin shows the sprite's whole rect at PinSize.
+            grow = n / (float)Mathf.Max(w, h);
+            return Sprite.Create(texture, new Rect(0f, 0f, n, n), new Vector2(0.5f, 0.5f));
+        }
+
+        private struct PaddingSprite
+        {
+            public Sprite m_sprite;
+            public float m_grow;
         }
 
         // Main thread. The names' font material with a hard parchment underlay: TextMeshPro grows

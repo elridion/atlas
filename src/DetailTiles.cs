@@ -66,13 +66,13 @@ namespace Atlas
         private bool m_broken;
 
         private InkRecord m_record;
-        private byte[] m_paper;
+        private Paper.Wash m_paper;
         private WorldSource m_world;
         private SampleCache m_samples;
 
         public bool Ready => m_record != null && m_paper != null && m_world != null && m_samples != null && !m_broken;
 
-        public void SetSource(InkRecord record, byte[] paper, WorldSource world, SampleCache samples)
+        public void SetSource(InkRecord record, Paper.Wash paper, WorldSource world, SampleCache samples)
         {
             m_record = record;
             m_paper = paper;
@@ -210,7 +210,7 @@ namespace Atlas
                 int level = (int)(key >> 40);
                 RectInt region = Region(key);
                 InkRecord record = m_record;
-                byte[] paper = m_paper;
+                Paper.Wash paper = m_paper;
                 WorldSource world = m_world;
                 SampleCache samples = m_samples;
                 int scale = s_scales[level];

@@ -29,6 +29,8 @@ namespace Atlas
         public Vector2 m_end;
         public float m_curveWidth;
         public float m_curveWavelength;
+        // The channel's width in metres, the middle of the generator's range for it.
+        public float m_width;
         public bool m_stream;
 
         // The course's point at distance t along it, the same curve vanilla carves.
@@ -159,6 +161,7 @@ namespace Atlas
                     m_end = river.p1,
                     m_curveWidth = river.curveWidth,
                     m_curveWavelength = river.curveWavelength,
+                    m_width = (river.widthMin + river.widthMax) * 0.5f,
                     m_stream = stream,
                 });
             }

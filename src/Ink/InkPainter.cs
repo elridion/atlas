@@ -53,9 +53,6 @@ namespace Atlas
         private const float StippleRadius = 0.6f;
         // Patches of land or water smaller than this many map pixels (12 m each) are dropped as noise.
         private const int SpeckCells = 2;
-        // Shores of lakes, ponds and swamp pools, lighter than the sea coast so inland water does not
-        // turn swamps into thickets of heavy lines.
-        private const float LakeShore = 1f;
 
         // Woods: the wood field's edge level (Woods.Build), and how far ground fills and
         // open-country glyphs keep from a wood (canvas pixels), so the outer crowns alone bound it.
@@ -135,6 +132,8 @@ namespace Atlas
         // Canvas pixels inside a wood, and each pixel's distance to the nearest of them.
         private byte[] m_wood;
         private byte[] m_woodDistance;
+        // Canvas pixels on a river's inked course, which trees keep off (sheet only).
+        private byte[] m_riverMask;
 
         private enum Kind : byte
         {
@@ -205,11 +204,7 @@ namespace Atlas
             var painter = new InkPainter(world, cancel);
             if (record != null) painter.m_canvas.Record(record);
             painter.Run();
-            if (record != null)
-            {
-                record.KeepSea(painter.m_sea, CanvasSize);
-                record.Seal(CanvasSize);
-            }
+            record?.Seal(CanvasSize);
             return painter.m_canvas.m_ink;
         }
 
@@ -221,6 +216,14 @@ namespace Atlas
             m_cancel.ThrowIfCancellationRequested();
             m_canvas.m_layer = InkLayer.Background;
             DrawBackground();
+            // Rivers and the coast go under the glyphs, so a crown standing over a bank or a
+            // shore hides the line behind it instead of being cut by it. Trees keep off the
+            // rivers' courses (m_riverMask), so streams still run between them.
+            m_canvas.m_layer = InkLayer.River;
+            DrawRivers();
+            m_canvas.m_layer = InkLayer.Coast;
+            DrawCoast();
+            m_cancel.ThrowIfCancellationRequested();
             PlaceGlyphs();
             m_cancel.ThrowIfCancellationRequested();
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
@@ -231,11 +234,6 @@ namespace Atlas
             }
             m_canvas.m_layer = InkLayer.Mist;
             DrawMist();
-            m_canvas.m_layer = InkLayer.River;
-            DrawRivers();
-            m_cancel.ThrowIfCancellationRequested();
-            m_canvas.m_layer = InkLayer.Coast;
-            DrawCoast();
             m_canvas.m_layer = InkLayer.Ripple;
             DrawRipples();
             m_canvas.m_layer = InkLayer.Floe;
@@ -497,6 +495,7 @@ namespace Atlas
         private bool InWood(Spot s, Land land, float height)
         {
             if (!s.m_wood || s.m_land != land || s.m_shore < 3f) return false;
+            if (OnRiver(s.m_x, s.m_y) || OnRiver(s.m_x, s.m_y - height * 0.6f)) return false;
             return IsWoodAt(s.m_x, s.m_y - height * 0.6f) && IsLandColumn(s.m_x, s.m_y, height);
         }
 
@@ -779,11 +778,10 @@ namespace Atlas
                 },
                 (x, y, a, b) =>
                 {
-                    // The sea coast where the cell's water is sea, a light shore around inland water.
-                    int i = y * size + x;
-                    bool sea = m_seaCell[i] || m_seaCell[i + 1] || m_seaCell[i + size] || m_seaCell[i + size + 1];
+                    // One pen for every shore, sea or inland: a lighter one for lakes left their
+                    // outlines reading as unexplained lines, and the water's blue now tells them.
                     Vector2 p = SourceToCanvas(a), q = SourceToCanvas(b);
-                    m_canvas.Stroke(p.x, p.y, q.x, q.y, sea ? CoastWidth : LakeShore);
+                    m_canvas.Stroke(p.x, p.y, q.x, q.y, CoastWidth);
                 });
         }
 
@@ -871,6 +869,25 @@ namespace Atlas
         // to parchment, so they read through woods as on the classic map. Only the stretches over
         // land are drawn: where a channel is wide enough to show as water on the map, the coast
         // already draws both banks. Streams start at their low mouth and taper toward the source.
+        // Marks the canvas pixels within radius of a point on a river's course, which trees keep off.
+        private void MarkRiver(Vector2 at, float radius)
+        {
+            if (m_riverMask == null) m_riverMask = new byte[CanvasSize * CanvasSize];
+            int x0 = Mathf.Clamp((int)(at.x - radius), 0, CanvasSize - 1), x1 = Mathf.Clamp((int)(at.x + radius), 0, CanvasSize - 1);
+            int y0 = Mathf.Clamp((int)(at.y - radius), 0, CanvasSize - 1), y1 = Mathf.Clamp((int)(at.y + radius), 0, CanvasSize - 1);
+            for (int y = y0; y <= y1; y++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    float dx = x + 0.5f - at.x, dy = y + 0.5f - at.y;
+                    if (dx * dx + dy * dy <= radius * radius) m_riverMask[y * CanvasSize + x] = 1;
+                }
+            }
+        }
+
+        private bool OnRiver(float x, float y) =>
+            m_grid != null ? OnTileRiver(x, y) : m_riverMask != null && m_riverMask[PixelAt(x, y)] != 0;
+
         private void DrawRivers()
         {
             float edge = EdgeRadius - 50f;
@@ -897,7 +914,11 @@ namespace Atlas
                         float t = (float)i / (m_points.Count - 1);
                         float width = river.m_stream ? Mathf.Lerp(StreamMouth, Pen, t) : RiverWidth;
                         Vector2 a = m_points[i - 1], b = m_points[i];
-                        if (pass == 0) m_canvas.Scrape(a.x, a.y, b.x, b.y, width + RiverBand);
+                        if (pass == 0)
+                        {
+                            m_canvas.Scrape(a.x, a.y, b.x, b.y, width + RiverBand);
+                            MarkRiver(b, (width + RiverBand) * 0.5f + 1f);
+                        }
                         else m_canvas.Stroke(a.x, a.y, b.x, b.y, width);
                     }
                 }

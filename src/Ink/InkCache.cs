@@ -30,7 +30,8 @@ namespace Atlas
                 {
                     if (reader.ReadInt32() != Magic || reader.ReadInt32() != Version) return null;
                     if (reader.ReadInt32() != seed || reader.ReadInt32() != InkPainter.CanvasSize) return null;
-                    var ink = new byte[InkPainter.CanvasSize * InkPainter.CanvasSize];
+                    // Ink coverage, then the peaks' two body masks.
+                    var ink = new byte[InkPainter.CanvasSize * InkPainter.CanvasSize * 3];
                     using (var zip = new GZipStream(file, CompressionMode.Decompress))
                     {
                         int read = 0;

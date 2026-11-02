@@ -70,6 +70,17 @@ namespace Atlas
                         lg += (wg - lg) * water;
                         lb += (wb - lb) * water;
                     }
+                    // A peak's body takes the mountains' wash strictly, over the stained paper.
+                    for (int kind = 0; kind < 2; kind++)
+                    {
+                        float body = (kind == 0 ? canvas.m_body : canvas.m_bodyNorth)[ty * w + tx] / 255f;
+                        if (body <= 0f) continue;
+                        Paper.PeakGlaze(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
+                            PaperAt(wash.m_parchment, paper, px, py, 2), kind == 1, out float br, out float bg, out float bb);
+                        lr += (br - lr) * body;
+                        lg += (bg - lg) * body;
+                        lb += (bb - lb) * body;
+                    }
                     rgba[o] = (byte)(lr + (ink.r - lr) * a + 0.5f);
                     rgba[o + 1] = (byte)(lg + (ink.g - lg) * a + 0.5f);
                     rgba[o + 2] = (byte)(lb + (ink.b - lb) * a + 0.5f);

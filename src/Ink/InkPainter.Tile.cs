@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
 
@@ -15,8 +16,9 @@ namespace Atlas
         // The farthest a tile-drawn glyph reaches from its foot (the Mistlands' giant trees, 15 T
         // tall), at level of detail 1, in sheet pixels.
         private const float GlyphReach = 16f * T;
-        // The tile coast's pen in screen pixels, a little heavier than the ripples beside it.
-        private const float TileCoastPixels = 3.5f;
+        // The tile coast's and waves' pens in screen pixels, the coast a little heavier.
+        private const float TileCoastPixels = 2.2f;
+        private const float TileRipplePixels = 1.5f;
 
         // How far beyond a tile its ground must be sampled, in sheet pixels: glyphs standing outside
         // it, plus the margins their rules test, so a tile's neighbours decide alike at the edge.
@@ -37,6 +39,7 @@ namespace Atlas
         {
             m_canvas.m_layer = InkLayer.Background;
             DrawBackground();
+            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Lava), null);
             // Rivers and the coast under the glyphs, as on the sheet, so crowns hide the lines
             // behind them. The tile's finer coast traces river channels the sheet saw as land, so
             // the sheet's river ink is kept only clear of the tile's water, or it runs along the
@@ -49,12 +52,30 @@ namespace Atlas
             m_canvas.m_layer = InkLayer.Tree;
             PlaceTrees();
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
-            foreach (Glyph glyph in m_glyphs) DrawGlyph(glyph);
+            // The sheet's other glyphs (peaks, spires, hills) are sorted in with the tile's own
+            // trees by their feet and drawn from north to south, so whichever stands in front
+            // hides the other, as on the sheet; laid over all the trees, a spire behind a tree
+            // covered it.
+            List<InkRecord.Group> groups = record.Groups(InkLayer.Glyph, m_left, m_top, m_right, m_bottom);
+            groups.Sort((a, b) => a.m_foot.CompareTo(b.m_foot));
+            int next = 0;
+            foreach (Glyph glyph in m_glyphs)
+            {
+                while (next < groups.Count && groups[next].m_foot <= glyph.m_y) record.Replay(m_canvas, groups[next++]);
+                DrawGlyph(glyph);
+            }
+            while (next < groups.Count) record.Replay(m_canvas, groups[next++]);
             m_cancel.ThrowIfCancellationRequested();
-            // The sheet's other glyphs go over the trees: the few that meet them (spires in the
-            // Mistlands woods) stand in front of them.
-            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Glyph, InkLayer.Mist), null);
-            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Ripple, InkLayer.Floe, InkLayer.Frame), null);
+            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Mist), null);
+            // The waves at a pen of their own in screen pixels, finer than the coast's (thinned by
+            // the level of detail alone they stood almost as heavy as it at 4x), and only where the
+            // tile's finer coast still has water.
+            float pen = m_canvas.m_penScale;
+            m_canvas.m_penScale = TileRipplePixels / m_tileScale;
+            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Ripple),
+                (a, b) => !m_grid.IsLand(a.x, a.y) && !m_grid.IsLand(b.x, b.y));
+            m_canvas.m_penScale = pen;
+            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Floe, InkLayer.Frame), null);
         }
 
         private static int Layers(params InkLayer[] layers)

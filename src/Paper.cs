@@ -52,7 +52,7 @@ namespace Atlas
             new Tint(198, 196, 196, 0.3f),  // Mountain: chalk greyed with soot
             new Tint(214, 176, 98, 0.24f),  // Plains: yellow ochre
             new Tint(128, 112, 138, 0.26f), // Mistlands: folium (turnsole)
-            new Tint(170, 82, 58, 0.26f),   // Ashlands: red ochre
+            new Tint(140, 76, 52, 0.42f),   // Ashlands: burnt red ochre
             new Tint(238, 241, 242, 0.4f),  // Deep North: chalk white
         };
         // Water is one even indigo wash, so seas, lakes and rivers read as water. A pale shade in
@@ -66,8 +66,15 @@ namespace Atlas
         // Streams' water on the sheet: their channels are under the minimap's 12 m pixels, so a
         // band of this width (metres) is laid along their courses. Rivers show by their heights.
         private const float StreamWater = 8f;
+        // Lava fields: vermilion, the bright red a northern illuminator had as a rare luxury.
+        private static readonly Tint s_lava = new Tint(176, 48, 34, 0.55f);
+        // Grey ash clouds over the Ashlands, in blotches of about AshScale metres.
+        private static readonly Tint s_ash = new Tint(92, 86, 82, 0.45f);
+        private const float AshScale = 700f;
         private const float WoodWash = 0.1f;
         private const int WashBlur = 3;
+        // How much of the water's blue a swamp pool keeps at full wetness.
+        private const float SwampPoolGlaze = 0.35f;
 
         /// <summary>
         /// The washed paper, in two parts: the sheet's paper with water tinted, and the land's wash
@@ -382,6 +389,17 @@ namespace Atlas
                     float land = 1f - waters[i];
                     if (land <= 0f) continue;
                     Tint tint = s_tints[(int)world.m_biome[world.Index(wx, wz)]];
+                    // The Ashlands are burnt sienna mottled with grey ash clouds, darker and
+                    // dirtier than the parchment, so they read as waste rather than sand.
+                    if (tint.m_color.r == s_tints[(int)Land.Ashlands].m_color.r && world.m_biome[world.Index(wx, wz)] == Land.Ashlands)
+                    {
+                        float ash = Mathf.Clamp01((Noise.Value(wx / AshScale, wz / AshScale, world.m_seed + 91) - 0.45f) / 0.3f);
+                        tint = new Tint(
+                            (byte)Mathf.Lerp(tint.m_color.r, s_ash.m_color.r, ash * 0.6f),
+                            (byte)Mathf.Lerp(tint.m_color.g, s_ash.m_color.g, ash * 0.6f),
+                            (byte)Mathf.Lerp(tint.m_color.b, s_ash.m_color.b, ash * 0.6f),
+                            Mathf.Lerp(tint.m_strength, s_ash.m_strength, ash * 0.6f));
+                    }
                     float s = tint.m_strength;
                     if (world.Sample(world.m_wood, wx, wz) > 0.5f) s += WoodWash;
                     red[i] = Filter(tint.m_color.r, PaperColor.r) * s * land;
@@ -418,6 +436,41 @@ namespace Atlas
                 landOnly[p] = ToByte(lr);
                 landOnly[p + 1] = ToByte(lg);
                 landOnly[p + 2] = ToByte(lb);
+                // Lava: a darker vermilion glaze clipped to the field's edge, no halo around it.
+                if (world.m_lavaField != null)
+                {
+                    float wxi = (i % n + 0.5f) * metres - InkPainter.HalfExtent, wzi = (i / n + 0.5f) * metres - InkPainter.HalfExtent;
+                    float lava = Mathf.Clamp01((world.Sample(world.m_lavaField, wxi, wzi) - 0.47f) / 0.06f);
+                    if (lava > 0f && world.m_biome[world.Index(wxi, wzi)] == Land.Ashlands)
+                    {
+                        float s = s_lava.m_strength * lava;
+                        lr *= 1f - s + s * Filter(s_lava.m_color.r, PaperColor.r);
+                        lg *= 1f - s + s * Filter(s_lava.m_color.g, PaperColor.g);
+                        lb *= 1f - s + s * Filter(s_lava.m_color.b, PaperColor.b);
+                        landOnly[p] = ToByte(lr);
+                        landOnly[p + 1] = ToByte(lg);
+                        landOnly[p + 2] = ToByte(lb);
+                    }
+                }
+                // The swamp's wet ground and shallow pools, raised to land so the swamp reads as one
+                // marsh, keep a faint glaze of the water's blue by how wet they are, so the pools
+                // still show where they are; its cool tone also lets brown stains stand out there.
+                if (world.m_swampWet != null)
+                {
+                    float wxi = (i % n + 0.5f) * metres - InkPainter.HalfExtent, wzi = (i / n + 0.5f) * metres - InkPainter.HalfExtent;
+                    float wet = world.Sample(world.m_swampWet, wxi, wzi);
+                    if (wet > 0f && world.m_biome[world.Index(wxi, wzi)] == Land.Swamp)
+                    {
+                        WaterColor(lr, lg, lb, out float pr, out float pg, out float pb);
+                        float k = SwampPoolGlaze * Mathf.Clamp01(wet);
+                        lr += (pr - lr) * k;
+                        lg += (pg - lg) * k;
+                        lb += (pb - lb) * k;
+                        landOnly[p] = ToByte(lr);
+                        landOnly[p + 1] = ToByte(lg);
+                        landOnly[p + 2] = ToByte(lb);
+                    }
+                }
                 float water = waters[i];
                 WaterColor(r, g, b, out float wr, out float wg, out float wb);
                 sheet[p] = ToByte(lr + (wr - lr) * water);
@@ -465,36 +518,96 @@ namespace Atlas
         }
 
         // RGBA ink for every mip level, as LoadRawTextureData expects it.
-        public static byte[] InkWithMips(byte[] ink)
+        // The colour a peak's body is filled with: the mountains' wash on clean paper. Peaks are
+        // drawn in the mountains' colour strictly, whatever biome their bodies reach over (user,
+        //).
+        public static Color32 PeakColor => Glazed(Land.Mountain);
+
+        // A biome's wash on clean paper.
+        private static Color32 Glazed(Land land)
+        {
+            Tint t = s_tints[(int)land];
+            float s = t.m_strength;
+            return new Color32(
+                ToByte(PaperColor.r * (1f - s + s * Filter(t.m_color.r, PaperColor.r))),
+                ToByte(PaperColor.g * (1f - s + s * Filter(t.m_color.g, PaperColor.g))),
+                ToByte(PaperColor.b * (1f - s + s * Filter(t.m_color.b, PaperColor.b))), 255);
+        }
+
+        // The same for a painted sheet: ink coverage followed by the body mask (InkPainter.Paint).
+        public static byte[] InkWithMips(byte[] sheet)
+        {
+            int n = InkPainter.CanvasSize * InkPainter.CanvasSize;
+            var ink = new byte[n];
+            var body = new byte[n];
+            var north = new byte[n];
+            Buffer.BlockCopy(sheet, 0, ink, 0, n);
+            if (sheet.Length >= 2 * n) Buffer.BlockCopy(sheet, n, body, 0, n);
+            if (sheet.Length >= 3 * n) Buffer.BlockCopy(sheet, 2 * n, north, 0, n);
+            return InkWithMips(ink, body, north);
+        }
+
+        // The mountains' wash glazed over a parchment colour, for peak bodies in close-ups.
+        public static void PeakGlaze(float r, float g, float b, bool north, out float pr, out float pg, out float pb)
+        {
+            Tint t = s_tints[(int)(north ? Land.DeepNorth : Land.Mountain)];
+            float s = t.m_strength;
+            pr = r * (1f - s + s * Filter(t.m_color.r, PaperColor.r));
+            pg = g * (1f - s + s * Filter(t.m_color.g, PaperColor.g));
+            pb = b * (1f - s + s * Filter(t.m_color.b, PaperColor.b));
+        }
+
+        // RGBA ink for every mip level, as LoadRawTextureData expects it: the ink over peak bodies
+        // filled with PeakColor. Levels are averaged premultiplied, so ink and body mix rightly.
+        public static byte[] InkWithMips(byte[] ink, byte[] body, byte[] north)
         {
             int n = InkPainter.CanvasSize;
             int total = 0;
             for (int size = n; size >= 1; size /= 2) total += size * size;
             var data = new byte[total * 4];
-            byte[] level = new byte[n * n];
-            for (int y = 0; y < n; y++) Array.Copy(ink, (n - 1 - y) * n, level, y * n, n);
-
+            Color32 peak = PeakColor, northPeak = Glazed(Land.DeepNorth);
+            // Premultiplied RGBA of the current level, rows from the south.
+            var level = new byte[n * n * 4];
+            for (int y = 0; y < n; y++)
+            {
+                int from = (n - 1 - y) * n;
+                for (int x = 0; x < n; x++)
+                {
+                    float a = ink[from + x] / 255f;
+                    float m = body != null ? body[from + x] / 255f : 0f, q = north != null ? north[from + x] / 255f : 0f;
+                    float mu = m * (1f - a), qu = q * (1f - a);
+                    int o = (y * n + x) * 4;
+                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + InkColor.r * a);
+                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + InkColor.g * a);
+                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + InkColor.b * a);
+                    level[o + 3] = ToByte(Math.Min(1f, mu + qu + a) * 255f);
+                }
+            }
             int offset = 0;
             for (int size = n; ; size /= 2)
             {
                 for (int i = 0; i < size * size; i++)
                 {
-                    int o = offset + i * 4;
-                    data[o] = InkColor.r;
-                    data[o + 1] = InkColor.g;
-                    data[o + 2] = InkColor.b;
-                    data[o + 3] = level[i];
+                    int o = offset + i * 4, p = i * 4;
+                    int alpha = level[p + 3];
+                    data[o + 3] = (byte)alpha;
+                    if (alpha == 0) continue;
+                    data[o] = (byte)Math.Min(255, level[p] * 255 / alpha);
+                    data[o + 1] = (byte)Math.Min(255, level[p + 1] * 255 / alpha);
+                    data[o + 2] = (byte)Math.Min(255, level[p + 2] * 255 / alpha);
                 }
                 offset += size * size * 4;
                 if (size == 1) break;
                 int next = size / 2;
-                var smaller = new byte[next * next];
+                var smaller = new byte[next * next * 4];
                 for (int y = 0; y < next; y++)
                 {
                     for (int x = 0; x < next; x++)
                     {
-                        int a = (2 * y) * size + 2 * x;
-                        smaller[y * next + x] = (byte)((level[a] + level[a + 1] + level[a + size] + level[a + size + 1] + 2) / 4);
+                        int a = ((2 * y) * size + 2 * x) * 4, b = a + size * 4;
+                        int o = (y * next + x) * 4;
+                        for (int c = 0; c < 4; c++)
+                            smaller[o + c] = (byte)((level[a + c] + level[a + 4 + c] + level[b + c] + level[b + 4 + c] + 2) / 4);
                     }
                 }
                 level = smaller;

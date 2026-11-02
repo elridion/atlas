@@ -62,6 +62,11 @@ namespace Atlas
         private static readonly AccessTools.FieldRef<Minimap, Color> s_mistlandsColor =
             AccessTools.FieldRefAccess<Minimap, Color>("m_mistlandsColor");
 
+        // How far above the water a swamp's water is raised, so it reads as its ground, and how
+        // deep swamp water joined to the sea must be to stay water (MarkSwampSea).
+        public const float SwampFloor = 0.5f;
+        public const float SwampShallow = 1.5f;
+
         public int m_size;
         public float m_pixelSize;
         public float m_waterLevel;
@@ -76,6 +81,17 @@ namespace Atlas
         public byte[] m_lava;
         // The woods as a smooth field, edge at 0.5 (Woods.Build).
         public float[] m_wood;
+        // The Ashlands' lava fields as a smooth field, edge at 0.5 (Woods.BuildLava).
+        public float[] m_lavaField;
+        // The swamp's wetness (1 in its pools, 0 on its dry ground, from the heights before the
+        // shallow pools are raised) and the swamp itself (1 inside, 0 outside, edge at 0.5), both
+        // softened by SwampBlur passes, so marks gather round the real pools and thin out at the
+        // swamp's edge.
+        public float[] m_swampWet;
+        public float[] m_swampField;
+        // Swamp water joined to the sea, which is not raised (MarkSwampSea).
+        public bool[] m_swampSea;
+        private const int SwampBlur = 3;
         // Rivers and streams from the world generator. The minimap's 12 m pixels lose the narrow
         // ones (a stream's channel is about 20 m wide), so they are drawn from their courses.
         public readonly List<RiverPath> m_rivers = new List<RiverPath>();
@@ -176,6 +192,8 @@ namespace Atlas
             m_forest = new byte[count];
             m_mist = new byte[count];
             m_lava = new byte[count];
+            m_swampWet = new float[count];
+            m_swampField = new float[count];
             int half = m_size / 2;
             for (int i = 0; i < count; i++)
             {
@@ -207,13 +225,73 @@ namespace Atlas
                 else if (north) land = Land.DeepNorth;
                 else land = First(match);
                 m_biome[i] = land;
+                if (land == Land.Swamp)
+                {
+                    // How wet the swamp is here, from its real height before the pools are
+                    // raised: 1 in a pool, 0 a metre and a half above the water.
+                    m_swampWet[i] = Mathf.Clamp01((m_waterLevel + SwampShallow - h) / SwampShallow);
+                    m_swampField[i] = 1f;
+                }
+            }
+            MarkSwampSea();
+            for (int i = 0; i < count; i++)
+                if (m_biome[i] == Land.Swamp && m_height[i] <= m_waterLevel && !m_swampSea[i]) m_height[i] = m_waterLevel + SwampFloor;
+            for (int pass = 0; pass < SwampBlur; pass++)
+            {
+                Paper.Blur(m_swampWet, m_size);
+                Paper.Blur(m_swampField, m_size);
             }
             m_colors = null;
             m_mask = null;
             m_halfHeights = null;
             m_floatHeights = null;
             m_wood = Woods.Build(this);
+            m_lavaField = Woods.BuildLava(this);
         }
+
+        // A swamp's water counts as its ground (pools traced exactly at the minimap's detail broke
+        // every swamp into a maze of islets, and the user wants no pools), except its
+        // deep water (over SwampShallow) joined to the sea: raising that too turned the flooded
+        // fringe of swamps beside the sea into land, on Velen 3,889 raised cells touching other
+        // water. The sea is flooded four-way from the map's edge through the water that stays
+        // water, so a deep pool joined to the sea only across shallows is still raised.
+        private void MarkSwampSea()
+        {
+            int count = m_size * m_size;
+            m_swampSea = new bool[count];
+            var sea = new bool[count];
+            var queue = new int[count];
+            int head = 0, tail = 0;
+            for (int k = 0; k < m_size; k++)
+            {
+                Seed(k);
+                Seed((m_size - 1) * m_size + k);
+                Seed(k * m_size);
+                Seed(k * m_size + m_size - 1);
+            }
+            while (head < tail)
+            {
+                int i = queue[head++];
+                int x = i % m_size, z = i / m_size;
+                if (x > 0) Seed(i - 1);
+                if (x < m_size - 1) Seed(i + 1);
+                if (z > 0) Seed(i - m_size);
+                if (z < m_size - 1) Seed(i + m_size);
+            }
+            for (int i = 0; i < count; i++) m_swampSea[i] = sea[i] && m_biome[i] == Land.Swamp;
+
+            void Seed(int j)
+            {
+                if (sea[j] || m_height[j] > m_waterLevel) return;
+                if (m_biome[j] == Land.Swamp && m_height[j] > m_waterLevel - SwampShallow) return;
+                sea[j] = true;
+                queue[tail++] = j;
+            }
+        }
+
+        // Whether world point (wx, wz) is swamp water joined to the sea (MarkSwampSea), which
+        // stays water; close-ups ask it of the generator's finer heights.
+        public bool IsSwampSea(float wx, float wz) => m_swampSea != null && m_swampSea[Index(wx, wz)];
 
         // IEEE half to float in plain C#: Mathf.HalfToFloat is a native call, not promised to be
         // safe off the main thread.

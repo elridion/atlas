@@ -17,6 +17,7 @@ namespace Atlas
         Ripple,
         Floe,
         Frame,
+        Lava,
     }
 
     /// <summary>
@@ -42,6 +43,7 @@ namespace Atlas
             Ring,
             Fill,
             Erase,
+            Tint,
         }
 
         // One call: for strokes a..d are the ends, e the width; for ellipses and rings a, b the
@@ -51,7 +53,31 @@ namespace Atlas
         {
             public Op m_op;
             public InkLayer m_layer;
+            // The glyph the call belongs to (an index into m_groupFeet), or -1.
+            public int m_group;
+            // A polygon erase that marks a peak's body (InkCanvas.m_markBody).
+            public BodyKind m_body;
             public float m_a, m_b, m_c, m_d, m_e, m_f;
+        }
+
+        // Each glyph's foot (sheet y), so a detail tile can sort the sheet's glyphs in with the
+        // trees it draws itself and draw them all from north to south, as the sheet does.
+        private readonly List<float> m_groupFeet = new List<float>(65536);
+        private int m_group = -1;
+
+        public void BeginGroup(float footY)
+        {
+            m_group = m_groupFeet.Count;
+            m_groupFeet.Add(footY);
+        }
+
+        public void EndGroup() => m_group = -1;
+
+        // One glyph of the sheet touching a tile: its foot and its calls, in order.
+        public sealed class Group
+        {
+            public float m_foot;
+            public readonly List<int> m_calls = new List<int>();
         }
 
         private readonly List<Call> m_calls = new List<Call>(1 << 20);
@@ -63,17 +89,24 @@ namespace Atlas
         public int Count => m_calls.Count;
 
         public void Stroke(InkLayer layer, float x0, float y0, float x1, float y1, float width, float strength, bool erase) =>
-            m_calls.Add(new Call { m_op = erase ? Op.Scrape : Op.Stroke, m_layer = layer, m_a = x0, m_b = y0, m_c = x1, m_d = y1, m_e = width, m_f = strength });
+            m_calls.Add(new Call { m_op = erase ? Op.Scrape : Op.Stroke, m_layer = layer, m_group = m_group, m_a = x0, m_b = y0, m_c = x1, m_d = y1, m_e = width, m_f = strength });
 
         public void Ellipse(InkLayer layer, float cx, float cy, float rx, float ry, float strength, bool erase) =>
-            m_calls.Add(new Call { m_op = erase ? Op.EraseEllipse : Op.Ellipse, m_layer = layer, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_f = strength });
+            m_calls.Add(new Call { m_op = erase ? Op.EraseEllipse : Op.Ellipse, m_layer = layer, m_group = m_group, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_f = strength });
 
         public void Ring(InkLayer layer, float cx, float cy, float rx, float ry, float width, float strength) =>
-            m_calls.Add(new Call { m_op = Op.Ring, m_layer = layer, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_e = width, m_f = strength });
+            m_calls.Add(new Call { m_op = Op.Ring, m_layer = layer, m_group = m_group, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_e = width, m_f = strength });
 
-        public void Polygon(InkLayer layer, IList<Vector2> polygon, float strength, bool erase)
+        public void Polygon(InkLayer layer, IList<Vector2> polygon, float strength, bool erase, BodyKind body = BodyKind.None)
         {
-            m_calls.Add(new Call { m_op = erase ? Op.Erase : Op.Fill, m_layer = layer, m_a = m_points.Count, m_b = polygon.Count, m_f = strength });
+            m_calls.Add(new Call { m_op = erase ? Op.Erase : Op.Fill, m_layer = layer, m_group = m_group, m_body = body, m_a = m_points.Count, m_b = polygon.Count, m_f = strength });
+            for (int i = 0; i < polygon.Count; i++) m_points.Add(polygon[i]);
+        }
+
+        // A body tint (InkCanvas.Tint): its fade's top and length in c and d.
+        public void Tint(InkLayer layer, IList<Vector2> polygon, BodyKind body, float top, float fade, float strength)
+        {
+            m_calls.Add(new Call { m_op = Op.Tint, m_layer = layer, m_group = m_group, m_body = body, m_a = m_points.Count, m_b = polygon.Count, m_c = top, m_d = fade, m_f = strength });
             for (int i = 0; i < polygon.Count; i++) m_points.Add(polygon[i]);
         }
 
@@ -134,6 +167,47 @@ namespace Atlas
         public void Replay(InkCanvas canvas, float left, float top, float right, float bottom, int layers,
             Func<Vector2, Vector2, bool> keepStroke)
         {
+            var polygon = new List<Vector2>(16);
+            foreach (int i in Picked(left, top, right, bottom))
+            {
+                Call c = m_calls[i];
+                if ((layers & (1 << (int)c.m_layer)) == 0) continue;
+                if (keepStroke != null && (c.m_op == Op.Stroke || c.m_op == Op.Scrape)
+                    && !keepStroke(new Vector2(c.m_a, c.m_b), new Vector2(c.m_c, c.m_d))) continue;
+                Draw(canvas, c, polygon);
+            }
+        }
+
+        // The glyphs of a layer with any call touching the sheet rectangle, each with all its
+        // calls in order, so a tile can draw them in turn with its own glyphs.
+        public List<Group> Groups(InkLayer layer, float left, float top, float right, float bottom)
+        {
+            var byId = new Dictionary<int, Group>();
+            var groups = new List<Group>();
+            foreach (int i in Picked(left, top, right, bottom))
+            {
+                Call c = m_calls[i];
+                if (c.m_layer != layer || c.m_group < 0 || byId.ContainsKey(c.m_group)) continue;
+                var group = new Group { m_foot = m_groupFeet[c.m_group] };
+                // A glyph's calls are consecutive; gather all of them, also those outside the tile.
+                int first = i;
+                while (first > 0 && m_calls[first - 1].m_group == c.m_group) first--;
+                for (int k = first; k < m_calls.Count && m_calls[k].m_group == c.m_group; k++) group.m_calls.Add(k);
+                byId[c.m_group] = group;
+                groups.Add(group);
+            }
+            return groups;
+        }
+
+        public void Replay(InkCanvas canvas, Group group)
+        {
+            var polygon = new List<Vector2>(16);
+            foreach (int i in group.m_calls) Draw(canvas, m_calls[i], polygon);
+        }
+
+        // The calls touching the sheet rectangle, once each, in their original order.
+        private List<int> Picked(float left, float top, float right, float bottom)
+        {
             var picked = new List<int>(4096);
             int x0 = Cell(left), x1 = Cell(right), y0 = Cell(top), y1 = Cell(bottom);
             for (int y = y0; y <= y1; y++)
@@ -150,33 +224,40 @@ namespace Atlas
                 if (maxX >= left && minX <= right && maxY >= top && minY <= bottom) picked.Add(i);
             }
             picked.Sort();
+            // A call in several cells is picked once per cell.
+            int kept = 0;
+            for (int k = 0; k < picked.Count; k++)
+                if (kept == 0 || picked[k] != picked[kept - 1]) picked[kept++] = picked[k];
+            picked.RemoveRange(kept, picked.Count - kept);
+            return picked;
+        }
 
-            var polygon = new List<Vector2>(16);
-            int previous = -1;
-            foreach (int i in picked)
+        private void Draw(InkCanvas canvas, Call c, List<Vector2> polygon)
+        {
+            switch (c.m_op)
             {
-                // A call in several cells is picked once per cell.
-                if (i == previous) continue;
-                previous = i;
-                Call c = m_calls[i];
-                if ((layers & (1 << (int)c.m_layer)) == 0) continue;
-                if (keepStroke != null && (c.m_op == Op.Stroke || c.m_op == Op.Scrape)
-                    && !keepStroke(new Vector2(c.m_a, c.m_b), new Vector2(c.m_c, c.m_d))) continue;
-                switch (c.m_op)
-                {
-                    case Op.Stroke: canvas.Stroke(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e, c.m_f); break;
-                    case Op.Scrape: canvas.Scrape(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e); break;
-                    case Op.Ellipse: canvas.Dot(c.m_a, c.m_b, c.m_c, c.m_f); break;
-                    case Op.EraseEllipse: canvas.EraseEllipse(c.m_a, c.m_b, c.m_c, c.m_d); break;
-                    case Op.Ring: canvas.Ring(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e, c.m_f); break;
-                    case Op.Fill:
-                    case Op.Erase:
-                        polygon.Clear();
-                        for (int k = 0; k < (int)c.m_b; k++) polygon.Add(m_points[(int)c.m_a + k]);
-                        if (c.m_op == Op.Fill) canvas.Fill(polygon, c.m_f);
-                        else canvas.Erase(polygon);
-                        break;
-                }
+                case Op.Stroke: canvas.Stroke(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e, c.m_f); break;
+                case Op.Scrape: canvas.Scrape(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e); break;
+                case Op.Ellipse: canvas.Dot(c.m_a, c.m_b, c.m_c, c.m_f); break;
+                case Op.EraseEllipse: canvas.EraseEllipse(c.m_a, c.m_b, c.m_c, c.m_d); break;
+                case Op.Ring: canvas.Ring(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e, c.m_f); break;
+                case Op.Fill:
+                case Op.Erase:
+                    polygon.Clear();
+                    for (int k = 0; k < (int)c.m_b; k++) polygon.Add(m_points[(int)c.m_a + k]);
+                    if (c.m_op == Op.Fill) canvas.Fill(polygon, c.m_f);
+                    else
+                    {
+                        canvas.m_markBody = c.m_body;
+                        canvas.Erase(polygon);
+                        canvas.m_markBody = BodyKind.None;
+                    }
+                    break;
+                case Op.Tint:
+                    polygon.Clear();
+                    for (int k = 0; k < (int)c.m_b; k++) polygon.Add(m_points[(int)c.m_a + k]);
+                    canvas.Tint(polygon, c.m_body, c.m_c, c.m_d, c.m_f);
+                    break;
             }
         }
 
@@ -199,6 +280,7 @@ namespace Atlas
                 }
                 case Op.Fill:
                 case Op.Erase:
+                case Op.Tint:
                 {
                     minX = minY = float.MaxValue;
                     maxX = maxY = float.MinValue;

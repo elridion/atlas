@@ -14,6 +14,8 @@ namespace Atlas
         private const int MinWood = 12;
         private const int MinClearing = 16;
         private const int BlurPasses = 2;
+        private const int MinLava = 110;
+        private const int LavaBlurPasses = 4;
 
         // Worker thread, after WorldSource.Decode.
         public static float[] Build(WorldSource world)
@@ -36,6 +38,28 @@ namespace Atlas
             var field = new float[size * size];
             for (int i = 0; i < field.Length; i++) field[i] = wood[i] ? 1f : 0f;
             for (int pass = 0; pass < BlurPasses; pass++) Paper.Blur(field, size);
+            return field;
+        }
+
+        // The Ashlands' lava fields as a smooth field like the woods' (edge at 0.5), from vanilla's
+        // lava mask (blue on Ashlands land), so they can be outlined and filled as shapes.
+        public static float[] BuildLava(WorldSource world)
+        {
+            int size = world.m_size;
+            var lava = new bool[size * size];
+            var land = new bool[size * size];
+            for (int i = 0; i < lava.Length; i++)
+            {
+                land[i] = world.m_height[i] > world.m_waterLevel;
+                lava[i] = land[i] && world.m_biome[i] == Land.Ashlands && world.m_lava[i] > 127;
+            }
+            // Vanilla's lava is patchy, so fields are kept only from MinLava cells and blurred
+            // more than woods, which joins near patches into one flow.
+            Clean(lava, land, size, value: true, MinLava);
+            Clean(lava, land, size, value: false, MinLava);
+            var field = new float[size * size];
+            for (int i = 0; i < field.Length; i++) field[i] = lava[i] ? 1f : 0f;
+            for (int pass = 0; pass < LavaBlurPasses; pass++) Paper.Blur(field, size);
             return field;
         }
 

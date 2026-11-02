@@ -13,11 +13,30 @@ namespace Atlas
     /// how a glyph hides whatever lies behind it. A recorder, when set, keeps every call so it can
     /// be replayed into a detail tile later.
     /// </summary>
+    // What a peak's body takes the wash of.
+    internal enum BodyKind : byte
+    {
+        None,
+        Mountain,
+        North,
+    }
+
     internal sealed class InkCanvas
     {
         public readonly int m_width;
         public readonly int m_height;
         public readonly byte[] m_ink;
+        // Where a peak's body lies (0 to 255), which takes the mountains' wash whatever the
+        // ground under it: peaks rise north from their feet over the land beyond a range.
+        public readonly byte[] m_body;
+        // The same for Deep North peaks, which take the Deep North's wash instead.
+        public readonly byte[] m_bodyNorth;
+        // While not None, Erase marks the scraped polygon as that kind of body (and clears the
+        // other); any other erase clears both, so the glyph in front decides.
+        public BodyKind m_markBody;
+        // While Tint runs: the mask it raises, and its fade (sheet y where it starts, its length).
+        private BodyKind m_tintKind;
+        private float m_tintTop, m_tintFade, m_tintStrength;
 
         private readonly float m_originX;
         private readonly float m_originY;
@@ -42,12 +61,19 @@ namespace Atlas
             m_width = width;
             m_height = height;
             m_ink = new byte[width * height];
+            m_body = new byte[width * height];
+            m_bodyNorth = new byte[width * height];
             m_originX = originX;
             m_originY = originY;
             m_scale = scale;
         }
 
         public void Record(InkRecord record) => m_record = record;
+
+        // Marks the calls from here to EndGroup as one glyph standing at footY, in the record.
+        public void BeginGroup(float footY) => m_record?.BeginGroup(footY);
+
+        public void EndGroup() => m_record?.EndGroup();
 
         private float X(float x) => (x - m_originX) * m_scale;
         private float Y(float y) => (y - m_originY) * m_scale;
@@ -99,8 +125,38 @@ namespace Atlas
 
         public void Erase(IList<Vector2> polygon)
         {
-            m_record?.Polygon(m_layer, polygon, 1f, erase: true);
+            m_record?.Polygon(m_layer, polygon, 1f, erase: true, body: m_markBody);
             Polygon(polygon, 1f, erase: true);
+        }
+
+        // Raises a body mask over a convex polygon without touching the ink, at strength by sheet
+        // y = top and fading to nothing at top + fade: the skirt by which a peak's wash bleeds a
+        // little into the ground below its foot.
+        public void Tint(IList<Vector2> polygon, BodyKind kind, float top, float fade, float strength)
+        {
+            m_record?.Tint(m_layer, polygon, kind, top, fade, strength);
+            m_tintKind = kind;
+            m_tintTop = top;
+            m_tintFade = Math.Max(fade, 1e-3f);
+            m_tintStrength = strength;
+            try
+            {
+                PolygonPixels(polygon, 1f, erase: false);
+            }
+            finally
+            {
+                m_tintKind = BodyKind.None;
+            }
+        }
+
+        private void TintPixel(int index, float coverage)
+        {
+            if (coverage <= 0f) return;
+            float sheetY = (index / m_width + 0.5f) / m_scale + m_originY;
+            float fade = Mathf.Clamp01(1f - (sheetY - m_tintTop) / m_tintFade);
+            int value = (int)(Math.Min(coverage, 1f) * fade * m_tintStrength * 255f + 0.5f);
+            byte[] mark = m_tintKind == BodyKind.North ? m_bodyNorth : m_body;
+            if (value > mark[index]) mark[index] = (byte)value;
         }
 
         private void Capsule(float x0, float y0, float x1, float y1, float width, float strength, bool erase)
@@ -168,6 +224,19 @@ namespace Atlas
 
         private void Polygon(IList<Vector2> sheetPolygon, float strength, bool erase)
         {
+            m_erasingPolygon = erase;
+            try
+            {
+                PolygonPixels(sheetPolygon, strength, erase);
+            }
+            finally
+            {
+                m_erasingPolygon = false;
+            }
+        }
+
+        private void PolygonPixels(IList<Vector2> sheetPolygon, float strength, bool erase)
+        {
             int count = sheetPolygon.Count;
             if (count < 3) return;
             m_transformed.Clear();
@@ -206,7 +275,8 @@ namespace Atlas
                         if (d < inside) inside = d;
                     }
                     float coverage = inside + 0.5f;
-                    if (erase) Lighten(y * m_width + x, coverage);
+                    if (m_tintKind != BodyKind.None) TintPixel(y * m_width + x, coverage);
+                    else if (erase) Lighten(y * m_width + x, coverage);
                     else Darken(y * m_width + x, coverage * strength);
                 }
             }
@@ -222,6 +292,20 @@ namespace Atlas
         private void Lighten(int index, float coverage)
         {
             if (coverage <= 0f) return;
+            float keep = 1f - Math.Min(coverage, 1f);
+            if (m_markBody != BodyKind.None && m_erasingPolygon)
+            {
+                int value = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
+                byte[] mark = m_markBody == BodyKind.North ? m_bodyNorth : m_body;
+                byte[] other = m_markBody == BodyKind.North ? m_body : m_bodyNorth;
+                if (value > mark[index]) mark[index] = (byte)value;
+                other[index] = (byte)(other[index] * keep);
+            }
+            else
+            {
+                m_body[index] = (byte)(m_body[index] * keep);
+                m_bodyNorth[index] = (byte)(m_bodyNorth[index] * keep);
+            }
             if (coverage >= 1f)
             {
                 m_ink[index] = 0;
@@ -229,5 +313,8 @@ namespace Atlas
             }
             m_ink[index] = (byte)(m_ink[index] * (1f - coverage));
         }
+
+        // Set while a polygon is erased, so only polygon erases mark body.
+        private bool m_erasingPolygon;
     }
 }

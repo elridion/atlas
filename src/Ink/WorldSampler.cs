@@ -29,12 +29,14 @@ namespace Atlas
 
         private readonly WorldGenerator m_generator;
         private readonly float m_waterLevel;
+        private readonly WorldSource m_world;
 
         // Main thread.
-        public GeneratorSampler(WorldGenerator generator, float waterLevel)
+        public GeneratorSampler(WorldGenerator generator, WorldSource world)
         {
             m_generator = generator;
-            m_waterLevel = waterLevel;
+            m_world = world;
+            m_waterLevel = world.m_waterLevel;
         }
 
         public void Sample(float wx, float wz, out float height, out Land land, out float wood)
@@ -42,6 +44,10 @@ namespace Atlas
             Heightmap.Biome biome = m_generator.GetBiome(wx, wz);
             height = m_generator.GetBiomeHeight(biome, wx, wz, out Color _);
             land = ToLand(biome);
+            // As on the sheet (WorldSource.MarkSwampSea): a swamp's water is its ground, except deep
+            // water joined to the sea.
+            if (land == Land.Swamp && height <= m_waterLevel && !(height <= m_waterLevel - WorldSource.SwampShallow && m_world.IsSwampSea(wx, wz)))
+                height = m_waterLevel + WorldSource.SwampFloor;
             wood = -1f;
             if (height <= m_waterLevel) return;
             switch (land)

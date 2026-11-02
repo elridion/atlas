@@ -16,14 +16,15 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - `src/AtlasMap.cs` the controller: per world it loads or paints the ink sheet, lays the fog for the
   current snapshot, and opens `AtlasView` on the map key.
 - `src/AtlasView.cs` the window (parchment, ink and fog `RawImage`s plus pin markers) with zoom and
-  drag. Pins are inked black (the user likes that) on a flat parchment padding: the icon's alpha,
-  read once through a render texture (sprite textures are not readable), grown 3.5 units by a
-  distance transform, cached per sprite. Twelve shifted parchment copies kept the icon's own
-  shading and did not read as one padding. Names are bold with a
-  hard parchment TextMeshPro underlay on a copy of the font material. Rejected by the user on
-: a soft parchment disc, the icon enlarged behind itself (outlines wide parts far,
-  thin parts barely), and red icons on parchment labels. Each pin is a holder whose first
-  children are the outline copies, since a UI parent draws before its children.
+  drag. Pins follow a research pass on cartographic point labels (Imhof, QGIS, Mapbox, Esri,
+): the icon inked black at 26 units on a thin 2-unit parchment outline of its solid
+  pixels (alpha over 200, so a soft rim does not widen it; a fixed width, since a proportional
+  one swamped the hammer and the dot), names in regular weight with letter-spacing and a slim,
+  slightly see-through underlay, placed by `LayoutLabels` beside the icon (right, top right,
+  left, above, below, keeping the last position), bosses and traders first, hidden when nothing
+  fits, recomputed on a zoom change over 3%. The user rejected a soft disc, the icon enlarged,
+  red icons on labels, and shifted copies (not one colour). A UI parent draws before its
+  children, hence a holder per pin.
 - `src/TablePatches.cs` the `MapTable.OnRead`/`OnWrite` postfixes and the `Minimap.IsOpen` postfix.
 - `src/InteractiveMap.cs` opens vanilla's large map in a nomap world.
 - `src/TableSparkles.cs` golden motes over the table while the atlas updates after "Record
@@ -84,7 +85,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   island, lake and swamp pool; only single 12 m pixels are dropped. Water joined to the world's
   edge (`MarkSea`, four-way flood fill) is the sea and gets ripples; every shore, sea or inland,
   has the same pen (a 1 px lake shore read as unexplained inland lines to the;
-  the water's blue now tells lakes apart). In close-ups the coast pen is 3.5 screen pixels. Water
+  the water's blue now tells lakes apart). The coast pen is 1.4 px on the sheet and 2.2 screen pixels in
+  close-ups, barely heavier than the waves as on the classic map (it was 2.1 and 3.5, the
+  map's heaviest line; rivers thinned with it to 1.2). Water
   is one even indigo wash (`Paper.WaterColor`; a pale-to-dark shading by depth was dropped as
   too exact for a hand-tinted map). Rivers and the coast are drawn before the
   glyphs, so crowns over a bank or shore hide the line instead of being cut by it, and trees
@@ -102,9 +105,24 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   muted earth tones. Values are estimates from Raman/XRF pigment studies of Insular and Nordic
   manuscripts, not measured colours. An earlier version blurred the coast and deleted small islands and
   lakes for looks; that was undone for accuracy, so swamps are busy by nature. The offline
-  harness can overlay vanilla's own 12 m water boundary in red to check the coast. Ripples are
-  contours of the distance to land, on the sea only, where it is wide enough for each ring and
-  around land big enough for it.
+  harness can overlay vanilla's own 12 m water boundary in red to check the coast. The sea is
+  shaded by wave accents (`DrawWaveAccents`): groups of three to six strictly level tildes
+  stacked away from the shore at chosen points, as the classic map accents its coasts.
+  Points just off the shore are scored by the share of land on a disc round them
+  (`ShoreScore`: high in bays, inlets and straits, low off capes, both accented; a straight
+  coast scores low) and by river mouths; where the shore lies level with a row (east- or
+  west-facing coasts, within `WaveAnchorReach`), the stroke starts right at the shore
+  (`WaveShoreGap` off it) and runs out to sea, the reference's whole style,
+  and such points score `WaveBesideBonus` more; the best get groups, kept `WaveGroupGap` apart, and
+  straight coasts a lone stroke now and then. Strokes never touch land or each other (a
+  sheet-only taken grid, deterministic in score order); islets under `MajorLandCells` get two
+  strokes at most; the open sea is blank (far-sea marks read as birds). Close-ups replay them
+  at their own 1.5 screen-pixel pen (`TileRipplePixels`), dropping strokes on the close-up's
+  land. Two earlier forms were rejected: short double curves in staggered rows
+  thinning out to sea, and, after a review against the classic map (`atlas-wave-review.md`),
+  six rows of tildes following the coast and tilted with it ("even dumber": the reference's
+  strokes are strictly horizontal). Ring lines at fixed distances from the coast came before
+  them; all keep the `Ripple` layer.
 - Peaks stand on real summits: local height maxima within `SummitCells` that rise
   `SummitProminence` above their surroundings, sized by prominence, the glyph placed so its apex
   is on the summit. Smaller filler peaks mass between them in staggered rows and keep clear of
@@ -116,6 +134,84 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the one behind, so the shaded wedge has to stay wide near the summit. Woods are packed so
   densely that only their southern edge shows trunks. Both came from an art review against the
   classic map style that the user liked.
+- Swamps and hills follow the user's reference snippet of the classic map: the
+  swamp fill is short flat marsh lines with seed-varied reed tufts on many, on a square, fully
+  jittered grid, gathered into patches by a slow noise (`MarshPatch`) with thinner bog between (still 30% of
+  cells; a near-empty bog read as too sparse); even rows over the whole swamp read as messy and
+  ruled to the user; hills are low
+  lopsided domes with hatch dashes under the eastern side, often with a smaller dome behind.
+  Marks are sized to their grid cell (reeds of two to four blades, `Reeds` taking the cell) and
+  a mark that would touch an inked neighbour of higher priority is left out (`MarshMark`, from
+  hashes and the patch noise alone, so the sheet and every tile agree); marks bigger than their
+  cell with a jitter of nearly a cell had piled into knots (swamp review,
+  `atlas-swamp-review.md`, and the). Marks keep off woods (`IsOpenLand`).
+  Clumps follow the real water: `WorldSource.m_swampWet` (1 in a pool, 0 at 1.5 m above the
+  water, from the heights before the raise, blurred) makes 65% of the patch value and the noise
+  35%; reeds favour the pools' rims; marks thin over the swamp's outermost few dozen metres
+  (`m_swampField`, the swamp blurred, edge at 0.5); the wash glazes wet ground and raised pools
+  a little toward the water's blue (`Paper.SwampPoolGlaze`), which shows the pools and lets
+  brown stains stand out. Dead trees are tall ancient trees (11-14 T, a bowed trunk on splayed
+  roots, two to four seed-set branches, some forked) that scrape under every limb. Marks sit on
+  a cell of 1.5 `MarshStep` and close-ups draw them at 0.75 of the pen: smaller cells at the
+  tile's pen closed the tufts up into lumps. A swamp's water is raised to
+  `WorldSource.SwampFloor` above the water line, in the decoded minimap and in
+  `GeneratorSampler`, so swamps are one marsh with no pools (inland pools
+  shown as water were unwanted), except deep water (over `SwampShallow` 1.5 m) joined to the
+  sea (`WorldSource.MarkSwampSea`, flooded from the map's edge through the water that stays
+  water): raising that too turned the flooded fringe of swamps beside the sea into land (on
+  Velen 3,889 raised cells touched other water).
+- Broadleaf, plains and giant-tree crowns are hand-traced (`HandCrown`: a closed loop whose
+  radius wobbles by seed, with a slight overlap), with seed-varied size, aspect, trunk length,
+  lean and shade span; perfect ellipses read as stamped. Pines got the same
+  treatment at the user's ask: varied height and width, a leaning tip, a bowed west flank, an
+  uneven base, trunk and shade split by seed.
+- The Ashlands were made sober after the user found them "doodly" (the map is
+  meant to read as a serious survey): lava fields are toned with an even engraved hatch of
+  diagonal lines (`LavaHatch`, `Lava.cs`) instead of dashed streamlines; volcanoes lost their
+  smoke curl and lava stream; crags are one or two small peaks in the mountains' hand (`Peak`
+  with `body: false`, keeping the burnt ground's wash) instead of thin notched spires that read
+  as grass tufts; the ground is one even cinder stipple, denser by the lava, with no ticks or
+  fissures. Crags and volcanoes keep their whole base off lava (`ClearOfLava`); the peak above
+  may rise in front of a lake behind it (user: "peaks yes, bases not"). Before that, a second pass from a Fable art review (4/10) had made them: volcanoes at mountain scale in
+  the peaks' hand (concave flanks, notched crater, small wedge and hatch, S-curve smoke, a lava
+  stream), kept a cone's width apart and off the coast; lava fields from 110 cells up with
+  streamlines along each field's contour and a darker vermilion glaze clipped to its edge after
+  the blur; a burnt-sienna wash mottled with grey ash clouds; crag ridges of 3-6 notched,
+  hatched spires kept off lava; fissure pairs; a cinder stipple of two sizes and ticks, denser by
+  the lava. Before that, after the user found them bad: a sparse cinder
+  stipple instead of a diagonal hatch, lava fields from `Woods.BuildLava` (vanilla's patchy lava
+  mask, kept from 40 cells and blurred 4 passes) outlined and filled with flow strokes on their
+  own `Lava` layer (`Lava.cs`, sheet only, replayed by close-ups) over a vermilion wash, crag
+  clusters (`Crag`) on steep ground, and more volcanoes. The old lava-crack glyph is gone.
+- Biome washes follow the ground exactly, but every peak's body is filled strictly with the
+  mountains' wash, or the Deep North's for peaks standing there: `Peak`
+  erases its outline (a fan of slightly grown triangles from a hub low in its middle, since a
+  convex hull let the fill spill past sags and notches) with `InkCanvas.m_markBody`, which
+  writes one of two body masks (`BodyKind`; any later erase clears both, so the glyph in front
+  decides). The body stays fully the peak's wash; below the foot a hairline skirt
+  (`InkCanvas.Tint`, an `Op.Tint` in the record, `PeakSkirt` 2 sheet px) raises the mask
+  without touching the ink, from `PeakBleed` to nothing, so the base is not cut hard. Fading the
+  body out at the base was the wrong way round (the base leads into the other
+  biome, not the other biome into the mountain), and a skirt 30% of the peak deep (`cc994a8`)
+  overwrote the outline before the body was scraped, so bodies became trapezoids: peaks read as
+  holes and peaks behind showed through the ones in front. The skirt is now laid after the
+  body. Mountain ground keeps the mountain wash even where no peak is drawn (
+  the biome must still read as mountains); giving it the neighbours' wash instead was tried and
+  reverted the same day. The sheet is ink then the two masks (`InkPainter.Paint`, cached together); `Paper.InkWithMips` fills bodies with
+  `PeakColor` under the ink, and close-ups glaze `Paper.PeakGlaze` over the stained parchment,
+  replaying the flag from the record. A 300 m carry of the mountain tint north, tried first,
+  spilled it over plains with no peaks. Peaks
+  are tested for land at both base ends and both flanks (`PeakOnLand`), not only their centre,
+  so coastal peaks do not hang over the sea.
+- Peaks vary by seed, after the user asked for mountains like the classic map's: a
+  jagged ridge line (a plain crag, a shoulder on the east, or a twin summit on the west), the
+  east face a solid wedge for the top `PeakWedge` of the flank and slanting hatch strokes below,
+  some with a spur down the lit face; then, on the user's ask for more variation, proportions
+  from broad and low to tall and narrow (`PeakHeightOf`, shared with summit placement, which sets
+  the foot so the apex lands on the summit), blunt flat tops, a snow line on tall peaks, and
+  three hatching hands (slanting, level, steep; dense or open). The body is erased as the
+  outline's convex hull. Broadleaf and plains crowns have
+  their eastern part filled (`Shade`, `CrownShade`), as the pines fill their eastern half.
 - The parchment carries stains (`Paper.Stains`, user's request), reworked the same
   day from a research pass (Quilez domain warping, coffee-ring physics, Curtis et al. watercolour
   glazing, conservation notes on foxing) after the user asked for stains that look more natural
@@ -165,6 +261,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   of one tile round it; zoomed out, up to 48 tiles round the pointer, where a zoom lands. At most
   3 textures are uploaded a frame and 320 kept (about 110 MB with mips). Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs from cells
   `GlyphReach` beyond it, so neighbours draw the same glyphs and margins and seams do not show.
+  The sheet's non-tree glyphs are recorded as groups with their feet (`InkRecord.BeginGroup`),
+  and a tile sorts them in with its own trees and draws all from north to south; replayed over
+  all the trees, spires behind trees covered them in the Mistlands.
   This replaced one big tile for the whole view, which the user found slow to catch up even with
   the sample cache. The
   ground fills, trees and coast are drawn afresh (`InkPainter.PaintTile`) from a

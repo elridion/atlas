@@ -28,15 +28,27 @@ namespace Atlas
         private const float StickZoom = 1.8f;
         private const float StickPan = 900f;
 
-        // Pins are inked black on a flat parchment padding that follows the icon: its silhouette
-        // grown by OutlineWidth (canvas units). Names are bold with a hard parchment underlay of
-        // LabelUnderlay (TextMeshPro's 0 to 1; much more runs into the font atlas's padding and
-        // shows boxes).
-        private const float PinSize = 30f;
-        private const float PinFontSize = 18f;
-        private const float OutlineWidth = 3.5f;
+        // Pins are inked black on a thin parchment outline that follows the icon: its solid pixels
+        // (alpha over IconSolid, leaving out a soft rim) grown by OutlineWidth canvas units, a
+        // fixed width so small and thin icons are not swamped. Names follow cartographic practice
+        // (Imhof, QGIS): beside the icon, LabelGap from it, in regular weight with a little
+        // letter-spacing and a slim, slightly see-through parchment underlay (LabelUnderlay in
+        // TextMeshPro's 0 to 1); crowded names give way (LayoutLabels). Canvas units.
+        private const float PinSize = 26f;
+        private const float PinFontSize = 16f;
+        private const float OutlineWidth = 2f;
+        private const byte IconSolid = 200;
+        private const float LabelGap = 4f;
+        private const float LabelSpacing = 3f;
+        private const float LabelClearance = 2f;
+        // Names are placed again when the zoom has changed by more than this share.
+        private const float LayoutStep = 0.03f;
         private static readonly Dictionary<Sprite, PaddingSprite> s_paddings = new Dictionary<Sprite, PaddingSprite>();
-        private const float LabelUnderlay = 0.6f;
+        private const float LabelUnderlay = 0.35f;
+        private const float LabelUnderlaySoftness = 0.15f;
+        private readonly List<PinLabel> m_labels = new List<PinLabel>();
+        private readonly List<Rect> m_placed = new List<Rect>();
+        private float m_layoutScale = -1f;
         private static Material s_labelMaterial;
         private static TMP_FontAsset s_labelFont;
 
@@ -214,6 +226,11 @@ namespace Atlas
             var counter = new Vector3(1f / m_scale, 1f / m_scale, 1f);
             foreach (RectTransform pin in m_pins)
                 if (pin) pin.localScale = counter;
+            if (m_layoutScale < 0f || Mathf.Abs(m_scale / m_layoutScale - 1f) > LayoutStep)
+            {
+                m_layoutScale = m_scale;
+                LayoutLabels();
+            }
         }
 
         // Where close-up tiles go: over the ink, under the fog. Null before the window is built.
@@ -320,6 +337,7 @@ namespace Atlas
             foreach (RectTransform pin in m_pins)
                 if (pin) Object.Destroy(pin.gameObject);
             m_pins.Clear();
+            m_labels.Clear();
             Minimap minimap = Minimap.instance;
             if (snapshot == null || !minimap || !minimap.m_pinPrefab) return;
 
@@ -353,28 +371,105 @@ namespace Atlas
                 Transform check = marker.transform.Find("Checked");
                 if (check) check.gameObject.SetActive(pin.m_checked);
                 string label = Localization.instance.Localize(pin.m_name);
-                if (font && !string.IsNullOrEmpty(label)) AddLabel(holder, label, font, labelMaterial);
+                if (font && !string.IsNullOrEmpty(label))
+                {
+                    PinLabel placed = AddLabel(holder, label, font, labelMaterial);
+                    // Bosses and traders first, then named pins in the order they were made.
+                    placed.m_priority = pin.m_type == Minimap.PinType.Boss || pin.m_type == Minimap.PinType.Hildir1
+                        || pin.m_type == Minimap.PinType.Hildir2 || pin.m_type == Minimap.PinType.Hildir3 ? 0 : 1;
+                    m_labels.Add(placed);
+                }
                 m_pins.Add(holder);
             }
+            m_labels.Sort((a, b) => a.m_priority.CompareTo(b.m_priority));
+            m_layoutScale = -1f;
         }
 
-        private static void AddLabel(RectTransform pin, string label, TMP_FontAsset font, Material material)
+        // One pin's name: where it may go and where it went last, so it does not hop needlessly.
+        private sealed class PinLabel
+        {
+            public RectTransform m_holder;
+            public RectTransform m_rect;
+            public TextMeshProUGUI m_text;
+            public Vector2 m_size;
+            public int m_priority;
+            public int m_place = -1;
+        }
+
+        private static PinLabel AddLabel(RectTransform pin, string label, TMP_FontAsset font, Material material)
         {
             var rect = NewRect("Name", pin);
-            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
-            rect.pivot = new Vector2(0.5f, 1f);
-            rect.sizeDelta = new Vector2(260f, 28f);
-            rect.anchoredPosition = new Vector2(0f, -6f);
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
             var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
             text.font = font;
             text.fontSize = PinFontSize;
-            text.fontStyle = FontStyles.Bold;
+            text.characterSpacing = LabelSpacing;
             text.color = Paper.InkColor;
-            text.alignment = TextAlignmentOptions.Top;
             text.textWrappingMode = TextWrappingModes.NoWrap;
             text.raycastTarget = false;
             if (material) text.fontSharedMaterial = material;
             text.text = label;
+            Vector2 size = text.GetPreferredValues(label);
+            rect.sizeDelta = size;
+            return new PinLabel { m_holder = pin, m_rect = rect, m_text = text, m_size = size };
+        }
+
+        // Places every name beside its pin, in priority order, at the first of the classic
+        // positions (right, top right, left, above, below) that overlaps no icon and no name
+        // already placed, preferring where it went last; a name with no room is hidden. Pins keep
+        // their screen size whatever the zoom, so only the distances between them change, and
+        // this runs only when the zoom has changed by LayoutStep. Canvas units throughout.
+        private void LayoutLabels()
+        {
+            m_placed.Clear();
+            float icon = PinSize * 0.5f + LabelGap;
+            foreach (RectTransform pin in m_pins)
+            {
+                if (!pin) continue;
+                Vector2 at = pin.anchoredPosition * m_scale;
+                m_placed.Add(new Rect(at.x - PinSize * 0.5f, at.y - PinSize * 0.5f, PinSize, PinSize));
+            }
+            foreach (PinLabel label in m_labels)
+            {
+                if (!label.m_rect) continue;
+                Vector2 at = label.m_holder.anchoredPosition * m_scale;
+                int chosen = -1;
+                if (label.m_place >= 0 && Fits(at, label.m_size, label.m_place, icon)) chosen = label.m_place;
+                for (int place = 0; chosen < 0 && place < 5; place++)
+                    if (Fits(at, label.m_size, place, icon)) chosen = place;
+                label.m_place = chosen;
+                bool show = chosen >= 0;
+                if (label.m_rect.gameObject.activeSelf != show) label.m_rect.gameObject.SetActive(show);
+                if (!show) continue;
+                Rect area = LabelArea(at, label.m_size, chosen, icon);
+                m_placed.Add(area);
+                label.m_rect.pivot = new Vector2(0.5f, 0.5f);
+                label.m_rect.anchoredPosition = area.center - at;
+                label.m_text.alignment = chosen == 0 || chosen == 1 ? TextAlignmentOptions.Left
+                    : chosen == 2 ? TextAlignmentOptions.Right : TextAlignmentOptions.Center;
+            }
+        }
+
+        private bool Fits(Vector2 at, Vector2 size, int place, float icon)
+        {
+            Rect area = LabelArea(at, size, place, icon);
+            Rect padded = new Rect(area.x - LabelClearance, area.y - LabelClearance, area.width + 2f * LabelClearance, area.height + 2f * LabelClearance);
+            foreach (Rect other in m_placed)
+                if (other.Overlaps(padded)) return false;
+            return true;
+        }
+
+        // Where a name of the given size goes for a position, round a pin centred on at.
+        private static Rect LabelArea(Vector2 at, Vector2 size, int place, float icon)
+        {
+            switch (place)
+            {
+                case 0: return new Rect(at.x + icon, at.y - size.y * 0.5f, size.x, size.y);
+                case 1: return new Rect(at.x + icon * 0.75f, at.y + icon * 0.5f, size.x, size.y);
+                case 2: return new Rect(at.x - icon - size.x, at.y - size.y * 0.5f, size.x, size.y);
+                case 3: return new Rect(at.x - size.x * 0.5f, at.y + icon, size.x, size.y);
+                default: return new Rect(at.x - size.x * 0.5f, at.y - icon - size.y, size.x, size.y);
+            }
         }
 
         // A flat parchment padding behind the pin: its icon's silhouette grown by OutlineWidth.
@@ -448,7 +543,7 @@ namespace Atlas
             var solid = new bool[n * n];
             for (int y = 0; y < h; y++)
                 for (int x = 0; x < w; x++)
-                    solid[(y + oy) * n + x + ox] = icon[y * w + x].a > 127;
+                    solid[(y + oy) * n + x + ox] = icon[y * w + x].a > IconSolid;
             var distance = new byte[n * n];
             new DistanceField(n).Compute(i => solid[i], distance, 16f);
             var pixels = new Color32[n * n];
@@ -456,7 +551,8 @@ namespace Atlas
             for (int i = 0; i < pixels.Length; i++)
             {
                 float d = distance[i] / 16f;
-                paper.a = (byte)(Mathf.Clamp01(pad + 0.5f - d) * 255f);
+                // A crisp edge with a short fade, so the outline does not read as a cut-out.
+                paper.a = (byte)(Mathf.Clamp01((pad + 0.75f - d) / 1.5f) * 255f);
                 pixels[i] = paper;
             }
             var texture = new Texture2D(n, n, TextureFormat.RGBA32, mipChain: false)
@@ -489,9 +585,14 @@ namespace Atlas
             if (!source) return null;
             var material = new Material(source) { name = source.name + "_atlas" };
             material.EnableKeyword(ShaderUtilities.Keyword_Underlay);
-            if (material.HasProperty(ShaderUtilities.ID_UnderlayColor)) material.SetColor(ShaderUtilities.ID_UnderlayColor, Paper.PaperColor);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayColor))
+            {
+                Color halo = Paper.PaperColor;
+                halo.a = 0.85f;
+                material.SetColor(ShaderUtilities.ID_UnderlayColor, halo);
+            }
             if (material.HasProperty(ShaderUtilities.ID_UnderlayDilate)) material.SetFloat(ShaderUtilities.ID_UnderlayDilate, LabelUnderlay);
-            if (material.HasProperty(ShaderUtilities.ID_UnderlaySoftness)) material.SetFloat(ShaderUtilities.ID_UnderlaySoftness, 0f);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlaySoftness)) material.SetFloat(ShaderUtilities.ID_UnderlaySoftness, LabelUnderlaySoftness);
             if (material.HasProperty(ShaderUtilities.ID_UnderlayOffsetX)) material.SetFloat(ShaderUtilities.ID_UnderlayOffsetX, 0f);
             if (material.HasProperty(ShaderUtilities.ID_UnderlayOffsetY)) material.SetFloat(ShaderUtilities.ID_UnderlayOffsetY, 0f);
             s_labelMaterial = material;

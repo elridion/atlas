@@ -199,7 +199,7 @@ namespace Atlas
                 WorldSource source = decoded.Result;
                 s_source = source;
                 WorldGenerator generator = WorldGenerator.instance;
-                s_samples = new SampleCache(generator != null ? new GeneratorSampler(generator, source.m_waterLevel) : (IWorldSampler)new MinimapSampler(source));
+                s_samples = new SampleCache(generator != null ? new GeneratorSampler(generator, source) : (IWorldSampler)new MinimapSampler(source));
                 CancellationToken cancel = s_cancel.Token;
                 int seed = source.m_seed;
                 Task<byte[]> parchmentTask = Parchment(seed);

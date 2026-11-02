@@ -7,7 +7,7 @@ namespace Atlas
 {
     /// <summary>
     /// Inks the whole world once, on a worker thread, in the manner of a classic fantasy-novel map:
-    /// a heavy coastline with two ripple lines on open water, and small pen glyphs for the land,
+    /// a heavy coastline shaded by short wave strokes on the sea, and small pen glyphs for the land,
     /// one family per biome, scattered on jittered grids and drawn from north to south so that each
     /// glyph hides the ones behind it. Everything is deterministic for a world seed, so a redraw
     /// gives the same map. Unexplored land is hidden later by the fog, not here.
@@ -27,22 +27,31 @@ namespace Atlas
         // keep their texture while each tree reads as a tree at the closer zoom.
         private const float T = 0.75f * G;
 
-        // Coast and ripples, in canvas pixels. Ripples run only on the sea, and only where it is at
-        // least OpenWidth wide on both sides of a point, so rivers and straits keep just their banks.
-        private const float CoastWidth = 2.1f;
-        // Ripple lines out from the coast, and for each the share of its length drawn (noise
-        // threshold; 1 is unbroken). The first sits well off the shore, so small islands and narrow
-        // channels stay readable.
-        private static readonly float[] s_ripples = { 6f * G, 11f * G, 17f * G, 24f * G };
-        private static readonly float[] s_rippleGaps = { 1f, 0.68f, 0.55f, 0.45f };
-        // A ring needs sea RippleWidth times its distance from land within reach, and land in a box
-        // RippleLandBox times its distance across of at least RippleLandShare times its distance
-        // squared: a straight coast gives three times that, an islet of about 0.4 times the ring's
-        // distance in radius just passes, smaller ones get no ring.
-        private const float RippleWidth = 1.5f;
-        private const float RippleLandBox = 1.5f;
-        private const float RippleLandShare = 0.5f;
-        private const float OpenWidth = 9f * G;
+        // The coast's pen, in canvas pixels: barely heavier than the waves beside it, as on the
+        // classic map (it was 2.1, the map's heaviest line).
+        private const float CoastWidth = 1.4f;
+        // Wave accents (canvas pixels): groups start WaveFirstRow from land, rows WaveRowGap
+        // apart; candidate points every WaveSpotStep along the shore, scored on a disc of
+        // WaveShapeRadius; a score of WaveAccent or more gets a group, others a lone stroke at
+        // chance WaveLone; groups keep WaveGroupGap apart. Each wave a level tilde of crests
+        // WaveCrest long and WaveLift high, its ends WaveShoreClear from land. Islets under
+        // MajorLandCells map pixels get two strokes at most.
+        private const float WaveFirstRow = 3.2f;
+        private const float WaveRowGap = 3.4f;
+        private const float WaveSpotStep = 4f;
+        private const float WaveShapeRadius = 22f;
+        private const float WaveAccent = 0.3f;
+        private const float WaveLone = 0.1f;
+        private const float WaveGroupGap = 20f;
+        private const float WaveCrest = 3.8f;
+        private const float WaveLift = 0.6f;
+        private const float WaveShoreClear = 1.8f;
+        // A stroke starts WaveShoreGap off a shore level with it within WaveAnchorReach, and such
+        // points score WaveBesideBonus more.
+        private const float WaveShoreGap = 1.6f;
+        private const int WaveAnchorReach = 8;
+        private const float WaveBesideBonus = 0.25f;
+        private const int MajorLandCells = 400;
         private const float DistanceScale = 4f;
         private const float FrameGap = 7f;
         // Glyph feet stay inside this fraction of the frame's radius, clear of the inner ring.
@@ -51,6 +60,10 @@ namespace Atlas
         private const float Pen = 1f;
         // Plains stipple dots, one pen width across.
         private const float StippleRadius = 0.6f;
+        // The swamp's marsh lines: their grid step in glyph units, and the scale of the noise that
+        // gathers them into patches (canvas pixels).
+        private const float MarshStep = 3.2f;
+        private const float MarshPatch = 26f * G;
         // Patches of land or water smaller than this many map pixels (12 m each) are dropped as noise.
         private const int SpeckCells = 2;
 
@@ -85,8 +98,8 @@ namespace Atlas
         private const float RidgeBand = 0.9f;
         // Rivers: the pen for a river, a stream at its mouth (thinning to Pen at its source), the extra
         // width scraped clear on either side, and the step between points along a course (canvas px).
-        private const float RiverWidth = 1.8f;
-        private const float StreamMouth = 1.4f;
+        private const float RiverWidth = 1.2f;
+        private const float StreamMouth = 1.1f;
         private const float RiverBand = 2.4f;
         private const float RiverStep = 1.5f;
         // River ink keeps this far (canvas pixels) from any water the coast already draws, or it
@@ -99,6 +112,12 @@ namespace Atlas
         private const float VolcanoHeight = 22f;
         // Volcanoes are drawn larger than other land glyphs, closer to the size of a peak.
         private const float VolcanoScale = 2.2f;
+        // Ashlands ground this steep (height per metre) is broken into crags.
+        private const float CragSlope = 0.25f;
+        // Crags are small peaks, about half a filler peak's width.
+        private const float CragScale = 1.8f;
+        // Lava fields: the spacing of their engraved hatch (canvas pixels, across the lines).
+        private const float LavaHatch = 2.6f;
 
         private readonly WorldSource m_world;
         private readonly CancellationToken m_cancel;
@@ -119,7 +138,9 @@ namespace Atlas
         private readonly List<Glyph> m_glyphs = new List<Glyph>(200000);
         // Real summits placed so far: apex position (x, y) and glyph width (z).
         private readonly List<Vector3> m_summits = new List<Vector3>(1024);
-        // Ice floes sit on the water, so they are drawn after the coast's ripple lines, over them.
+        // Volcano feet placed so far, which keep later ones away.
+        private readonly List<Vector2> m_volcanoes = new List<Vector2>(64);
+        // Ice floes sit on the water, so they are drawn after the coast's wave accents, over them.
         private readonly List<Glyph> m_floes = new List<Glyph>(4096);
         private float[] m_coast;
         // Map pixels of water joined to the sea, and canvas pixels of sea.
@@ -127,8 +148,9 @@ namespace Atlas
         private byte[] m_sea;
         private byte[] m_land;
         private byte[] m_waterDistance;
+        // Distance from land masses of at least MajorLandCells, scaled like m_waterDistance.
+        private byte[] m_majorDistance;
         private byte[] m_landDistance;
-        private byte[] m_openDistance;
         // Canvas pixels inside a wood, and each pixel's distance to the nearest of them.
         private byte[] m_wood;
         private byte[] m_woodDistance;
@@ -142,13 +164,11 @@ namespace Atlas
             Broadleaf,
             Conifer,
             PlainsTree,
-            MarshTuft,
             DeadTree,
             Spire,
             GiantTree,
             Volcano,
-            Fissure,
-            Wave,
+            Crag,
             IceFloe,
         }
 
@@ -166,6 +186,11 @@ namespace Atlas
             public int m_pixel, m_seed;
             public Land m_land;
             public bool m_isLand, m_wood, m_mist, m_lava;
+            // The lava field's value here, 0.5 at a lava field's edge.
+            public float m_lavaLevel;
+            // The scatter cell and the grid's hash seed, so a rule can work out its neighbours'
+            // candidates from hashes alone.
+            public int m_gx, m_gy, m_gridSeed;
             // Distances to water, to land and to the nearest wood, in canvas pixels.
             public float m_shore, m_water, m_woodDistance;
         }
@@ -205,7 +230,14 @@ namespace Atlas
             if (record != null) painter.m_canvas.Record(record);
             painter.Run();
             record?.Seal(CanvasSize);
-            return painter.m_canvas.m_ink;
+            // The sheet: ink coverage, then the peaks' body masks (mountain, Deep North), one
+            // byte a pixel each.
+            int n = CanvasSize * CanvasSize;
+            var sheet = new byte[n * 3];
+            Buffer.BlockCopy(painter.m_canvas.m_ink, 0, sheet, 0, n);
+            Buffer.BlockCopy(painter.m_canvas.m_body, 0, sheet, n, n);
+            Buffer.BlockCopy(painter.m_canvas.m_bodyNorth, 0, sheet, 2 * n, n);
+            return sheet;
         }
 
         private void Run()
@@ -216,6 +248,8 @@ namespace Atlas
             m_cancel.ThrowIfCancellationRequested();
             m_canvas.m_layer = InkLayer.Background;
             DrawBackground();
+            m_canvas.m_layer = InkLayer.Lava;
+            DrawLava();
             // Rivers and the coast go under the glyphs, so a crown standing over a bank or a
             // shore hides the line behind it instead of being cut by it. Trees keep off the
             // rivers' courses (m_riverMask), so streams still run between them.
@@ -229,13 +263,16 @@ namespace Atlas
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             foreach (Glyph glyph in m_glyphs)
             {
-                m_canvas.m_layer = IsTree(glyph.m_kind) ? InkLayer.Tree : InkLayer.Glyph;
+                bool tree = IsTree(glyph.m_kind);
+                m_canvas.m_layer = tree ? InkLayer.Tree : InkLayer.Glyph;
+                if (!tree) m_canvas.BeginGroup(glyph.m_y);
                 DrawGlyph(glyph);
+                if (!tree) m_canvas.EndGroup();
             }
             m_canvas.m_layer = InkLayer.Mist;
             DrawMist();
             m_canvas.m_layer = InkLayer.Ripple;
-            DrawRipples();
+            DrawWaveAccents();
             m_canvas.m_layer = InkLayer.Floe;
             foreach (Glyph floe in m_floes) DrawGlyph(floe);
             m_canvas.m_layer = InkLayer.Frame;
@@ -366,19 +403,57 @@ namespace Atlas
             var field = new DistanceField(n);
             m_waterDistance = new byte[n * n];
             m_landDistance = new byte[n * n];
-            m_openDistance = new byte[n * n];
             field.Compute(i => m_land[i] != 0, m_waterDistance, DistanceScale);
             m_cancel.ThrowIfCancellationRequested();
             field.Compute(i => m_land[i] == 0, m_landDistance, 1f);
             m_cancel.ThrowIfCancellationRequested();
-            byte open = (byte)Math.Min(255f, OpenWidth * DistanceScale);
-            field.Compute(i => m_land[i] == 0 && m_waterDistance[i] >= open, m_openDistance, 1f);
-            m_cancel.ThrowIfCancellationRequested();
             m_woodDistance = new byte[n * n];
             field.Compute(i => m_wood[i] != 0, m_woodDistance, 1f);
+            m_cancel.ThrowIfCancellationRequested();
+            bool[] major = MajorLand(m_world.m_waterLevel, size);
+            m_majorDistance = new byte[n * n];
+            field.Compute(i =>
+            {
+                if (m_land[i] == 0) return false;
+                float wx = (i % n + 0.5f) * MetresPerPixel - HalfExtent, wz = HalfExtent - (i / n + 0.5f) * MetresPerPixel;
+                return major[m_world.Index(wx, wz)];
+            }, m_majorDistance, DistanceScale);
         }
 
-        private bool IsOpenWater(int pixel) => m_sea[pixel] != 0 && m_openDistance[pixel] <= OpenWidth + 1.5f;
+        // The map pixels of land masses of at least MajorLandCells (four-way connected), which get
+        // the wave accents' full band; smaller islets only a ring, or a chain of them turns grey.
+        private bool[] MajorLand(float water, int size)
+        {
+            var major = new bool[size * size];
+            var seen = new bool[size * size];
+            var queue = new int[size * size];
+            for (int start = 0; start < seen.Length; start++)
+            {
+                if (seen[start] || !(m_coast[start] > water)) continue;
+                int head = 0, tail = 0;
+                queue[tail++] = start;
+                seen[start] = true;
+                while (head < tail)
+                {
+                    int i = queue[head++];
+                    int x = i % size, z = i / size;
+                    if (x > 0) Visit(i - 1);
+                    if (x < size - 1) Visit(i + 1);
+                    if (z > 0) Visit(i - size);
+                    if (z < size - 1) Visit(i + size);
+                }
+                if (tail < MajorLandCells) continue;
+                for (int k = 0; k < tail; k++) major[queue[k]] = true;
+
+                void Visit(int j)
+                {
+                    if (seen[j] || !(m_coast[j] > water)) return;
+                    seen[j] = true;
+                    queue[tail++] = j;
+                }
+            }
+            return major;
+        }
 
         private Spot Look(float x, float y)
         {
@@ -403,7 +478,8 @@ namespace Atlas
             spot.m_wood = m_wood[spot.m_pixel] != 0;
             spot.m_woodDistance = m_woodDistance[spot.m_pixel];
             spot.m_mist = m_world.m_mist[source] > 127;
-            spot.m_lava = m_world.m_lava[source] > 127;
+            spot.m_lavaLevel = m_world.Sample(m_world.m_lavaField, spot.m_worldX, spot.m_worldZ);
+            spot.m_lava = spot.m_lavaLevel > 0.5f;
             return spot;
         }
 
@@ -426,6 +502,8 @@ namespace Atlas
             spot.m_wood = m_grid.IsWood(x, y);
             spot.m_shore = m_grid.Distance(m_grid.m_shore, x, y) * m_lod;
             spot.m_woodDistance = m_grid.Distance(m_grid.m_woodDistance, x, y) * m_lod;
+            spot.m_lavaLevel = m_world.Sample(m_world.m_lavaField, spot.m_worldX, spot.m_worldZ);
+            spot.m_lava = spot.m_lavaLevel > 0.5f;
             return spot;
         }
 
@@ -465,6 +543,9 @@ namespace Atlas
                     Spot spot = Look(x, y);
                     spot.m_roll = Unit(seed, 3);
                     spot.m_seed = seed;
+                    spot.m_gx = gx;
+                    spot.m_gy = gy;
+                    spot.m_gridSeed = worldSeed;
                     visit(spot);
                 }
             }
@@ -501,6 +582,35 @@ namespace Atlas
 
         private bool IsWoodAt(float x, float y) => m_grid != null ? m_grid.IsWood(x, y) : m_wood[PixelAt(x, y)] != 0;
 
+        // Whether a peak of the given width and height standing at (x, y) lies wholly over land:
+        // its centre column, both ends of its base and both flanks. Testing the column alone let
+        // the wide base of a coastal peak hang out over the sea.
+        private bool PeakOnLand(float x, float y, float width, float height)
+        {
+            if (!IsLandColumn(x, y, height)) return false;
+            float half = width * 0.55f;
+            return IsLandAt(x - half, y) && IsLandAt(x + half, y)
+                && IsLandAt(x - half * 0.5f, y - height * 0.5f) && IsLandAt(x + half * 0.5f, y - height * 0.5f);
+        }
+
+        // Whether a peak-like glyph of the given width standing at (x, y) keeps its base off every
+        // lava field, along its whole width with a margin. Testing the foot alone let crags and
+        // volcanoes stand with their bases in lava lakes; the peak above may still rise in front
+        // of a lake behind it ("peaks yes, bases not").
+        private bool ClearOfLava(float x, float y, float width)
+        {
+            float half = width * 0.6f;
+            for (int k = 0; k <= 6; k++)
+            {
+                float px = x - half + 2f * half * k / 6f;
+                if (LavaAt(px, y + 1.5f) || LavaAt(px, y - 1.5f)) return false;
+            }
+            return true;
+        }
+
+        private bool LavaAt(float x, float y) =>
+            m_world.Sample(m_world.m_lavaField, x * MetresPerPixel - HalfExtent, HalfExtent - y * MetresPerPixel) > 0.5f;
+
         private void Add(Spot spot, Kind kind, float size)
         {
             m_glyphs.Add(new Glyph { m_x = spot.m_x, m_y = spot.m_y, m_size = size, m_kind = kind, m_seed = spot.m_seed });
@@ -529,12 +639,41 @@ namespace Atlas
                 if (!IsOpenLand(s, Land.BlackForest, 3f) || !(s.m_roll < 0.4f)) return;
                 Stone(s.m_x, s.m_y, m_g, s.m_seed);
             });
-            // Swamp: small wavelets of standing water, with flat strokes of still water between.
-            Scatter(8f * m_g, 11, s =>
+            // Swamp: the classic map's marsh sign, short flat water
+            // lines with tufts of reeds on many, gathered into patches by a slow noise: crowded
+            // fen in places, thin open bog between. Even rows over the whole swamp read as messy
+            // and ruled, so the grid is square and fully jittered.
+            // The bog between patches keeps a fair share of marks: a near-empty one read as too
+            // sparse. Marks are sized to their cell and one that would touch a
+            // neighbour of higher priority is left out, decided from hashes alone (MarshMark), so
+            // the sheet and every tile agree; marks bigger than their cell with a jitter of nearly
+            // a cell piled up into knots.
+            float marsh = MarshStep * 1.5f * m_g;
+            // Close-ups draw the marks a little finer: at the tile's pen the small tufts closed
+            // up into lumps. The sheet keeps the full Pen.
+            float marshPen = m_grid != null ? 0.75f * Pen : Pen;
+            Scatter(marsh, 11, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 3f) return;
-                if (s.m_roll < 0.45f) Wavelet(s.m_x, s.m_y, m_g);
-                else if (s.m_roll < 0.7f) m_canvas.Stroke(s.m_x - 1.5f * m_g, s.m_y, s.m_x + 1.5f * m_g, s.m_y, Pen);
+                if (!IsOpenLand(s, Land.Swamp, 3f)) return;
+                MarshMark(s.m_gx, s.m_gy, s.m_gridSeed, marsh, out MarshBox mark);
+                if (!mark.m_inked) return;
+                for (int dy = -1; dy <= 1; dy++)
+                {
+                    for (int dx = -1; dx <= 1; dx++)
+                    {
+                        if (dx == 0 && dy == 0) continue;
+                        MarshMark(s.m_gx + dx, s.m_gy + dy, s.m_gridSeed, marsh, out MarshBox other);
+                        if (!other.m_inked || other.m_priority < mark.m_priority) continue;
+                        if (other.m_left < mark.m_right && mark.m_left < other.m_right && other.m_top < mark.m_bottom && mark.m_top < other.m_bottom) return;
+                    }
+                }
+                if (mark.m_reeds) Reeds(mark.m_x + (Unit(s.m_seed, 6) - 0.5f) * mark.m_half * 0.6f, mark.m_y, marsh, s.m_seed, marshPen);
+                m_canvas.Stroke(mark.m_x - mark.m_half, mark.m_y, mark.m_x + mark.m_half, mark.m_y, marshPen);
+                if (mark.m_second)
+                {
+                    float x = mark.m_x + (Unit(s.m_seed, 8) - 0.3f) * mark.m_half, y = mark.m_y + 0.2f * marsh;
+                    m_canvas.Stroke(x - mark.m_half * 0.55f, y, x + mark.m_half * 0.55f, y, marshPen);
+                }
             });
             // Plains: a stipple of fine dots, the dry heath's own tone.
             Scatter(5f * m_g, 16, s =>
@@ -542,11 +681,18 @@ namespace Atlas
                 if (!IsOpenLand(s, Land.Plains, 2f) || !(s.m_roll < 0.45f)) return;
                 m_canvas.Dot(s.m_x, s.m_y, StippleRadius * m_pen);
             });
-            // Ashlands: dense diagonal hatching darkens the burnt ground. Deliberately a grey tone.
-            Scatter(5f * m_g, 12, s =>
+            // Ashlands: a sparse stipple of cinders of uneven size on the burnt ground, none on the
+            // lava fields, which carry their own flow marks. A dense diagonal hatch over all of it
+            // read as a flat grey blanket.
+            // Denser by the lava's edge, thinning out on the open plain, as the classic map
+            // stipples its blasted plains. One even dot: cinder ticks and fissure pairs made the
+            // ground look doodled.
+            Scatter(4.5f * m_g, 12, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_shore < 2f || !(s.m_roll < 0.75f)) return;
-                m_canvas.Stroke(s.m_x - 1.4f * m_g, s.m_y + 1.4f * m_g, s.m_x + 1.4f * m_g, s.m_y - 1.4f * m_g, 0.7f, 0.75f);
+                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_shore < 2f || s.m_lava) return;
+                float near = Mathf.Clamp01(s.m_lavaLevel / 0.5f);
+                if (!(s.m_roll < Mathf.Lerp(0.15f, 0.65f, near))) return;
+                m_canvas.Dot(s.m_x, s.m_y, StippleRadius * m_pen);
             });
             // Deep North: a near-blank snowfield, as the classic map leaves its northern waste. Its
             // only marks are chevrons of pressure ridges, gathered into thin winding bands (the
@@ -559,6 +705,51 @@ namespace Atlas
                 m_canvas.Stroke(s.m_x - 2.4f * m_g, s.m_y, s.m_x, s.m_y - 2f * m_g, Pen);
                 m_canvas.Stroke(s.m_x, s.m_y - 2f * m_g, s.m_x + 2.4f * m_g, s.m_y, Pen);
             });
+        }
+
+        // One marsh mark of the swamp rule's grid (cell gx, gy, its square grid of spacing c with
+        // the default jitter), from hashes and the patch noise alone: where it stands, its size,
+        // whether it would be inked and with what, its priority against neighbours and the box
+        // it covers with a small gap. The ground is not looked at, so a neighbour off the swamp
+        // can still make a mark give way, only ever at a swamp's edge.
+        private void MarshMark(int gx, int gy, int gridSeed, float c, out MarshBox mark)
+        {
+            int seed = HashInt(gx, gy, gridSeed);
+            mark = new MarshBox
+            {
+                m_x = (gx + 0.5f + (Unit(seed, 1) - 0.5f) * 0.9f) * c,
+                m_y = (gy + 0.5f + (Unit(seed, 2) - 0.5f) * 0.9f) * c,
+                m_priority = Unit(seed, 30),
+            };
+            // The clumps follow the real water: wetness from the heights before the pools were
+            // raised, with a little noise so they do not trace the pools exactly; noise alone made
+            // invented patches.
+            float wx = mark.m_x * MetresPerPixel - HalfExtent, wz = HalfExtent - mark.m_y * MetresPerPixel;
+            float wet = m_world.Sample(m_world.m_swampWet, wx, wz);
+            float noise = Mathf.Clamp01((Noise(mark.m_x / MarshPatch, mark.m_y / MarshPatch, m_world.m_seed + 13) - 0.3f) / 0.4f);
+            float patch = Mathf.Clamp01(0.65f * Mathf.Clamp01(wet * 1.4f) + 0.35f * noise);
+            patch = patch * patch * (3f - 2f * patch);
+            // Thinner over the swamp's outermost few dozen metres, where it gives way to the
+            // next biome; the wash still marks the exact edge.
+            float inside = Mathf.Clamp01((m_world.Sample(m_world.m_swampField, wx, wz) - 0.5f) / 0.4f);
+            mark.m_inked = Unit(seed, 3) < Mathf.Lerp(0.3f, 0.9f, patch) * Mathf.Lerp(0.35f, 1f, inside);
+            mark.m_half = Mathf.Lerp(0.2f, 0.32f, Unit(seed, 4)) * c;
+            // Reeds stand where reeds grow, on the rims of the pools.
+            float rim = 1f - Mathf.Abs(2f * Mathf.Clamp01(wet) - 1f);
+            mark.m_reeds = Unit(seed, 5) < Mathf.Lerp(0.25f, 0.85f, Mathf.Max(rim, patch * 0.5f));
+            mark.m_second = Unit(seed, 7) < 0.3f;
+            float gap = 0.08f * c;
+            mark.m_left = mark.m_x - mark.m_half - gap;
+            mark.m_right = mark.m_x + mark.m_half + gap;
+            mark.m_top = mark.m_y - (mark.m_reeds ? 0.48f * c : 0.05f * c) - gap;
+            mark.m_bottom = mark.m_y + (mark.m_second ? 0.22f * c : 0.05f * c) + gap;
+        }
+
+        private struct MarshBox
+        {
+            public float m_x, m_y, m_half, m_priority;
+            public float m_left, m_right, m_top, m_bottom;
+            public bool m_inked, m_reeds, m_second;
         }
 
         // Land of the given biome, at least shore pixels from the water and clear of every wood.
@@ -603,9 +794,9 @@ namespace Atlas
                         float width = Mathf.Lerp(22f, 34f, Mathf.Clamp01((prominence - SummitProminence) / 80f)) * G;
                         // The peak glyph rises from its foot to an apex offset a little east of the
                         // foot; place the foot so the apex lands on the summit.
-                        float height = width * 0.78f * Vary(seed, 10, 0.2f);
+                        float height = PeakHeightOf(width, seed);
                         float footX = cx - width * Unit(seed, 11) * 0.12f, footY = cy + height;
-                        if (!IsLandColumn(footX, footY, height)) continue;
+                        if (!PeakOnLand(footX, footY, width, height)) continue;
                         m_glyphs.Add(new Glyph { m_x = footX, m_y = footY, m_size = width, m_kind = Kind.Peak, m_seed = seed });
                         m_summits.Add(new Vector3(cx, cy, width));
                     }
@@ -711,20 +902,16 @@ namespace Atlas
                 bool north = s.m_land == Land.DeepNorth && s.m_above >= DeepNorthPeakHeight;
                 if (!mountain && !north) return;
                 float width = Mathf.Lerp(14f, 22f, Mathf.Clamp01((s.m_above - PeakHeight) / 160f)) * G;
-                if (s.m_shore < width * 0.45f || !IsLandColumn(s.m_x, s.m_y, width * 0.75f)) return;
+                if (s.m_shore < width * 0.45f || !PeakOnLand(s.m_x, s.m_y, width, PeakHeightOf(width, s.m_seed))) return;
                 if (NearSummit(s.m_x, s.m_y, width)) return;
                 Add(s, Kind.Peak, width);
             });
             PlaceTrees();
-            // Swamp: a few marsh tufts among the water strokes, and some dead trees.
-            Scatter(11f * G, 26, s =>
+            // Swamp: a few tall ancient dead trees among the marsh lines, standing clear of water.
+            Scatter(30f * T, 27, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 3f || !(s.m_roll < 0.35f)) return;
-                Add(s, Kind.MarshTuft, G);
-            });
-            Scatter(24f * T, 27, s =>
-            {
-                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f || !(s.m_roll < 0.35f)) return;
+                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f || !(s.m_roll < 0.45f)) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 14f * T)) return;
                 Add(s, Kind.DeadTree, T);
             });
             // Mistlands: rock spires on the steep or high ground.
@@ -735,24 +922,36 @@ namespace Atlas
                 if (!IsLandColumn(s.m_x, s.m_y, 22f * G)) return;
                 Add(s, Kind.Spire, G);
             });
-            // Ashlands: a few large smoking volcanoes on the heights, lava cracks in the flows.
-            Scatter(34f * G, 30, s =>
+            // Ashlands: smoking volcanoes on the heights, and clusters of jagged crags on the
+            // broken ground between the lava fields.
+            // Volcanoes keep a cone's width apart and clear of the coast, so they never overlap
+            // each other or reach into the sea.
+            Scatter(24f * G, 30, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_above < VolcanoHeight || s.m_shore < 10f * G || !(s.m_roll < 0.45f)) return;
+                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_lava || s.m_above < VolcanoHeight || !(s.m_roll < 0.7f)) return;
+                float width = 14f * VolcanoScale * G;
+                if (s.m_shore < width * 0.6f || !PeakOnLand(s.m_x, s.m_y, width, width * 0.55f)) return;
+                if (!ClearOfLava(s.m_x, s.m_y, width)) return;
+                foreach (Vector2 other in m_volcanoes)
+                    if ((other - new Vector2(s.m_x, s.m_y)).sqrMagnitude < width * width) return;
+                m_volcanoes.Add(new Vector2(s.m_x, s.m_y));
                 Add(s, Kind.Volcano, VolcanoScale * G);
             });
-            Scatter(16f * G, 31, s =>
+            // Crag ridges, never standing on lava: both ends of the ridge are tested as well.
+            Scatter(18f * G, 31, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Ashlands || !s.m_lava || s.m_shore < 6f * G || !(s.m_roll < 0.55f)) return;
-                Add(s, Kind.Fissure, G);
+                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_lava || s.m_shore < 6f * G) return;
+                if (!(s.m_roll < (s.m_slope >= CragSlope ? 0.7f : 0.1f))) return;
+                // The crag group (Glyphs.Crag) is up to about 1.7 of its front peak's width across,
+                // reaching west of the foot; tested as one wide peak centred a little west.
+                float width = 6.9f * CragScale * G;
+                float reach = 9f * G;
+                if (!ClearOfLava(s.m_x - width * 0.3f, s.m_y, width * 1.7f)) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 10f * G) || !IsLandAt(s.m_x - reach, s.m_y) || !IsLandAt(s.m_x + reach, s.m_y)) return;
+                Add(s, Kind.Crag, CragScale * G);
             });
-            // Sea: a few wave marks far out, ice floes in the northern sea.
-            Scatter(34f * G, 32, s =>
-            {
-                if (s.m_isLand || s.m_water < 24f * G || !IsOpenWater(s.m_pixel) || !(s.m_roll < 0.5f)) return;
-                if (WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
-                Add(s, Kind.Wave, G);
-            });
+            // Sea: ice floes in the northern sea. The open sea is otherwise left blank, as on the
+            // classic map; wave marks far out read as birds.
             Scatter(15f * G, 33, s =>
             {
                 if (m_sea[s.m_pixel] == 0 || s.m_water < 4f * G || !(s.m_roll < 0.5f)) return;
@@ -925,68 +1124,232 @@ namespace Atlas
             }
         }
 
-        private void DrawRipples()
+        // Wave accents, as the classic hand-inked maps shade their coasts: small groups of level
+        // tildes set at chosen points of the shore rather than an even band (
+        // after rows that followed the coast "looked even dumber"; the reference's strokes are
+        // strictly horizontal). Points along the coast are scored by how the shore shapes the water
+        // there: an enclosed bay, inlet or strait (much land round it), the water off a cape (little
+        // land round it) and river mouths score high, a straight open coast low. The best points
+        // get a group of three to six strokes stacked away from the shore, each row shorter and
+        // shifted, and keep WaveGroupGap from other groups; straight coasts get a lone stroke now
+        // and then. No stroke touches land or another. Drawn on the sheet only, in a fixed order,
+        // so the result is deterministic; close-ups replay it.
+        private void DrawWaveAccents()
         {
             int n = CanvasSize;
-            float edge = EdgeRadius / MetresPerPixel - 12f;
-            float centre = n * 0.5f;
-            int[] landSum = LandIntegral();
-            var field = new DistanceField(n);
-            var deepReach = new byte[n * n];
-            Func<int, int, float> distance = (x, y) => m_waterDistance[y * n + x] / DistanceScale;
-            // Distances run to the centre of the nearest land pixel; the coast lies half a pixel out.
-            // Each line further out breaks off more often, as if the pen ran dry, so the ripples fade
-            // with distance while every stroke stays full ink.
-            int seed = m_world.m_seed;
-            for (int i = 0; i < s_ripples.Length; i++)
-            {
-                m_cancel.ThrowIfCancellationRequested();
-                float ring = s_ripples[i];
-                byte deep = (byte)Math.Min(255f, ring * RippleWidth * DistanceScale);
-                field.Compute(j => m_sea[j] != 0 && m_waterDistance[j] >= deep, deepReach, 1f);
-                float reach = ring * (RippleWidth - 1f) + 2.5f;
-                int box = (int)(ring * RippleLandBox);
-                float landNeeded = RippleLandShare * ring * ring;
-                Func<int, int, bool> skip = (x, y) =>
-                {
-                    float dx = x + 1f - centre, dy = y + 1f - centre;
-                    if (dx * dx + dy * dy > edge * edge || m_sea[y * n + x] == 0) return true;
-                    if (deepReach[y * n + x] > reach) return true;
-                    return LandInBox(landSum, x, y, box) < landNeeded;
-                };
-                float gaps = s_rippleGaps[i];
-                int salt = seed + 5 + i;
-                DistanceField.Contour(n, distance, ring + 0.5f, skip, (a, b) =>
-                {
-                    if (gaps < 1f && Noise(a.x / 18f, a.y / 18f, salt) > gaps) return;
-                    m_canvas.Stroke(a.x + 0.5f, a.y + 0.5f, b.x + 0.5f, b.y + 0.5f, Pen);
-                });
-            }
-        }
+            const int cell = 2;
+            int cells = n / cell;
+            var taken = new bool[cells * cells];
+            float centre = n * 0.5f, limit = EdgeRadius / MetresPerPixel * EdgeFraction;
+            int salt = unchecked(m_world.m_seed + 34 * 7919);
 
-        // Summed-area table of the land mask, (n + 1)Â² entries.
-        private int[] LandIntegral()
-        {
-            int n = CanvasSize, stride = n + 1;
-            var sum = new int[stride * stride];
-            for (int y = 1; y <= n; y++)
+            // Candidate points just off the shore, scored.
+            var spots = new List<WaveSpot>();
+            int grid = (int)(n / WaveSpotStep);
+            for (int gy = 0; gy < grid; gy++)
             {
-                int row = 0;
-                for (int x = 1; x <= n; x++)
+                if ((gy & 63) == 0) m_cancel.ThrowIfCancellationRequested();
+                for (int gx = 0; gx < grid; gx++)
                 {
-                    row += m_land[(y - 1) * n + x - 1];
-                    sum[y * stride + x] = sum[(y - 1) * stride + x] + row;
+                    int seed = HashInt(gx, gy, salt);
+                    float x = (gx + 0.5f + (Unit(seed, 1) - 0.5f) * 0.6f) * WaveSpotStep;
+                    float y = (gy + 0.5f + (Unit(seed, 2) - 0.5f) * 0.6f) * WaveSpotStep;
+                    int pixel = PixelAt(x, y);
+                    if (m_land[pixel] != 0 || m_sea[pixel] == 0) continue;
+                    float d = m_waterDistance[pixel] / DistanceScale;
+                    if (d < WaveFirstRow - 0.8f || d > WaveFirstRow + 2.5f) continue;
+                    float dx = x - centre, dy = y - centre;
+                    if (dx * dx + dy * dy > limit * limit) continue;
+                    float score = ShoreScore(x, y);
+                    if (NearRiverMouth(x, y)) score = Mathf.Max(score, 0.8f);
+                    // Shores facing east or west carry the strokes that start at the coast.
+                    if (ShoreBeside(x, y, out _, out _)) score += WaveBesideBonus;
+                    spots.Add(new WaveSpot { m_x = x, m_y = y, m_score = score + Unit(seed, 3) * 0.05f, m_seed = seed, m_order = spots.Count });
                 }
             }
-            return sum;
+            spots.Sort((a, b) => a.m_score != b.m_score ? b.m_score.CompareTo(a.m_score) : a.m_order.CompareTo(b.m_order));
+
+            var groups = new List<Vector2>();
+            foreach (WaveSpot spot in spots)
+            {
+                bool accent = spot.m_score >= WaveAccent;
+                // Straight coasts: a lone stroke now and then, kept further apart.
+                if (!accent && !(Unit(spot.m_seed, 4) < WaveLone)) continue;
+                float gap = accent ? WaveGroupGap : WaveGroupGap * 1.6f;
+                bool crowded = false;
+                foreach (Vector2 other in groups)
+                    if ((other - new Vector2(spot.m_x, spot.m_y)).sqrMagnitude < gap * gap) { crowded = true; break; }
+                if (crowded) continue;
+                bool islet = m_majorDistance[PixelAt(spot.m_x, spot.m_y)] / DistanceScale > m_waterDistance[PixelAt(spot.m_x, spot.m_y)] / DistanceScale + 2f;
+                int strokes = accent ? 3 + Mathf.Min(3, (int)((spot.m_score - WaveAccent) / (1f - WaveAccent) * 4f)) : 1;
+                if (islet) strokes = Mathf.Min(strokes, 2);
+                if (DrawWaveGroup(spot, strokes, taken, cell, cells) > 0) groups.Add(new Vector2(spot.m_x, spot.m_y));
+            }
         }
 
-        private static int LandInBox(int[] sum, int x, int y, int half)
+        private struct WaveSpot
         {
-            int n = CanvasSize, stride = n + 1;
-            int x0 = Math.Max(0, x - half), y0 = Math.Max(0, y - half);
-            int x1 = Math.Min(n, x + half + 1), y1 = Math.Min(n, y + half + 1);
-            return sum[y1 * stride + x1] - sum[y0 * stride + x1] - sum[y1 * stride + x0] + sum[y0 * stride + x0];
+            public float m_x, m_y, m_score;
+            public int m_seed, m_order;
+        }
+
+        // How strongly the shore shapes the water at (x, y), 0 to 1: the share of land on a disc
+        // of WaveShapeRadius round it, which is about half by a straight coast, more in a bay,
+        // inlet or strait and less off a cape; both ends score high.
+        private float ShoreScore(float x, float y)
+        {
+            int land = 0, total = 0;
+            for (int k = 0; k < 16; k++)
+            {
+                float a = k * Mathf.PI / 8f;
+                float c = Mathf.Cos(a), s = Mathf.Sin(a);
+                for (int r = 1; r <= 3; r++)
+                {
+                    float radius = WaveShapeRadius * r / 3f;
+                    total++;
+                    if (m_land[PixelAt(x + c * radius, y + s * radius)] != 0) land++;
+                }
+            }
+            float share = land / (float)total;
+            return Mathf.Clamp01(Mathf.Max((share - 0.45f) / 0.3f, (0.38f - share) / 0.25f));
+        }
+
+        private bool NearRiverMouth(float x, float y)
+        {
+            if (m_riverMask == null) return false;
+            for (int k = 0; k < 8; k++)
+            {
+                float a = k * Mathf.PI / 4f;
+                if (m_riverMask[PixelAt(x + Mathf.Cos(a) * 6f, y + Mathf.Sin(a) * 6f)] != 0) return true;
+            }
+            return false;
+        }
+
+        // A stack of level tildes from the spot away from the shore, each row WaveRowGap further
+        // out, shorter and shifted a little; a row that would touch land or another wave is
+        // nudged sideways, or skipped. Returns how many were inked.
+        private int DrawWaveGroup(WaveSpot spot, int strokes, bool[] taken, int cell, int cells)
+        {
+            // Away from the shore, up or down the sheet as the water opens.
+            float up = WaterAt(new Vector2(spot.m_x, spot.m_y - 4f)), down = WaterAt(new Vector2(spot.m_x, spot.m_y + 4f));
+            float step = down >= up ? WaveRowGap : -WaveRowGap;
+            // Sideways, toward the open water, for nudges.
+            float east = WaterAt(new Vector2(spot.m_x + 4f, spot.m_y)), west = WaterAt(new Vector2(spot.m_x - 4f, spot.m_y));
+            float side = east >= west ? 1f : -1f;
+            var dir = new Vector2(1f, 0f);
+            int inked = 0;
+            for (int k = 0; k < strokes; k++)
+            {
+                int crests = Mathf.Max(1, 3 - k / 2 - (Unit(spot.m_seed, 10 + k) < 0.4f ? 1 : 0));
+                float length = crests * WaveCrest * Vary(spot.m_seed, 20 + k, 0.12f);
+                float shift = (Unit(spot.m_seed, 30 + k) - 0.5f) * WaveCrest;
+                float y = spot.m_y + step * k;
+                bool done = false;
+                // Where the shore lies level with the row, the stroke starts right at it and runs
+                // out to sea, the classic map's whole style.
+                if (ShoreBeside(spot.m_x, y, out float shoreX, out float away))
+                {
+                    float start = shoreX + away * WaveShoreGap;
+                    float end = start + away * length;
+                    var a = new Vector2(Mathf.Min(start, end), y);
+                    var b = new Vector2(Mathf.Max(start, end), y);
+                    var far = new Vector2(end, y);
+                    var mid = new Vector2((start + end) * 0.5f, y);
+                    if (OnSea(a) && OnSea(b) && OnSea(mid) && WaterAt(far) >= WaveShoreClear && WaterAt(mid) >= WaveShoreClear
+                        && !Footprint(taken, cell, cells, a - dir * 2f, b + dir * 2f, 1.5f, false))
+                    {
+                        Footprint(taken, cell, cells, a, b, 1f, true);
+                        WaveStroke(a, dir, length, crests);
+                        inked++;
+                        done = true;
+                    }
+                }
+                for (int nudge = 0; nudge < 4 && !done; nudge++)
+                {
+                    float cx = spot.m_x + shift + side * nudge * 2.5f;
+                    var a = new Vector2(cx - length * 0.5f, y);
+                    var b = new Vector2(cx + length * 0.5f, y);
+                    if (!OnSea(a) || !OnSea(b) || !OnSea(new Vector2(cx, y))) continue;
+                    if (Mathf.Min(WaterAt(a), Mathf.Min(WaterAt(b), WaterAt(new Vector2(cx, y)))) < WaveShoreClear) continue;
+                    if (Footprint(taken, cell, cells, a - dir * 2.5f, b + dir * 2.5f, 1.5f, false)) continue;
+                    Footprint(taken, cell, cells, a, b, 1f, true);
+                    WaveStroke(a, dir, length, crests);
+                    inked++;
+                    done = true;
+                }
+                if (!done && k == 0) return 0;
+            }
+            return inked;
+        }
+
+        // The nearest land level with (x, y) within WaveAnchorReach to the west or east: the x of
+        // the shore's water edge there, and the way out to sea (+1 east, -1 west).
+        private bool ShoreBeside(float x, float y, out float shoreX, out float away)
+        {
+            for (int step = 1; step <= WaveAnchorReach; step++)
+            {
+                if (m_land[PixelAt(x - step, y)] != 0)
+                {
+                    shoreX = Mathf.Floor(x - step) + 1f;
+                    away = 1f;
+                    return true;
+                }
+                if (m_land[PixelAt(x + step, y)] != 0)
+                {
+                    shoreX = Mathf.Floor(x + step);
+                    away = -1f;
+                    return true;
+                }
+            }
+            shoreX = x;
+            away = 0f;
+            return false;
+        }
+
+        // Tests (mark false) or marks the cells of the taken grid along a segment.
+        private static bool Footprint(bool[] taken, int cell, int cells, Vector2 from, Vector2 to, float radius, bool mark)
+        {
+            int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(from, to)));
+            for (int s = 0; s <= steps; s++)
+            {
+                Vector2 q = Vector2.Lerp(from, to, s / (float)steps);
+                int x0 = Mathf.Clamp((int)((q.x - radius) / cell), 0, cells - 1), x1 = Mathf.Clamp((int)((q.x + radius) / cell), 0, cells - 1);
+                int y0 = Mathf.Clamp((int)((q.y - radius) / cell), 0, cells - 1), y1 = Mathf.Clamp((int)((q.y + radius) / cell), 0, cells - 1);
+                for (int cy = y0; cy <= y1; cy++)
+                {
+                    for (int cx = x0; cx <= x1; cx++)
+                    {
+                        if (mark) taken[cy * cells + cx] = true;
+                        else if (taken[cy * cells + cx]) return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        private float WaterAt(Vector2 p) => m_waterDistance[PixelAt(p.x, p.y)] / DistanceScale;
+
+        private bool OnSea(Vector2 p)
+        {
+            int pixel = PixelAt(p.x, p.y);
+            return m_land[pixel] == 0 && m_sea[pixel] != 0;
+        }
+
+        // A tilde from a along dir: crests that rise and dip by WaveLift, running out flat at both
+        // ends, eight points a crest so close-ups show a curve, not a zigzag.
+        private void WaveStroke(Vector2 a, Vector2 dir, float length, int crests)
+        {
+            var up = new Vector2(dir.y, -dir.x);
+            m_points.Clear();
+            int count = crests * 8;
+            for (int i = 0; i <= count; i++)
+            {
+                float u = i / (float)count;
+                float envelope = Mathf.Clamp01(Mathf.Sin(Mathf.PI * u) * 1.6f);
+                float lift = Mathf.Sin(u * crests * Mathf.PI * 2f) * WaveLift * envelope;
+                m_points.Add(a + dir * (u * length) + up * lift);
+            }
+            m_canvas.Polyline(m_points, Pen);
         }
 
         private void DrawFrame()

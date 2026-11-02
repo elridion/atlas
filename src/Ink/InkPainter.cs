@@ -57,6 +57,14 @@ namespace Atlas
         // turn swamps into thickets of heavy lines.
         private const float LakeShore = 1f;
 
+        // Woods: the wood field's edge level (Woods.Build), the lower level the edge line is traced
+        // at, a little outside the wood so the outer crowns stand over it, its pen, and how far
+        // ground fills and open-country glyphs keep from a wood (canvas pixels).
+        private const float WoodEdge = 0.5f;
+        private const float WoodOutline = 0.4f;
+        private const float WoodEdgePen = 1.1f;
+        private const float WoodClearance = 5f;
+
         // Terrain thresholds: metres above the water and height change per metre of slope.
         private const float PeakHeight = 50f;
         private const float DeepNorthPeakHeight = 45f;
@@ -115,6 +123,9 @@ namespace Atlas
         private byte[] m_waterDistance;
         private byte[] m_landDistance;
         private byte[] m_openDistance;
+        // Canvas pixels inside a wood, and each pixel's distance to the nearest of them.
+        private byte[] m_wood;
+        private byte[] m_woodDistance;
 
         private enum Kind : byte
         {
@@ -146,8 +157,9 @@ namespace Atlas
             public float m_x, m_y, m_worldX, m_worldZ, m_above, m_slope, m_roll;
             public int m_pixel, m_seed;
             public Land m_land;
-            public bool m_isLand, m_forest, m_mist, m_lava;
-            public float m_shore, m_water;
+            public bool m_isLand, m_wood, m_mist, m_lava;
+            // Distances to water, to land and to the nearest wood, in canvas pixels.
+            public float m_shore, m_water, m_woodDistance;
         }
 
         private InkPainter(WorldSource world, CancellationToken cancel)
@@ -175,6 +187,7 @@ namespace Atlas
             BuildFields();
             m_cancel.ThrowIfCancellationRequested();
             DrawBackground();
+            DrawWoodEdges();
             PlaceGlyphs();
             m_cancel.ThrowIfCancellationRequested();
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
@@ -276,6 +289,7 @@ namespace Atlas
             int n = CanvasSize;
             m_land = new byte[n * n];
             m_sea = new byte[n * n];
+            m_wood = new byte[n * n];
             float edgeSqr = EdgeRadius * EdgeRadius;
             int size = m_world.m_size;
             for (int y = 0; y < n; y++)
@@ -293,6 +307,7 @@ namespace Atlas
                     if (m_world.Sample(m_coast, wx, wz) > m_world.m_waterLevel)
                     {
                         m_land[pixel] = 1;
+                        if (m_world.Sample(m_world.m_wood, wx, wz) > WoodEdge) m_wood[pixel] = 1;
                         continue;
                     }
                     // Sea if any of the four map pixels around it is sea water.
@@ -313,6 +328,9 @@ namespace Atlas
             m_cancel.ThrowIfCancellationRequested();
             byte open = (byte)Math.Min(255f, OpenWidth * DistanceScale);
             field.Compute(i => m_land[i] == 0 && m_waterDistance[i] >= open, m_openDistance, 1f);
+            m_cancel.ThrowIfCancellationRequested();
+            m_woodDistance = new byte[n * n];
+            field.Compute(i => m_wood[i] != 0, m_woodDistance, 1f);
         }
 
         private bool IsOpenWater(int pixel) => m_sea[pixel] != 0 && m_openDistance[pixel] <= OpenWidth + 1.5f;
@@ -336,7 +354,8 @@ namespace Atlas
             spot.m_land = m_world.m_biome[source];
             spot.m_above = m_world.HeightAt(spot.m_worldX, spot.m_worldZ) - m_world.m_waterLevel;
             spot.m_slope = m_world.SlopeAt(spot.m_worldX, spot.m_worldZ);
-            spot.m_forest = m_world.m_forest[source] > 127;
+            spot.m_wood = m_wood[spot.m_pixel] != 0;
+            spot.m_woodDistance = m_woodDistance[spot.m_pixel];
             spot.m_mist = m_world.m_mist[source] > 127;
             spot.m_lava = m_world.m_lava[source] > 127;
             return spot;
@@ -393,6 +412,17 @@ namespace Atlas
             return true;
         }
 
+        // Whether a tree of the given height, standing at the spot, belongs to a wood of the given
+        // biome: its foot and the middle of its crown both inside, so the outer crowns form the
+        // wood's edge, standing over it by at most a crown's half width.
+        private bool InWood(Spot s, Land land, float height)
+        {
+            if (!s.m_wood || s.m_land != land || s.m_shore < 3f) return false;
+            return IsWoodAt(s.m_x, s.m_y - height * 0.6f) && IsLandColumn(s.m_x, s.m_y, height);
+        }
+
+        private bool IsWoodAt(float x, float y) => m_wood[PixelAt(x, y)] != 0;
+
         private void Add(Spot spot, Kind kind, float size)
         {
             m_glyphs.Add(new Glyph { m_x = spot.m_x, m_y = spot.m_y, m_size = size, m_kind = kind, m_seed = spot.m_seed });
@@ -402,23 +432,23 @@ namespace Atlas
 
         private static int HashInt(int x, int y, int seed) => Atlas.Noise.HashInt(x, y, seed);
 
-        // Every biome but the mountains and the near-blank Deep North has a ground fill of its own,
-        // laid over all of its land, woods included, so biomes can be told apart by the fill alone;
-        // trees and other glyphs are drawn on top and scrape the fill away behind their bodies.
-        // Every pen line is at least Pen wide and full strength: thinner or fainter lines average
-        // away to grey at the opening zoom.
+        // Every biome but the mountains and the near-blank Deep North has a light ground fill of its
+        // own on its open land, never inside a wood, so a wood and the open country around it are
+        // told apart at a glance; the biome wash under the ink tells the biomes apart, so the fills
+        // stay sparse. Every pen line is at least Pen wide and full strength: thinner or fainter
+        // lines average away to grey at the opening zoom.
         private void DrawBackground()
         {
             // Meadows: short tufts of grass.
             Scatter(12f * G, 14, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Meadows || s.m_shore < 3f || !(s.m_roll < 0.45f)) return;
+                if (!IsOpenLand(s, Land.Meadows, 3f) || !(s.m_roll < 0.3f)) return;
                 Grass(s.m_x, s.m_y, G);
             });
-            // Black Forest: scattered stones on the forest floor.
-            Scatter(9f * G, 17, s =>
+            // Black Forest: scattered stones on the open ground between the woods.
+            Scatter(10f * G, 17, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.BlackForest || s.m_shore < 3f || !(s.m_roll < 0.5f)) return;
+                if (!IsOpenLand(s, Land.BlackForest, 3f) || !(s.m_roll < 0.4f)) return;
                 Stone(s.m_x, s.m_y, G, s.m_seed);
             });
             // Swamp: small wavelets of standing water, with flat strokes of still water between.
@@ -429,9 +459,9 @@ namespace Atlas
                 else if (s.m_roll < 0.7f) m_canvas.Stroke(s.m_x - 1.5f * G, s.m_y, s.m_x + 1.5f * G, s.m_y, Pen);
             });
             // Plains: a stipple of fine dots, the dry heath's own tone.
-            Scatter(4f * G, 16, s =>
+            Scatter(5f * G, 16, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Plains || s.m_shore < 2f || !(s.m_roll < 0.6f)) return;
+                if (!IsOpenLand(s, Land.Plains, 2f) || !(s.m_roll < 0.45f)) return;
                 m_canvas.Dot(s.m_x, s.m_y, StippleRadius);
             });
             // Ashlands: dense diagonal hatching darkens the burnt ground. Deliberately a grey tone.
@@ -453,6 +483,10 @@ namespace Atlas
             });
         }
 
+        // Land of the given biome, at least shore pixels from the water and clear of every wood.
+        private static bool IsOpenLand(Spot s, Land land, float shore) =>
+            s.m_isLand && s.m_land == land && s.m_shore >= shore && s.m_woodDistance >= WoodClearance;
+
         // Summits and hilltops are the terrain's real local height maxima, found on vanilla's own
         // map pixels, so the landmarks on the atlas are the ones on the ground: a peak glyph's summit
         // sits on the actual summit, a hill's crown on the actual hilltop.
@@ -470,7 +504,7 @@ namespace Atlas
                     if (above < 3f) continue;
                     Land land = m_world.m_biome[i];
                     bool high = (land == Land.Mountain && above >= PeakHeight) || (land == Land.DeepNorth && above >= DeepNorthPeakHeight);
-                    bool hillCountry = (land == Land.Meadows && m_world.m_forest[i] <= 127) || land == Land.Plains
+                    bool hillCountry = ((land == Land.Meadows || land == Land.Plains) && m_world.m_wood[i] < WoodEdge)
                         || (land == Land.Mountain && above < PeakHeight);
                     if (!high && !hillCountry) continue;
                     int radius = high ? SummitCells : HilltopCells;
@@ -502,7 +536,8 @@ namespace Atlas
                         if (prominence < HillProminence) continue;
                         float width = Mathf.Lerp(9f, 15f, Mathf.Clamp01((prominence - HillProminence) / 25f)) * G;
                         float height = width * 0.42f * Vary(seed, 10, 0.15f);
-                        if (m_landDistance[PixelAt(cx, cy + height)] < width * 0.5f) continue;
+                        int foot = PixelAt(cx, cy + height);
+                        if (m_landDistance[foot] < width * 0.5f || m_woodDistance[foot] < width * 0.5f) continue;
                         m_glyphs.Add(new Glyph { m_x = cx, m_y = cy + height, m_size = width, m_kind = Kind.Hill, m_seed = seed });
                     }
                 }
@@ -569,27 +604,25 @@ namespace Atlas
                 if (NearSummit(s.m_x, s.m_y, width)) return;
                 Add(s, Kind.Peak, width);
             });
-            // Meadows woods: egg-shaped crowns packed so tightly that only the southern edge shows
-            // trunks, the rest hidden behind the row in front.
+            // Woods, one tree family per biome, only inside the woods and wholly within their edge,
+            // so every wood is one clearly bounded mass. Crowns are packed so tightly that only the
+            // southern edge shows trunks, the rest hidden behind the row in front.
+            // Meadows: egg-shaped broadleaf crowns.
             Scatter(5.2f * T, 23, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Meadows || !s.m_forest || s.m_shore < 4f || !(s.m_roll < 0.95f)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 8f * T)) return;
+                if (!InWood(s, Land.Meadows, 8f * T) || !(s.m_roll < 0.95f)) return;
                 Add(s, Kind.Broadleaf, T);
             });
-            // Black Forest: dense pines with a few clearings.
+            // Black Forest: dense pines.
             Scatter(5.5f * T, 24, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.BlackForest || s.m_shore < 4f || !(s.m_roll < 0.9f)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 11f * T)) return;
-                if (Noise(s.m_x / (40f * G), s.m_y / (40f * G), m_world.m_seed) > 0.72f) return;
+                if (!InWood(s, Land.BlackForest, 11f * T) || !(s.m_roll < 0.95f)) return;
                 Add(s, Kind.Conifer, T);
             });
-            // Plains: a few lone round trees where vanilla puts its sparse woods.
-            Scatter(12f * T, 25, s =>
+            // Plains: copses of small round trees where vanilla grows its sparse woods.
+            Scatter(5f * T, 25, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Plains || !s.m_forest || s.m_shore < 3f || !(s.m_roll < 0.5f)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 6f * T)) return;
+                if (!InWood(s, Land.Plains, 6f * T) || !(s.m_roll < 0.9f)) return;
                 Add(s, Kind.PlainsTree, T);
             });
             // Swamp: a few marsh tufts among the water strokes, and some dead trees.
@@ -614,8 +647,7 @@ namespace Atlas
             });
             Scatter(8f * T, 29, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Mistlands || !s.m_mist || s.m_slope >= SpireSlope || s.m_shore < 5f || !(s.m_roll < 0.75f)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 14f * T)) return;
+                if (s.m_slope >= SpireSlope || !InWood(s, Land.Mistlands, 15f * T) || !(s.m_roll < 0.85f)) return;
                 Add(s, Kind.GiantTree, T);
             });
             // Ashlands: a few large smoking volcanoes on the heights, lava cracks in the flows.
@@ -824,7 +856,7 @@ namespace Atlas
             }
         }
 
-        // Summed-area table of the land mask, (n + 1)² entries.
+        // Summed-area table of the land mask, (n + 1)Â² entries.
         private int[] LandIntegral()
         {
             int n = CanvasSize, stride = n + 1;

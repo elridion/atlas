@@ -19,9 +19,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - `src/TablePatches.cs` the `MapTable.OnRead`/`OnWrite` postfixes and the `Minimap.IsOpen` postfix.
 - `src/InteractiveMap.cs` opens vanilla's large map in a nomap world.
 - `src/Snapshot.cs` the recorded exploration and pins, in `Player.m_customData`.
-- `src/Paper.cs` parchment, fog and the ink texture's pixel data (mip chain).
-- `src/Ink/`: `WorldSource.cs` vanilla minimap data, `InkPainter.cs` the drawing pipeline and
-  scatter rules, `Glyphs.cs` the pen glyphs, `InkCanvas.cs` the anti-aliased rasterizer,
+- `src/Paper.cs` parchment, the biome wash, fog and the ink texture's pixel data (mip chain).
+- `src/Ink/`: `WorldSource.cs` vanilla minimap data, `Woods.cs` the wood field, `InkPainter.cs`
+  the drawing pipeline and scatter rules, `WoodEdges.cs` the woods' edge line, `Glyphs.cs` the pen glyphs, `InkCanvas.cs` the anti-aliased rasterizer,
   `DistanceField.cs` distance transform and marching squares, `Noise.cs` hashes and value noise,
   `InkCache.cs` the per-world disk cache.
 - `assets/translations/<Language>.json` (`atlas_*` keys); `tools/make_icon.ps1` generates
@@ -38,8 +38,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   sprite name, checked) must stay readable once released.
 - **Nothing heavy on the main thread.** The main thread only copies vanilla's three minimap textures
   once per world (`WorldSource.Capture`) and uploads finished pixels: the ink sheet once per world
-  (`LoadRawTextureData`, made unreadable after), the 1024² fog once per recording. Painting, the
-  fog, parchment, mips and the cache run on `Task.Run`. Worker code must not call Unity APIs except
+  (`LoadRawTextureData`, made unreadable after), the washed paper once per world, the 2048² fog
+  once per recording. Decoding the world, painting, the wash, the fog, parchment, mips and the
+  cache run on `Task.Run`. Worker code must not call Unity APIs except
   pure math (`Mathf`, `Vector2`); `Mathf.HalfToFloat` is native, hence `WorldSource.HalfToFloat`.
 - **Deterministic drawing.** Glyph placement hashes the world seed, a per-rule salt and the grid
   cell (`Noise`), never a shared `System.Random`, so tuning one rule never moves another's glyphs.
@@ -78,14 +79,31 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   that each scrapes its outline back to parchment before inking: southern glyphs hide northern ones.
 - Filler peaks are packed in staggered rows (16 G across, 9 G down, half-cell stagger) so ranges read as
   one dark mass, as on the classic map; with that overlap the front peak hides the lower half of
-  the one behind, so the shaded wedge has to stay wide near the summit. Forests are packed so
+  the one behind, so the shaded wedge has to stay wide near the summit. Woods are packed so
   densely that only their southern edge shows trunks. Both came from an art review against the
   classic map style that the user liked.
-- Every biome except the mountains has its own ground fill so it can be told apart without trees
- . The Deep North is a deliberate near-blank snowfield with rare
-  chevrons, like the classic map's northern waste: the user chose it over snow stars, drifts,
-  ice shards and cracked ice. The Mistlands' mist is drawn after the glyphs (over the woods),
-  since a fill underneath was scraped away by its dense giant trees.
+- A faint watercolour wash per biome lies under the ink (`Paper.Washed`, darker in woods, pale on
+  water, blurred so it bleeds softly across edges); it replaced the earlier pure-black-ink rule
+  when the user found the map hard to read. The fog keeps the bare parchment, so
+  unexplored land shows no colour. The paper is built from the decoded world each session, not
+  cached; it is ready about a second after the world's minimap.
+- Woods are shapes, not scattered trees (forest and open land must not be "a
+  weird mix"). `Woods.Build` turns vanilla's forest mask (red in Meadows, Black Forest, Plains;
+  green in the Mistlands) into a field: copses and clearings under 12 and 16 map pixels dropped,
+  then blurred, edge at 0.5. Trees stand only where their foot and crown centre are inside, so
+  the outer crowns form the edge; an edge line traced at 0.4 is drawn before the trees, which
+  scrape it away where they overlap, so it shows only in gaps and joins the wood into one mass.
+  A scalloped edge drawn after the trees was tried and looked fuzzy, with a gap inside it. Ground
+  fills and hills keep `WoodClearance` from every wood. Vanilla's mask (`Minimap.GetMaskColor`)
+  marks all Black Forest land as forest, Meadows by `WorldGenerator.InForest`, Plains where the
+  forest factor is under 0.8 and the Mistlands by a smoothstep of it, so the Black Forest is one
+  solid wood; its old noise clearings were invented and are gone. (Cells under water keep the
+  biome colour but no forest, which once made the biome look 60% open in a histogram.)
+- Ground fills on open land stay sparse, since the wash now tells biomes apart. The Deep North is
+  a deliberate near-blank snowfield with rare chevrons, like the classic map's northern waste:
+  the user chose it over snow stars, drifts, ice shards and cracked ice. The Mistlands' mist is
+  drawn after the glyphs (over the woods), since a fill underneath was scraped away by its dense
+  giant trees.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
 - Zoomed in past 1.25 screen pixels per sheet pixel, the view gets a detail tile: every pen call

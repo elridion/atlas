@@ -1,7 +1,8 @@
 # Atlas
 
-Worlds without a map get a hand-inked atlas in the style of a classic fantasy novel: parchment, a
-heavy coastline with ripples on the open sea, and small pen marks for every biome. Only what you
+Worlds without a map get a hand-inked atlas in the style of a classic fantasy novel: parchment
+under a faint watercolour wash, a heavy coastline with ripples on the open sea, woods drawn as
+bounded masses of trees, and small pen marks for every biome. Only what you
 have recorded at a cartography table is drawn; the rest of the world stays blank parchment.
 
 Atlas only works in worlds without a map (the `nomap` world modifier). With the map turned on,
@@ -31,17 +32,21 @@ pins you place appear only after your next visit to a cartography table.
 
 ## The pen marks
 
-Every biome except the mountains has a ground fill of its own (the first mark in each row), so you can tell them apart even where the woods are thin. The Deep North is the exception that proves it: a near-blank snowfield.
+Each biome has a faint colour wash of its own under the ink, a little darker in the woods, so
+you can tell the biomes apart at any zoom. Woods are drawn where the game grows its forests: each
+one a bounded mass of trees inside an edge line, with open land around it. The open land of most
+biomes gets a light ground fill (the first mark in each row); the Deep North is a near-blank
+snowfield.
 
 | Biome | Marks |
 | --- | --- |
 | Ocean | A heavy coastline traced on the game's own water line, ringed by ripple lines that fade out over open water; wave marks further out. Lakes, ponds and swamp pools get a lighter shore |
-| Meadows | Tufts of grass, dense woods of egg-shaped trees, groups of open hills |
-| Black Forest | Stones on the forest floor under dense dark pines, with a few clearings |
+| Meadows | Tufts of grass on open ground, woods of egg-shaped trees, groups of open hills |
+| Black Forest | Stones on open ground, woods of dense dark pines |
 | Swamp | Wavelets and still water, marsh tufts, crooked dead trees |
 | Mountain | Real summits as large peaks with a solid shaded eastern face, smaller peaks massed between them, foothills on the real hilltops below |
-| Plains | A stipple of dry ground, a few lone round trees, open hills |
-| Mistlands | Banks of mist drifting across the woods, giant three-crowned trees, hatched rock pillars |
+| Plains | A stipple of dry ground, copses of small round trees, open hills |
+| Mistlands | Banks of mist drifting across woods of giant three-crowned trees, hatched rock pillars |
 | Ashlands | Burnt, hatched ground, lava cracks and a few large smoking volcanoes |
 | Deep North | A near-blank snowfield crossed by thin bands of ice ridges, high peaks and ice floes in the northern sea |
 | Rivers | Wide rivers show as water between two banks; narrow rivers and streams as ink lines that taper toward their source |

@@ -21,6 +21,7 @@ namespace Atlas
         private static Snapshot s_snapshot;
         private static Task<byte[]> s_cacheTask;
         private static bool s_cacheStarted;
+        private static Task<WorldSource> s_decodeTask;
         private static Task<PaintResult> s_paintTask;
         private static Task<byte[]> s_mipsTask;
         private static InkRecord s_record;
@@ -30,6 +31,11 @@ namespace Atlas
         private static Texture2D s_ink;
 
         private static byte[] s_parchment;
+        // The sheet's paper: the parchment under the biome wash, or the bare parchment if the wash
+        // failed. The fog keeps the bare parchment.
+        private static Task<byte[]> s_washTask;
+        private static bool s_washFailed;
+        private static byte[] s_paperPixels;
         private static byte[] s_fogPixels;
         private static Task<byte[]> s_fogTask;
         private static bool s_fogDirty;
@@ -83,6 +89,7 @@ namespace Atlas
 
             KeepInk(worldUid);
             KeepFog();
+            KeepPaper();
             KeepDetail();
 
             if (!s_view.IsOpen && s_view.ClosedFrames > 2 && OpenPressed() && CanOpen(player)) Open(player);
@@ -165,12 +172,34 @@ namespace Atlas
 
             if (s_paintTask == null)
             {
-                if (s_record != null || !WorldSource.IsReady(Minimap.instance)) return;
-                WorldSource source = WorldSource.Capture(Minimap.instance);
+                if (s_decodeTask == null)
+                {
+                    if (s_record != null || !WorldSource.IsReady(Minimap.instance)) return;
+                    WorldSource captured = WorldSource.Capture(Minimap.instance);
+                    s_decodeTask = Task.Run(() =>
+                    {
+                        captured.Decode();
+                        return captured;
+                    });
+                    return;
+                }
+                if (!s_decodeTask.IsCompleted) return;
+                Task<WorldSource> decoded = s_decodeTask;
+                s_decodeTask = null;
+                if (decoded.IsFaulted)
+                {
+                    s_washFailed = true;
+                    if (!s_ink && s_cacheTask == null) Fail(decoded.Exception);
+                    else Jotunn.Logger.LogWarning($"The atlas could not read the world: {decoded.Exception?.GetBaseException()}");
+                    s_paintTask = Task.FromResult<PaintResult>(null);
+                    return;
+                }
+                WorldSource source = decoded.Result;
                 CancellationToken cancel = s_cancel.Token;
+                int seed = source.m_seed;
+                s_washTask = Task.Run(() => Paper.Washed(Paper.Parchment(seed), source));
                 s_paintTask = Task.Run(() =>
                 {
-                    source.Decode();
                     var record = new InkRecord();
                     byte[] ink = InkPainter.Paint(source, cancel, record);
                     InkCache.Save(worldUid, source.m_seed, ink);
@@ -239,7 +268,7 @@ namespace Atlas
                 }
                 ShowDetail(done.Result, s_detailPending, s_detailPendingScale);
             }
-            if (!s_view.IsOpen || s_record == null || s_parchment == null || s_detailBroken) return;
+            if (!s_view.IsOpen || s_record == null || s_paperPixels == null || s_detailBroken) return;
             if (!s_view.DetailWanted(out RectInt visible, out int scale))
             {
                 s_view.HideDetail();
@@ -261,10 +290,10 @@ namespace Atlas
             if (right <= left || bottom <= top) return;
             var region = new RectInt(left, top, right - left, bottom - top);
             InkRecord record = s_record;
-            byte[] parchment = s_parchment;
+            byte[] paper = s_paperPixels;
             s_detailPending = region;
             s_detailPendingScale = scale;
-            s_detailTask = Task.Run(() => DetailTile.Render(record, parchment, region.x, region.y, region.width, region.height, scale));
+            s_detailTask = Task.Run(() => DetailTile.Render(record, paper, region.x, region.y, region.width, region.height, scale));
         }
 
         private static void ShowDetail(byte[] rgba, RectInt region, int scale)
@@ -323,20 +352,37 @@ namespace Atlas
             });
         }
 
+        // Uploads the sheet's paper once the wash is done, or the bare parchment if it failed.
+        private static void KeepPaper()
+        {
+            if (s_washTask != null && s_washTask.IsCompleted)
+            {
+                Task<byte[]> done = s_washTask;
+                s_washTask = null;
+                if (done.IsFaulted)
+                {
+                    Jotunn.Logger.LogWarning($"The atlas could not lay its colour wash: {done.Exception?.GetBaseException()}");
+                    s_washFailed = true;
+                }
+                else s_paperPixels = done.Result;
+            }
+            if (s_paper) return;
+            if (s_paperPixels == null && s_washFailed) s_paperPixels = s_parchment;
+            if (s_paperPixels == null) return;
+            int size = Paper.FogSize;
+            s_paper = new Texture2D(size, size, TextureFormat.RGB24, mipChain: false)
+            {
+                name = "Atlas paper",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            s_paper.LoadRawTextureData(s_paperPixels);
+            s_paper.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+        }
+
         private static void UploadFog()
         {
             int size = Paper.FogSize;
-            if (!s_paper)
-            {
-                s_paper = new Texture2D(size, size, TextureFormat.RGB24, mipChain: false)
-                {
-                    name = "Atlas paper",
-                    wrapMode = TextureWrapMode.Clamp,
-                    filterMode = FilterMode.Bilinear,
-                };
-                s_paper.LoadRawTextureData(s_parchment);
-                s_paper.Apply(updateMipmaps: false, makeNoLongerReadable: true);
-            }
             if (!s_fog)
             {
                 s_fog = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false)
@@ -364,8 +410,12 @@ namespace Atlas
             s_snapshot = null;
             s_cacheTask = null;
             s_cacheStarted = false;
+            s_decodeTask = null;
             s_paintTask = null;
             s_mipsTask = null;
+            s_washTask = null;
+            s_washFailed = false;
+            s_paperPixels = null;
             s_record = null;
             s_inkFailed = false;
             s_detailTask = null;

@@ -72,6 +72,8 @@ namespace Atlas
         public byte[] m_forest;
         public byte[] m_mist;
         public byte[] m_lava;
+        // The woods as a smooth field, edge at 0.5 (Woods.Build).
+        public float[] m_wood;
         // Rivers and streams from the world generator. The minimap's 12 m pixels lose the narrow
         // ones (a stream's channel is about 20 m wide), so they are drawn from their courses.
         public readonly List<RiverPath> m_rivers = new List<RiverPath>();
@@ -207,6 +209,7 @@ namespace Atlas
             m_mask = null;
             m_halfHeights = null;
             m_floatHeights = null;
+            m_wood = Woods.Build(this);
         }
 
         // IEEE half to float in plain C#: Mathf.HalfToFloat is a native call, not promised to be

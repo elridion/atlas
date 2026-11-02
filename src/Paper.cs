@@ -26,6 +26,36 @@ namespace Atlas
         // Fog is lifted inside this band at the world edge, so the frame always shows.
         private const float FrameBand = 120f;
 
+        // The biome wash: per biome (in Land order) a tint and how far the paper is moved towards
+        // it, the extra share in the woods, and the blur passes (each about 10 m) that soften it.
+        private struct Tint
+        {
+            public Color32 m_color;
+            public float m_strength;
+
+            public Tint(byte r, byte g, byte b, float strength)
+            {
+                m_color = new Color32(r, g, b, 255);
+                m_strength = strength;
+            }
+        }
+
+        private static readonly Tint[] s_tints =
+        {
+            new Tint(140, 170, 180, 0.18f), // Ocean (land vanilla files as ocean, rare)
+            new Tint(150, 180, 90, 0.24f),  // Meadows
+            new Tint(85, 110, 65, 0.26f),   // Black Forest
+            new Tint(120, 105, 65, 0.28f),  // Swamp
+            new Tint(205, 205, 215, 0.3f),  // Mountain
+            new Tint(225, 185, 95, 0.24f),  // Plains
+            new Tint(120, 105, 135, 0.26f), // Mistlands
+            new Tint(165, 70, 50, 0.26f),   // Ashlands
+            new Tint(242, 246, 250, 0.4f),  // Deep North
+        };
+        private static readonly Tint s_water = new Tint(150, 180, 185, 0.12f);
+        private const float WoodWash = 0.1f;
+        private const int WashBlur = 3;
+
         public static byte[] Parchment(int seed)
         {
             int n = FogSize;
@@ -47,6 +77,56 @@ namespace Atlas
                     rgb[i + 1] = ToByte(s_paper.g * Mathf.Pow(shade, 1.1f));
                     rgb[i + 2] = ToByte(s_paper.b * Mathf.Pow(shade, 1.35f));
                 }
+            }
+            return rgb;
+        }
+
+        // The parchment under a faint watercolour wash, one tint per biome (darker in the woods,
+        // pale blue on water), so biomes read apart at every zoom while the ink stays black. The
+        // tints are blurred, so they bleed softly across biome edges and the coast as a brush
+        // would. The fog keeps the bare parchment, so unexplored land shows no colour either.
+        public static byte[] Washed(byte[] parchment, WorldSource world)
+        {
+            int n = FogSize;
+            float metres = 2f * InkPainter.HalfExtent / n;
+            float edgeSqr = InkPainter.EdgeRadius * InkPainter.EdgeRadius;
+            var red = new float[n * n];
+            var green = new float[n * n];
+            var blue = new float[n * n];
+            var strength = new float[n * n];
+            for (int y = 0; y < n; y++)
+            {
+                float wz = (y + 0.5f) * metres - InkPainter.HalfExtent;
+                for (int x = 0; x < n; x++)
+                {
+                    float wx = (x + 0.5f) * metres - InkPainter.HalfExtent;
+                    if (wx * wx + wz * wz >= edgeSqr) continue;
+                    int i = y * n + x;
+                    bool land = world.HeightAt(wx, wz) > world.m_waterLevel;
+                    Tint tint = land ? s_tints[(int)world.m_biome[world.Index(wx, wz)]] : s_water;
+                    float s = tint.m_strength;
+                    if (land && world.Sample(world.m_wood, wx, wz) > 0.5f) s += WoodWash;
+                    red[i] = tint.m_color.r * s;
+                    green[i] = tint.m_color.g * s;
+                    blue[i] = tint.m_color.b * s;
+                    strength[i] = s;
+                }
+            }
+            for (int pass = 0; pass < WashBlur; pass++)
+            {
+                Blur(red, n);
+                Blur(green, n);
+                Blur(blue, n);
+                Blur(strength, n);
+            }
+            var rgb = new byte[parchment.Length];
+            for (int i = 0; i < n * n; i++)
+            {
+                float keep = 1f - strength[i];
+                int p = i * 3;
+                rgb[p] = ToByte(parchment[p] * keep + red[i]);
+                rgb[p + 1] = ToByte(parchment[p + 1] * keep + green[i]);
+                rgb[p + 2] = ToByte(parchment[p + 2] * keep + blue[i]);
             }
             return rgb;
         }
@@ -124,7 +204,8 @@ namespace Atlas
             }
         }
 
-        private static void Blur(float[] values, int n)
+        // A 3x3 box blur, rows then columns.
+        public static void Blur(float[] values, int n)
         {
             var row = new float[n];
             for (int y = 0; y < n; y++)

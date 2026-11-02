@@ -1,0 +1,5 @@
+{
+  "atlas_blank": "Kartastosi on vielä tyhjä. Tallenna löytösi kartografin pöydällä.",
+  "atlas_drawing": "Kartastoa piirretään vielä musteella. Yritä hetken päästä uudelleen.",
+  "atlas_failed": "Kartastoa ei voitu piirtää. Yksityiskohdat löytyvät lokista."
+}

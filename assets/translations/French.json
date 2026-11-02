@@ -1,0 +1,5 @@
+{
+  "atlas_blank": "Ton atlas est encore vierge. Consigne tes découvertes à une table de cartographie.",
+  "atlas_drawing": "L'atlas est encore en train d'être tracé à l'encre. Réessaie dans un instant.",
+  "atlas_failed": "L'atlas n'a pas pu être dessiné. Le journal contient les détails."
+}

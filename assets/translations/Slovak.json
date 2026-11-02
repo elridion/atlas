@@ -1,0 +1,5 @@
+{
+  "atlas_blank": "Tvoj atlas je zatiaľ prázdny. Zaznamenaj svoje objavy pri kartografickom stole.",
+  "atlas_drawing": "Atlas sa ešte kreslí atramentom. Skús to o chvíľu znova.",
+  "atlas_failed": "Atlas sa nepodarilo nakresliť. Podrobnosti nájdeš v logu."
+}

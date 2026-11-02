@@ -1,0 +1,5 @@
+{
+  "atlas_blank": "Your atlas is still blank. Record your discoveries at a cartography table.",
+  "atlas_drawing": "The atlas is still being inked. Try again in a moment.",
+  "atlas_failed": "The atlas could not be drawn. The log has the details."
+}

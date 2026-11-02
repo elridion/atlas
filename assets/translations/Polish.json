@@ -1,0 +1,5 @@
+{
+  "atlas_blank": "Twój atlas jest jeszcze pusty. Zapisz swoje odkrycia przy stole kartograficznym.",
+  "atlas_drawing": "Atlas jest jeszcze rysowany atramentem. Spróbuj ponownie za chwilę.",
+  "atlas_failed": "Nie udało się narysować atlasu. Szczegóły znajdziesz w logu."
+}

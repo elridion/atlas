@@ -50,8 +50,8 @@ namespace Atlas
                         };
                         if (read[i].m_kind < 0 || read[i].m_kind >= SeaGlyphs.Names.Length) return null;
                     }
-                    // Ink coverage, then the peaks' two body masks.
-                    var ink = new byte[InkPainter.CanvasSize * InkPainter.CanvasSize * 3];
+                    // Ink coverage, then the body masks (InkPainter.Paint).
+                    var ink = new byte[InkPainter.CanvasSize * InkPainter.CanvasSize * InkPainter.SheetPlanes];
                     using (var zip = new GZipStream(file, CompressionMode.Decompress))
                     {
                         int done = 0;

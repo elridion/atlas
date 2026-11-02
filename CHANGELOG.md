@@ -43,8 +43,17 @@
   from the water round it. A monster shows only once its stretch of sea is mostly explored, and then whole,
   never cut in half by the edge of the unexplored parchment.
 - "Read map" at a cartography table opens the game's own interactive map, where you can place and
-  edit pins. Your pins appear on the atlas the next time you record your discoveries, inked black
-  on a thin parchment outline, their names set beside them as on a printed map and giving way where pins crowd, so they stand clear of the map.
+  edit pins. Your pins appear on the atlas the next time you record your discoveries, drawn with
+  the map's own pen: a campfire, a longhouse, Thor's hammer Mjolnir, an open circle, a dolmen for
+  the portal icon, a rune-carved memorial stone where you died, and boss, trader and other icons
+  traced in outline. The game's own marks are drawn as map signs too: your bed, your last
+  death, a horned skull for a boss's altar, a barrow, a cave mouth and a tower for Hildir's
+  requests, a stone circle for the Sacrificial Stones, a bag for Haldor, a tent for Hildir's
+  camp and a cauldron for the Bog Witch; other places the game marks, such as the Forge of
+  Potential, are traced in outline. Each pin is filled in the colour of the biome it stands in and
+  the ground's pen marks break off round it, so it reads on the darkest woods. Names are
+  lettered beside their pins on the clearest ground round them, the pen lines breaking off round
+  their letters, and give way where pins crowd; checked pins are struck through.
 - The atlas is drawn once per world in the background and kept, so opening it never stalls the game.
 - Zooming in redraws the part in view at that zoom from the world itself: coasts and wood edges
   follow the land to within a few metres, and woods fill with more, finer trees. Close-ups are drawn

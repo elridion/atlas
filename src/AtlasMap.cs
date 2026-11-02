@@ -26,6 +26,8 @@ namespace Atlas
         private static Task<PaintResult> s_paintTask;
         private static Task<byte[]> s_mipsTask;
         private static InkRecord s_record;
+        // The sheet's ink density, for placing pin names on clear ground.
+        private static InkDensity s_density;
         // Cancelled when the world changes, so a half-finished drawing for the old world stops.
         private static CancellationTokenSource s_cancel = new CancellationTokenSource();
         private static bool s_inkFailed;
@@ -127,7 +129,7 @@ namespace Atlas
                 player.Message(MessageHud.MessageType.Center, s_inkFailed ? "$atlas_failed" : "$atlas_drawing");
                 return;
             }
-            s_view.Show(s_paper, s_ink, s_fog, s_snapshot);
+            s_view.Show(s_paper, s_ink, s_fog, s_snapshot, s_density, s_source);
         }
 
         private static bool OpenPressed() => ZInput.GetButtonDown("Map") || JoyMapPressed();
@@ -162,13 +164,17 @@ namespace Atlas
                 s_cacheTask = Task.Run(() =>
                 {
                     byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks);
-                    return ink == null ? null : new CachedSheet { m_mips = Paper.InkWithMips(ink, marks), m_marks = marks };
+                    return ink == null ? null : new CachedSheet { m_mips = Paper.InkWithMips(ink, marks), m_marks = marks, m_density = InkDensity.FromSheet(ink) };
                 });
             }
             if (s_cacheTask != null && s_cacheTask.IsCompleted)
             {
                 if (s_cacheTask.IsFaulted) Jotunn.Logger.LogWarning($"The cached atlas could not be loaded: {s_cacheTask.Exception?.GetBaseException()}");
-                else if (s_cacheTask.Result != null && !s_ink) UploadInk(s_cacheTask.Result.m_mips, s_cacheTask.Result.m_marks);
+                else if (s_cacheTask.Result != null && !s_ink)
+                {
+                    UploadInk(s_cacheTask.Result.m_mips, s_cacheTask.Result.m_marks);
+                    s_density = s_cacheTask.Result.m_density;
+                }
                 s_cacheTask = null;
             }
             if (s_mipsTask != null && s_mipsTask.IsCompleted)
@@ -215,7 +221,7 @@ namespace Atlas
                     var record = new InkRecord();
                     byte[] ink = InkPainter.Paint(source, cancel, record);
                     InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
-                    return new PaintResult { m_ink = ink, m_record = record };
+                    return new PaintResult { m_ink = ink, m_record = record, m_density = InkDensity.FromSheet(ink) };
                 });
                 return;
             }
@@ -231,6 +237,7 @@ namespace Atlas
             }
             if (painted.Result == null) return;
             s_record = painted.Result.m_record;
+            if (s_density == null) s_density = painted.Result.m_density;
             byte[] sheet = painted.Result.m_ink;
             InkRecord record = painted.Result.m_record;
             s_paintTask = Task.FromResult<PaintResult>(null);
@@ -241,12 +248,14 @@ namespace Atlas
         {
             public byte[] m_ink;
             public InkRecord m_record;
+            public InkDensity m_density;
         }
 
         private sealed class CachedSheet
         {
             public byte[] m_mips;
             public SeaMark[] m_marks;
+            public InkDensity m_density;
         }
 
         private static void Fail(AggregateException error)
@@ -379,6 +388,7 @@ namespace Atlas
             s_washFailed = false;
             s_wash = null;
             s_record = null;
+            s_density = null;
             s_inkFailed = false;
             s_tiles.Clear();
             s_sparkles.Clear();

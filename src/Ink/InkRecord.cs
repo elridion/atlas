@@ -69,7 +69,8 @@ namespace Atlas
             public InkLayer m_layer;
             // The glyph the call belongs to (an index into m_groupFeet), or -1.
             public int m_group;
-            // A polygon erase that marks a peak's body (InkCanvas.m_markBody).
+            // A polygon erase that marks a peak's or spire's body (InkCanvas.m_markBody), or the
+            // mask a tint raises.
             public BodyKind m_body;
             public float m_a, m_b, m_c, m_d, m_e, m_f;
         }

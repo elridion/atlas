@@ -24,6 +24,17 @@ namespace Atlas
             AccessTools.FieldRefAccess<Minimap, BitArray>("m_exploredOthers");
         private static readonly AccessTools.FieldRef<Minimap, List<Minimap.PinData>> s_pins =
             AccessTools.FieldRefAccess<Minimap, List<Minimap.PinData>>("m_pins");
+        // The game's location pins (the Sacrificial Stones, traders, the Forge of Potential): kept
+        // in m_pins but not saved, as vanilla adds them again each session, so the saved filter
+        // alone left them off the atlas.
+        private static readonly AccessTools.FieldRef<Minimap, Dictionary<Vector3, Minimap.PinData>> s_locationPins =
+            AccessTools.FieldRefAccess<Minimap, Dictionary<Vector3, Minimap.PinData>>("m_locationPins");
+        // The profile's pins, the bed (spawn point) and the last death, are not saved either:
+        // vanilla rebuilds them from the player profile (UpdateProfilePins).
+        private static readonly AccessTools.FieldRef<Minimap, Minimap.PinData> s_spawnPin =
+            AccessTools.FieldRefAccess<Minimap, Minimap.PinData>("m_spawnPointPin");
+        private static readonly AccessTools.FieldRef<Minimap, Minimap.PinData> s_deathPin =
+            AccessTools.FieldRefAccess<Minimap, Minimap.PinData>("m_deathPin");
 
         public struct Pin
         {
@@ -56,9 +67,14 @@ namespace Atlas
                 m_explored = new BitArray(s_explored(minimap)),
             };
             snapshot.m_explored.Or(s_exploredOthers(minimap));
+            var locations = new HashSet<Minimap.PinData>();
+            Dictionary<Vector3, Minimap.PinData> located = s_locationPins(minimap);
+            if (located != null) locations.UnionWith(located.Values);
+            if (s_spawnPin(minimap) != null) locations.Add(s_spawnPin(minimap));
+            if (s_deathPin(minimap) != null) locations.Add(s_deathPin(minimap));
             foreach (Minimap.PinData pin in s_pins(minimap))
             {
-                if (pin == null || !pin.m_save || !pin.m_icon) continue;
+                if (pin == null || !pin.m_icon || !(pin.m_save || locations.Contains(pin))) continue;
                 snapshot.m_pins.Add(new Pin
                 {
                     m_position = pin.m_pos,

@@ -83,6 +83,14 @@ namespace Atlas
         // Grey ash clouds over the Ashlands, in blotches of about AshScale metres.
         private static readonly Tint s_ash = new Tint(92, 86, 82, 0.45f);
         private const float AshScale = 700f;
+        // The body of a Mistlands spire (BodyKind.Mist), as a peak's body takes the mountains'
+        // wash: the Mistlands' own folium, a little deeper and greyer (dulled with a touch of soot)
+        // and laid a little stronger, so the spire reads as rock of that land and stands out from
+        // the ground wash round it, even in a wood (0.26 plus WoodWash). On clean paper it comes
+        // to about (181, 164, 155) against the ground's (204, 185, 167) and the wood's (193, 175,
+        // 163): still a thin glaze, a muted mauve-grey, so the spire's black wedge and pen keep
+        // the contrast and the range does not read as a dark blot at the opening zoom.
+        private static readonly Tint s_mistRock = new Tint(108, 94, 122, 0.4f);
         private const float WoodWash = 0.1f;
         private const int WashBlur = 3;
         // How much of the water's blue a swamp pool keeps at full wetness.
@@ -535,35 +543,43 @@ namespace Atlas
             return rivers;
         }
 
-        // RGBA ink for every mip level, as LoadRawTextureData expects it.
-        // The colour a peak's body is filled with: the mountains' wash on clean paper. Peaks are
-        // drawn in the mountains' colour strictly, whatever biome their bodies reach over (user,
-        //).
-        public static Color32 PeakColor => Glazed(Land.Mountain);
+        // The glaze a body of this kind is filled with: the mountains' or the Deep North's wash,
+        // or the Mistlands' rock (s_mistRock). Bodies take it strictly, whatever biome they reach
+        // over (peaks drawn in the mountains' colour).
+        private static Tint BodyTint(BodyKind kind)
+        {
+            switch (kind)
+            {
+                case BodyKind.North: return s_tints[(int)Land.DeepNorth];
+                case BodyKind.Mist: return s_mistRock;
+                default: return s_tints[(int)Land.Mountain];
+            }
+        }
+
+        // A body's glaze on clean paper.
+        public static Color32 BodyColor(BodyKind kind) => Glazed(BodyTint(kind));
+
+        // A pin's body: the wash of the biome it stands in on clean paper, as a peak's body takes
+        // the mountains', or the water's on water.
+        public static Color32 PinBodyColor(Land land, bool water)
+        {
+            if (!water) return Glazed(land);
+            Color32 p = PaperColor;
+            WaterColor(p.r, p.g, p.b, out float r, out float g, out float b);
+            return new Color32(ToByte(r), ToByte(g), ToByte(b), 255);
+        }
 
         // A biome's wash on clean paper.
-        private static Color32 Glazed(Land land)
+        private static Color32 Glazed(Land land) => Glazed(s_tints[(int)land]);
+
+        // A glaze on clean paper.
+        private static Color32 Glazed(Tint t)
         {
-            Tint t = s_tints[(int)land];
             float s = t.m_strength;
             return new Color32(
                 ToByte(PaperColor.r * (1f - s + s * Filter(t.m_color.r, PaperColor.r))),
                 ToByte(PaperColor.g * (1f - s + s * Filter(t.m_color.g, PaperColor.g))),
                 ToByte(PaperColor.b * (1f - s + s * Filter(t.m_color.b, PaperColor.b))), 255);
-        }
-
-        // The same for a painted sheet: ink coverage followed by the body mask (InkPainter.Paint),
-        // with the wash of its sea illustrations (marks, or null for none).
-        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks)
-        {
-            int n = InkPainter.CanvasSize * InkPainter.CanvasSize;
-            var ink = new byte[n];
-            var body = new byte[n];
-            var north = new byte[n];
-            Buffer.BlockCopy(sheet, 0, ink, 0, n);
-            if (sheet.Length >= 2 * n) Buffer.BlockCopy(sheet, n, body, 0, n);
-            if (sheet.Length >= 3 * n) Buffer.BlockCopy(sheet, 2 * n, north, 0, n);
-            return InkWithMips(ink, body, north, marks);
         }
 
         // The sea wash glazed over a colour, amount (0 to 1, SeaWash.At) of its strength.
@@ -597,25 +613,56 @@ namespace Atlas
             b = wb - (wb - sb) / alpha;
         }
 
-        // The mountains' wash glazed over a parchment colour, for peak bodies in close-ups.
-        public static void PeakGlaze(float r, float g, float b, bool north, out float pr, out float pg, out float pb)
+        // A spire's body on the sheet, as SeaInk lays the sea wash: the colour and opacity that,
+        // over the Mistlands' ground wash on clean paper, give exactly the rock's glaze there
+        // (BodyColor). Laid opaque as a peak's body is, the rock was its clean-paper colour on
+        // a sheet whose Mistlands are darkened by stains and patina, so it read lighter and
+        // lilac there while close-ups (BodyGlaze over the stained paper) show it deeper than the
+        // ground; laid so, the sheet darkens the paper under it as the close-ups do. A peak's
+        // body stays opaque: the ground round it is mostly the same mountain wash.
+        private static void MistInk(out float alpha, out float r, out float g, out float b)
         {
-            Tint t = s_tints[(int)(north ? Land.DeepNorth : Land.Mountain)];
+            Color32 ground = Glazed(Land.Mistlands), rock = BodyColor(BodyKind.Mist);
+            alpha = Math.Max(1f - rock.r / (float)ground.r, Math.Max(1f - rock.g / (float)ground.g, 1f - rock.b / (float)ground.b));
+            if (alpha <= 0f)
+            {
+                r = g = b = 0f;
+                return;
+            }
+            r = ground.r - (ground.r - rock.r) / alpha;
+            g = ground.g - (ground.g - rock.g) / alpha;
+            b = ground.b - (ground.b - rock.b) / alpha;
+        }
+
+        // A body's glaze over a parchment colour, for peak and spire bodies in close-ups.
+        public static void BodyGlaze(float r, float g, float b, BodyKind kind, out float pr, out float pg, out float pb)
+        {
+            Tint t = BodyTint(kind);
             float s = t.m_strength;
             pr = r * (1f - s + s * Filter(t.m_color.r, PaperColor.r));
             pg = g * (1f - s + s * Filter(t.m_color.g, PaperColor.g));
             pb = b * (1f - s + s * Filter(t.m_color.b, PaperColor.b));
         }
 
-        // RGBA ink for every mip level, as LoadRawTextureData expects it: the ink over peak bodies
-        // filled with PeakColor. Levels are averaged premultiplied, so ink and body mix rightly.
-        public static byte[] InkWithMips(byte[] ink, byte[] body, byte[] north, IList<SeaMark> marks)
+        // RGBA ink for every mip level, as LoadRawTextureData expects it, from a painted sheet: ink
+        // coverage, then the body masks in BodyKind order (InkPainter.Paint), each body filled
+        // with its BodyColor under the ink (a spire's as a glaze, MistInk), with the wash of its sea illustrations (marks, or null
+        // for none). The planes are read in place, not copied out: each is 16 MB. Levels are
+        // averaged premultiplied, so ink and body mix rightly.
+        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks)
         {
             int n = InkPainter.CanvasSize;
+            int plane = n * n;
             int total = 0;
             for (int size = n; size >= 1; size /= 2) total += size * size;
             var data = new byte[total * 4];
-            Color32 peak = PeakColor, northPeak = Glazed(Land.DeepNorth);
+            Color32 peak = BodyColor(BodyKind.Mountain), northPeak = BodyColor(BodyKind.North);
+            MistInk(out float mistAlpha, out float mistR, out float mistG, out float mistB);
+            // A sheet missing a plane has no body of that kind.
+            int bodyAt = sheet.Length >= 2 * plane ? plane : -1;
+            int northAt = sheet.Length >= 3 * plane ? 2 * plane : -1;
+            int mistAt = sheet.Length >= 4 * plane ? 3 * plane : -1;
+            byte[] ink = sheet;
             SeaInk(out float seaAlpha, out float seaR, out float seaG, out float seaB);
             // Premultiplied RGBA of the current level, rows from the south.
             var level = new byte[n * n * 4];
@@ -624,14 +671,17 @@ namespace Atlas
                 int from = (n - 1 - y) * n;
                 for (int x = 0; x < n; x++)
                 {
-                    float a = ink[from + x] / 255f;
-                    float m = body != null ? body[from + x] / 255f : 0f, q = north != null ? north[from + x] / 255f : 0f;
-                    float mu = m * (1f - a), qu = q * (1f - a);
+                    int i = from + x;
+                    float a = ink[i] / 255f;
+                    float m = bodyAt >= 0 ? sheet[bodyAt + i] / 255f : 0f;
+                    float q = northAt >= 0 ? sheet[northAt + i] / 255f : 0f;
+                    float k = mistAt >= 0 ? sheet[mistAt + i] / 255f : 0f;
+                    float mu = m * (1f - a), qu = q * (1f - a), ku = k * mistAlpha * (1f - a);
                     int o = (y * n + x) * 4;
-                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + InkColor.r * a);
-                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + InkColor.g * a);
-                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + InkColor.b * a);
-                    level[o + 3] = ToByte(Math.Min(1f, mu + qu + a) * 255f);
+                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + InkColor.r * a);
+                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + InkColor.g * a);
+                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + InkColor.b * a);
+                    level[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + a) * 255f);
                 }
             }
             // The sea illustrations' wash under their ink. They stand in open water far from any

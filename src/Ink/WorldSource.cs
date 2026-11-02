@@ -569,6 +569,16 @@ namespace Atlas
 
         public float HeightAt(float wx, float wz) => Sample(m_height, wx, wz);
 
+        public Land LandAt(float wx, float wz) => m_biome[Index(wx, wz)];
+
+        // Water as the sheet washes it: swamp pools away from the sea and the Mistlands' raised
+        // pools read as ground.
+        public bool IsWaterAt(float wx, float wz)
+        {
+            if (HeightAt(wx, wz) > m_waterLevel || IsMistPool(wx, wz)) return false;
+            return LandAt(wx, wz) != Land.Swamp || IsSwampSea(wx, wz);
+        }
+
         // Bilinear sample of any grid laid out like the source maps.
         public float Sample(float[] grid, float wx, float wz)
         {

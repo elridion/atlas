@@ -25,6 +25,7 @@ internal static class Program
     {
         s_atlas = Assembly.LoadFrom(Environment.GetEnvironmentVariable("ATLAS_DLL") ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Atlas.dll"));
         if (args[0] == "--seacat") return SeaCatalogue(args[1]);
+        if (args[0] == "--pincat") return PinCatalogue(args[1]);
         string dir = args[0], outDir = args[1];
         Directory.CreateDirectory(outDir);
         var sw = Stopwatch.StartNew();
@@ -206,6 +207,7 @@ internal static class Program
             Layer("layer-ink.png", 0);
             Layer("layer-body.png", n);
             Layer("layer-north.png", 2 * n);
+            if (sheet.Length >= 4 * n) Layer("layer-mist.png", 3 * n);
             byte[] landWash = (byte[])wash.GetType().GetField("m_land").GetValue(wash);
             SaveRgb(Path.Combine(outDir, "layer-landwash.png"), landWash, fog);
             SaveRgb(Path.Combine(outDir, "layer-sheetwash.png"), washed, fog);
@@ -348,6 +350,27 @@ internal static class Program
                     System.Console.WriteLine($"ISLET {(x + l / 2) * mpp - half:F0} {half - y * mpp:F0} len {l:F1} crests {Get(wv, "m_crests")}");
                 }
             }
+            else if (p[0].StartsWith("pins"))
+            {
+                // pinsNAME:wx:wz:scale renders 3x3 tiles as tilesNAME does and lays a fixed set of
+                // test pins and names over them as the atlas window does: pen glyphs with paper
+                // bodies, names placed by PinLayout on the clearest ground. One output pixel is one
+                // canvas unit. A stand-in serif font replaces Valheim's. pinsbareNAME leaves out the
+                // gap round the names' letters.
+                float wx = float.Parse(p[1]), wz = float.Parse(p[2]);
+                int scale = int.Parse(p[3]), tileSize = 256 / scale;
+                int tx0 = (int)((wx + half) / mpp) / tileSize - 1, ty0 = (int)((half - wz) / mpp) / tileSize - 1;
+                var all = new byte[768 * 768 * 4];
+                for (int ty = 0; ty < 3; ty++)
+                    for (int tx = 0; tx < 3; tx++)
+                    {
+                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None });
+                        for (int y = 0; y < 256; y++)
+                            Buffer.BlockCopy(tile, y * 1024, all, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
+                    }
+                DrawPins(all, 768, tx0 * tileSize, ty0 * tileSize + 3 * tileSize, scale, source, sheet, !p[0].StartsWith("pinsbare"), washed, fog);
+                Save(Path.Combine(outDir, p[0] + ".png"), all, 768, 768, 1);
+            }
             else if (p[0] == "overview")
             {
                 var rgba = Sheet(inkMips, washed, fog, 0, 0, canvas, 1);
@@ -365,6 +388,270 @@ internal static class Program
             System.Console.WriteLine($"{p[0]} {sw.ElapsedMilliseconds} ms");
         }
         return 0;
+    }
+
+    // --pincat <png>: every pen-drawn pin as a table. Each row is one glyph, with its vanilla pin,
+    // the glyph four times enlarged on paper, then at its size on screen (26 units) in every
+    // biome, over a dense hatching that stands for woods, so the body's fill and its break in
+    // the terrain ink show. A last row notes the icons traced from their sprites in game.
+    static int PinCatalogue(string path)
+    {
+        const int size = 26, big = 3, over = 4, cell = 56, nameWidth = 230, bigCell = size * big + 16;
+        Type kind = T("Atlas.PinGlyph"), land = T("Atlas.Land");
+        MethodInfo draw = T("Atlas.PinGlyphs").GetMethod("Draw", All);
+        MethodInfo bodyColor = T("Atlas.Paper").GetMethod("PinBodyColor", All);
+        var rows = new[]
+        {
+            new[] { "Fire", "Fire (Icon0)", "campfire" },
+            new[] { "House", "House (Icon1)", "longhouse" },
+            new[] { "Hammer", "Hammer (Icon2)", "Mjolnir pendant" },
+            new[] { "Point", "Circle (Icon3)", "open circle" },
+            new[] { "Portal", "Portal (Icon4)", "dolmen" },
+            new[] { "Death", "Death (tombstone)", "memorial stone, yr rune" },
+            new[] { "Bed", "Bed (spawn point)", "game's pin: bed" },
+            new[] { "Boss", "Boss (Vegvisir)", "game's pin: horned skull" },
+            new[] { "Tomb", "Hildir 1", "Smouldering Tombs: barrow" },
+            new[] { "Cavern", "Hildir 2", "Howling Caverns: cave mouth" },
+            new[] { "Tower", "Hildir 3", "Sealed Towers: tower" },
+            new[] { "StoneCircle", "Sacrificial Stones", "location: stone circle" },
+            new[] { "Trader", "Haldor", "location: bag" },
+            new[] { "Tent", "Hildir's camp", "location: tent" },
+            new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
+            new[] { "House+Checked", "Any pin, checked", "struck through" },
+        };
+        string[] lands = { "Meadows", "BlackForest", "Swamp", "Mountain", "Plains", "Mistlands", "Ashlands", "DeepNorth", "Ocean" };
+        string[] headers = { "Meadows", "Black F.", "Swamp", "Mountain", "Plains", "Mistlands", "Ashlands", "Deep N.", "Water" };
+        int width = nameWidth + bigCell + cell * lands.Length + 16, header = 34, rowHeight = bigCell;
+        int height = header + rowHeight * rows.Length + 70;
+        var paperColor = System.Drawing.Color.FromArgb(230, 211, 177);
+        var inkColor = System.Drawing.Color.FromArgb(46, 33, 24);
+        using (var bitmap = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+        using (var g = System.Drawing.Graphics.FromImage(bitmap))
+        using (var font = new System.Drawing.Font("Palatino Linotype", 15f, GraphicsUnit.Pixel))
+        using (var small = new System.Drawing.Font("Palatino Linotype", 12f, System.Drawing.FontStyle.Italic, GraphicsUnit.Pixel))
+        using (var ink = new SolidBrush(inkColor))
+        {
+            g.Clear(paperColor);
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            g.DrawString("pin", font, ink, 8, 8);
+            g.DrawString("drawn, 3x", font, ink, nameWidth + 4, 8);
+            for (int c = 0; c < headers.Length; c++)
+                g.DrawString(headers[c], small, ink, nameWidth + bigCell + c * cell, 12);
+
+            // Blends a glyph into the bitmap at (x, y), scale pixels per pin pixel; fill gives the
+            // body colour, null for none.
+            void Stamp(string glyph, int x, int y, int scale, System.Drawing.Color? fill)
+            {
+                int pixels = size * scale * over;
+                object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, glyph), pixels });
+                var inkMask = (byte[])Get(mark, "m_ink");
+                var body = (byte[])Get(mark, "m_body");
+                for (int j = 0; j < size * scale; j++)
+                    for (int i = 0; i < size * scale; i++)
+                    {
+                        float a = 0f, b = 0f;
+                        for (int v = 0; v < over; v++)
+                            for (int u = 0; u < over; u++)
+                            {
+                                int k = (j * over + v) * pixels + i * over + u;
+                                a += inkMask[k];
+                                b += body[k];
+                            }
+                        a /= 255f * over * over;
+                        b /= 255f * over * over;
+                        System.Drawing.Color under = bitmap.GetPixel(x + i, y + j);
+                        float r = under.R, gr = under.G, bl = under.B;
+                        if (fill.HasValue && b > 0f)
+                        {
+                            r += (fill.Value.R - r) * b;
+                            gr += (fill.Value.G - gr) * b;
+                            bl += (fill.Value.B - bl) * b;
+                        }
+                        r += (inkColor.R - r) * a;
+                        gr += (inkColor.G - gr) * a;
+                        bl += (inkColor.B - bl) * a;
+                        bitmap.SetPixel(x + i, y + j, System.Drawing.Color.FromArgb((int)(r + 0.5f), (int)(gr + 0.5f), (int)(bl + 0.5f)));
+                    }
+            }
+
+            for (int row = 0; row < rows.Length; row++)
+            {
+                int top = header + row * rowHeight;
+                g.DrawString(rows[row][1], font, ink, 8, top + rowHeight / 2 - 18);
+                g.DrawString(rows[row][2], small, ink, 8, top + rowHeight / 2 + 2);
+                string[] parts = rows[row][0].Split('+');
+                foreach (string part in parts) Stamp(part, nameWidth + 8, top + 8, big, parts.Length > 1 && part == "Checked" ? (System.Drawing.Color?)null : paperColor);
+                for (int c = 0; c < lands.Length; c++)
+                {
+                    bool water = lands[c] == "Ocean";
+                    var colour = (Color32)bodyColor.Invoke(null, new object[] { Enum.Parse(land, lands[c]), water });
+                    var fill = System.Drawing.Color.FromArgb(colour.r, colour.g, colour.b);
+                    int x0 = nameWidth + bigCell + c * cell, y0 = top + (rowHeight - cell) / 2;
+                    using (var ground = new SolidBrush(fill)) g.FillRectangle(ground, x0, y0, cell - 4, cell - 4);
+                    // Woods: dense short strokes, as a pine wood's ink would lie under the pin.
+                    using (var pen = new Pen(inkColor, 1.4f))
+                    {
+                        g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                        g.SetClip(new System.Drawing.Rectangle(x0, y0, cell - 4, cell - 4));
+                        for (int s = 0; s < 2 * cell; s += 5) g.DrawLine(pen, x0 + s, y0, x0 + s - cell, y0 + cell);
+                        g.ResetClip();
+                    }
+                    foreach (string part in parts)
+                        Stamp(part, x0 + (cell - 4 - size) / 2, y0 + (cell - 4 - size) / 2, 1, part == "Checked" ? (System.Drawing.Color?)null : fill);
+                }
+            }
+            int foot = header + rowHeight * rows.Length + 10;
+            g.DrawString("Other locations the game marks (the Forge of Potential, new ones) and other mods' pins:", small, ink, 8, foot);
+            g.DrawString("traced in pen from their own sprites in game (not shown offline).", small, ink, 8, foot + 18);
+            bitmap.Save(path, ImageFormat.Png);
+        }
+        return 0;
+    }
+
+    // Test pins round the view's centre: offset in canvas units (y up), glyph, name, checked.
+    static readonly object[][] s_testPins =
+    {
+        new object[] { -210, 150, "Fire", "Camp", false },
+        new object[] { 70, 210, "House", "Home", false },
+        new object[] { 230, 40, "Hammer", "Copper mine", false },
+        new object[] { -120, -60, "Point", "Silver", false },
+        new object[] { 10, 10, "Portal", "Portal to the swamp", false },
+        new object[] { 190, -210, "Death", "Died here", false },
+        new object[] { -260, -220, "Point", "Raspberries", true },
+        new object[] { -40, -250, "House", "Old outpost", false },
+    };
+
+    // Lays the test pins over rgba (n x n, rows from the south) as the atlas window does. left is
+    // the sheet x of the output's west edge, bottom the sheet y (running south) of its south edge.
+    // With gap, each name also scrapes the terrain ink round its letters (their shapes widened by
+    // a little), showing the paper there, as an engraver breaks lines round lettering.
+    static void DrawPins(byte[] rgba, int n, int left, int bottom, int scale, object source, byte[] sheet, bool gap, byte[] paper, int fog)
+    {
+        const int canvas = 4096, size = 26, over = 2;
+        Type kind = T("Atlas.PinGlyph"), layout = T("Atlas.PinLayout");
+        MethodInfo draw = T("Atlas.PinGlyphs").GetMethod("Draw", All);
+        MethodInfo choose = layout.GetMethod("Choose", All), area = layout.GetMethod("Area", All), align = layout.GetMethod("Alignment", All);
+        object density = T("Atlas.InkDensity").GetMethod("FromSheet", All).Invoke(null, new object[] { sheet });
+        MethodInfo mean = density.GetType().GetMethod("Mean", All);
+
+        MethodInfo landAt = source.GetType().GetMethod("LandAt", All), waterAt = source.GetType().GetMethod("IsWaterAt", All);
+        MethodInfo bodyColor = T("Atlas.Paper").GetMethod("PinBodyColor", All);
+        void Glyph(string name, int cx, int cy, bool body)
+        {
+            // The body's fill: the wash of the biome at the pin, as the atlas window lays it.
+            float pwx = (left + cx / (float)scale) * 2f * 10800f / canvas - 10800f, pwz = 10800f - (bottom - cy / (float)scale) * 2f * 10800f / canvas;
+            var fill = (Color32)bodyColor.Invoke(null, new object[] { landAt.Invoke(source, new object[] { pwx, pwz }), waterAt.Invoke(source, new object[] { pwx, pwz }) });
+            object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, name), size * over });
+            var ink = (byte[])Get(mark, "m_ink");
+            var shape = (byte[])Get(mark, "m_body");
+            int m = size * over;
+            for (int j = 0; j < size; j++)
+                for (int i = 0; i < size; i++)
+                {
+                    float a = 0f, b = 0f;
+                    for (int v = 0; v < over; v++)
+                        for (int u = 0; u < over; u++)
+                        {
+                            a += ink[(j * over + v) * m + i * over + u];
+                            b += shape[(j * over + v) * m + i * over + u];
+                        }
+                    a /= 255f * over * over;
+                    b /= 255f * over * over;
+                    int ox = cx - size / 2 + i, oy = cy + size / 2 - 1 - j;
+                    if (ox < 0 || oy < 0 || ox >= n || oy >= n) continue;
+                    int o = (oy * n + ox) * 4;
+                    if (body && b > 0f)
+                    {
+                        rgba[o] = (byte)(rgba[o] * (1f - b) + fill.r * b + 0.5f);
+                        rgba[o + 1] = (byte)(rgba[o + 1] * (1f - b) + fill.g * b + 0.5f);
+                        rgba[o + 2] = (byte)(rgba[o + 2] * (1f - b) + fill.b * b + 0.5f);
+                    }
+                    rgba[o] = (byte)(rgba[o] * (1f - a) + 46 * a + 0.5f);
+                    rgba[o + 1] = (byte)(rgba[o + 1] * (1f - a) + 33 * a + 0.5f);
+                    rgba[o + 2] = (byte)(rgba[o + 2] * (1f - a) + 24 * a + 0.5f);
+                }
+        }
+
+        var placed = new System.Collections.Generic.List<Rect>();
+        foreach (object[] pin in s_testPins)
+        {
+            int cx = n / 2 + (int)pin[0], cy = n / 2 + (int)pin[1];
+            placed.Add(new Rect(cx - size * 0.5f, cy - size * 0.5f, size, size));
+            Glyph((string)pin[2], cx, cy, true);
+            if ((bool)pin[4]) Glyph("Checked", cx, cy, false);
+        }
+
+        // Names: bare ink, measured and drawn with System.Drawing on a bitmap of the output.
+        using (var bitmap = new Bitmap(n, n, PixelFormat.Format32bppArgb))
+        {
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    int o = ((n - 1 - y) * n + x) * 4;
+                    bitmap.SetPixel(x, y, System.Drawing.Color.FromArgb(255, rgba[o], rgba[o + 1], rgba[o + 2]));
+                }
+            using (var g = System.Drawing.Graphics.FromImage(bitmap))
+            using (var font = new System.Drawing.Font("Palatino Linotype", 16f, System.Drawing.FontStyle.Regular, GraphicsUnit.Pixel))
+            using (var pen = new SolidBrush(System.Drawing.Color.FromArgb(46, 33, 24)))
+            {
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                StringFormat format = StringFormat.GenericTypographic;
+                Func<Rect, float> inkUnder = r => (float)mean.Invoke(density, new object[] { left + r.xMin / scale, bottom - r.yMax / scale, left + r.xMax / scale, bottom - r.yMin / scale });
+                float icon = size * 0.5f + 4f;
+                foreach (object[] pin in s_testPins)
+                {
+                    var at = new Vector2(n / 2 + (int)pin[0], n / 2 + (int)pin[1]);
+                    SizeF measured = g.MeasureString((string)pin[3], font, 1000, format);
+                    var extent = new Vector2(measured.Width + 2f, font.Height);
+                    int place = (int)choose.Invoke(null, new object[] { at, extent, -1, icon, 2f, placed, inkUnder });
+                    if (place < 0) continue;
+                    var rect = (Rect)area.Invoke(null, new object[] { at, extent, place, icon });
+                    placed.Add(rect);
+                    int side = (int)align.Invoke(null, new object[] { place });
+                    var box = new RectangleF(rect.xMin, n - rect.yMax, rect.width, rect.height);
+                    var aligned = new StringFormat(format) { Alignment = side < 0 ? StringAlignment.Near : side > 0 ? StringAlignment.Far : StringAlignment.Center };
+                    if (gap)
+                    {
+                        using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+                        using (var letters = new System.Drawing.Drawing2D.GraphicsPath())
+                        using (var widen = new Pen(System.Drawing.Color.Black, 3.2f) { LineJoin = System.Drawing.Drawing2D.LineJoin.Round })
+                        using (var shape = new Bitmap(n, n, PixelFormat.Format32bppArgb))
+                        using (var sg = System.Drawing.Graphics.FromImage(shape))
+                        {
+                            path.AddString((string)pin[3], font.FontFamily, (int)font.Style, font.Size, box, aligned);
+                            sg.FillPath(Brushes.Black, path);
+                            sg.DrawPath(widen, path);
+                            int x0 = Math.Max(0, (int)box.Left - 4), x1 = Math.Min(n, (int)box.Right + 4);
+                            int y0 = Math.Max(0, (int)box.Top - 4), y1 = Math.Min(n, (int)box.Bottom + 4);
+                            for (int y = y0; y < y1; y++)
+                                for (int x = x0; x < x1; x++)
+                                {
+                                    if (shape.GetPixel(x, y).A < 8) continue;
+                                    float sx = left + (x + 0.5f) / scale, sy = bottom - (n - 1 - y + 0.5f) / scale;
+                                    int fx = Mathf.Clamp((int)(sx * fog / canvas), 0, fog - 1), fy = Mathf.Clamp(fog - 1 - (int)(sy * fog / canvas), 0, fog - 1);
+                                    int q = (fy * fog + fx) * 3;
+                                    bitmap.SetPixel(x, y, System.Drawing.Color.FromArgb(255, paper[q], paper[q + 1], paper[q + 2]));
+                                }
+                            // The letters from the same path, so they sit exactly in their gap.
+                            letters.AddString((string)pin[3], font.FontFamily, (int)font.Style, font.Size, box, aligned);
+                            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                            g.FillPath(pen, letters);
+                        }
+                        continue;
+                    }
+                    g.DrawString((string)pin[3], font, pen, box, aligned);
+                }
+            }
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    System.Drawing.Color c = bitmap.GetPixel(x, y);
+                    int o = ((n - 1 - y) * n + x) * 4;
+                    rgba[o] = c.R;
+                    rgba[o + 1] = c.G;
+                    rgba[o + 2] = c.B;
+                }
+        }
     }
 
     // The sheet as the game shows it zoomed out: the ink texture's top level (straight alpha,

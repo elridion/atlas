@@ -13,12 +13,13 @@ namespace Atlas
     /// how a glyph hides whatever lies behind it. A recorder, when set, keeps every call so it can
     /// be replayed into a detail tile later.
     /// </summary>
-    // What a peak's body takes the wash of.
+    // What a peak's or spire's body takes the wash of; each kind but None has its own body mask.
     internal enum BodyKind : byte
     {
         None,
         Mountain,
         North,
+        Mist,
     }
 
     internal sealed class InkCanvas
@@ -31,8 +32,13 @@ namespace Atlas
         public readonly byte[] m_body;
         // The same for Deep North peaks, which take the Deep North's wash instead.
         public readonly byte[] m_bodyNorth;
+        // The same for the Mistlands' spires, which take their rock's colour (Paper.BodyColor).
+        // A plane of its own rather than a kind byte beside one shared mask: where two kinds meet
+        // (a spire in front of a peak, a skirt over another body) a pixel holds a share of each,
+        // which one mask and one kind could not keep.
+        public readonly byte[] m_bodyMist;
         // While not None, Erase marks the scraped polygon as that kind of body (and clears the
-        // other); any other erase clears both, so the glyph in front decides.
+        // others); any other erase clears all, so the glyph in front decides.
         public BodyKind m_markBody;
         // When set, every erase also keeps its coverage here (the most of any erase), so a glyph's
         // scraped silhouette can be read back: a sea illustration's wash follows it (SeaWash).
@@ -66,9 +72,22 @@ namespace Atlas
             m_ink = new byte[width * height];
             m_body = new byte[width * height];
             m_bodyNorth = new byte[width * height];
+            m_bodyMist = new byte[width * height];
             m_originX = originX;
             m_originY = originY;
             m_scale = scale;
+        }
+
+        // The body mask a kind marks (None has none).
+        public byte[] BodyMask(BodyKind kind)
+        {
+            switch (kind)
+            {
+                case BodyKind.Mountain: return m_body;
+                case BodyKind.North: return m_bodyNorth;
+                case BodyKind.Mist: return m_bodyMist;
+                default: return null;
+            }
         }
 
         public void Record(InkRecord record) => m_record = record;
@@ -219,9 +238,12 @@ namespace Atlas
         {
             if (coverage <= 0f) return;
             float sheetY = (index / m_width + 0.5f) / m_scale + m_originY;
+            // Smoothstep, so the wash leaves the foot level with the body and runs out without a
+            // visible edge at either end.
             float fade = Mathf.Clamp01(1f - (sheetY - m_tintTop) / m_tintFade);
+            fade = fade * fade * (3f - 2f * fade);
             int value = (int)(Math.Min(coverage, 1f) * fade * m_tintStrength * 255f + 0.5f);
-            byte[] mark = m_tintKind == BodyKind.North ? m_bodyNorth : m_body;
+            byte[] mark = BodyMask(m_tintKind);
             if (value > mark[index]) mark[index] = (byte)value;
         }
 
@@ -364,18 +386,15 @@ namespace Atlas
                 int scraped = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
                 if (scraped > m_scraped[index]) m_scraped[index] = (byte)scraped;
             }
-            if (m_markBody != BodyKind.None && m_erasingPolygon)
+            BodyKind marking = m_erasingPolygon ? m_markBody : BodyKind.None;
+            Fade(m_body, index, keep, marking == BodyKind.Mountain);
+            Fade(m_bodyNorth, index, keep, marking == BodyKind.North);
+            Fade(m_bodyMist, index, keep, marking == BodyKind.Mist);
+            if (marking != BodyKind.None)
             {
                 int value = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
-                byte[] mark = m_markBody == BodyKind.North ? m_bodyNorth : m_body;
-                byte[] other = m_markBody == BodyKind.North ? m_body : m_bodyNorth;
+                byte[] mark = BodyMask(marking);
                 if (value > mark[index]) mark[index] = (byte)value;
-                other[index] = (byte)(other[index] * keep);
-            }
-            else
-            {
-                m_body[index] = (byte)(m_body[index] * keep);
-                m_bodyNorth[index] = (byte)(m_bodyNorth[index] * keep);
             }
             if (coverage >= 1f)
             {
@@ -383,6 +402,12 @@ namespace Atlas
                 return;
             }
             m_ink[index] = (byte)(m_ink[index] * (1f - coverage));
+        }
+
+        // Scrapes a body mask by keep, except the one the erase is marking, which it only raises.
+        private static void Fade(byte[] mask, int index, float keep, bool marking)
+        {
+            if (!marking) mask[index] = (byte)(mask[index] * keep);
         }
 
         // Set while a polygon is erased, so only polygon erases mark body.

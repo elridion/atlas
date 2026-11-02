@@ -16,6 +16,8 @@ namespace Atlas
     {
         // Canvas: CanvasSize pixels across HalfExtent metres either side of the world centre.
         public const int CanvasSize = 4096;
+        // The painted sheet's planes of CanvasSize² bytes: ink, then one body mask per BodyKind.
+        public const int SheetPlanes = 4;
         public const float HalfExtent = 10800f;
         public const float MetresPerPixel = 2f * HalfExtent / CanvasSize;
         // Vanilla's world edge (WorldGenerator.waterEdge): the frame is drawn there.
@@ -454,13 +456,14 @@ namespace Atlas
             painter.m_record = record;
             painter.Run();
             record?.Seal(CanvasSize);
-            // The sheet: ink coverage, then the peaks' body masks (mountain, Deep North), one
-            // byte a pixel each.
+            // The sheet: ink coverage, then the body masks in BodyKind order (mountain, Deep
+            // North, Mistlands), one byte a pixel each.
             int n = CanvasSize * CanvasSize;
-            var sheet = new byte[n * 3];
+            var sheet = new byte[n * SheetPlanes];
             Buffer.BlockCopy(painter.m_canvas.m_ink, 0, sheet, 0, n);
             Buffer.BlockCopy(painter.m_canvas.m_body, 0, sheet, n, n);
             Buffer.BlockCopy(painter.m_canvas.m_bodyNorth, 0, sheet, 2 * n, n);
+            Buffer.BlockCopy(painter.m_canvas.m_bodyMist, 0, sheet, 3 * n, n);
             return sheet;
         }
 
@@ -2023,8 +2026,12 @@ namespace Atlas
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 6f || s.m_slope >= SpireSlope * 1.3f) return;
                 if (!(s.m_roll < Mathf.Lerp(0.9f, 0.35f, Mathf.Clamp01(s.m_above / MistCeiling)))) return;
-                m_mist.Add(new Glyph { m_x = s.m_x, m_y = s.m_y + MistGap, m_size = G, m_kind = Kind.Mist, m_seed = s.m_seed });
-                var bank = new Vector3(s.m_x, s.m_y, MistLength(s.m_seed) * 0.5f);
+                // The foot is the bottom line's level, as it always was, so banks sort in with the
+                // trees and crags as before; the bank is drawn as far north of it as its lowest
+                // line dips (MistFoot), so no line runs on south of the foot.
+                float foot = s.m_y + MistGap;
+                m_mist.Add(new Glyph { m_x = s.m_x, m_y = foot, m_size = G, m_kind = Kind.Mist, m_seed = s.m_seed });
+                var bank = new Vector3(s.m_x, foot - MistFoot(s.m_seed), MistLength(s.m_seed) * 0.5f);
                 AddMistBank(bank);
                 m_record?.AddMist(bank.x, bank.y, bank.z);
             });
@@ -2063,16 +2070,52 @@ namespace Atlas
 
         private static float MistLength(int seed) => Mathf.Lerp(26f, 40f, Unit(seed, 5)) * G;
 
+        private static float MistTilt(int seed) => (Unit(seed, 6) - 0.5f) * 0.06f;
+
+        private static float MistPhase(int seed) => Unit(seed, 4) * 6.28f;
+
+        // Where each of a bank's three lines starts and ends along its length: the middle one
+        // longest.
+        private static void MistSpan(int line, float length, out float start, out float end)
+        {
+            start = length * (line == 0 ? 0.2f : line == 1 ? 0f : 0.25f);
+            end = length * (line == 0 ? 0.8f : line == 1 ? 1f : 0.85f);
+        }
+
+        // A line's offset below its own level at t along the bank: the tilt and the wave.
+        private static float MistDrop(float t, float length, float tilt, float phase) =>
+            t * tilt + Mathf.Sin(t / length * 5f + phase) * 0.6f * G;
+
+        // How far south of a bank's centre its lowest line reaches, pen included; the bank is drawn
+        // that far north of its foot. Centred MistGap above the foot, the tilt and wave carried the
+        // bottom line up to about 2.7 sheet px south of it, past the feet of glyphs drawn after
+        // the bank as standing in front, so it ran on under them and showed below a peak's or
+        // crag's base line as a hairline along it (mountains in the Mistlands
+        // looked layered). Sorting the bank by that lowest point instead laid it over many more
+        // crowns and over the peaks' lower bodies.
+        private static float MistFoot(int seed)
+        {
+            float length = MistLength(seed), tilt = MistTilt(seed), phase = MistPhase(seed);
+            float lowest = float.MinValue;
+            for (int line = 0; line < 3; line++)
+            {
+                MistSpan(line, length, out float start, out float end);
+                for (float t = start; t <= end; t += MistStep)
+                    lowest = Math.Max(lowest, (line - 1) * MistGap + MistDrop(t, length, tilt, phase + 0.6f * line));
+            }
+            return lowest + Pen * 0.5f;
+        }
+
         // A bank centred on (x, y).
         private void MistBank(float x, float y, int seed)
         {
-            float length = MistLength(seed);
-            float tilt = (Unit(seed, 6) - 0.5f) * 0.06f;
-            float phase = Unit(seed, 4) * 6.28f;
+            float length = MistLength(seed), tilt = MistTilt(seed), phase = MistPhase(seed);
             float left = x - length * 0.5f;
-            MistLine(left, y - MistGap, length * 0.2f, length * 0.8f, length, tilt, phase, seed, 0);
-            MistLine(left, y, 0f, length, length, tilt, phase + 0.6f, seed, 1);
-            MistLine(left, y + MistGap, length * 0.25f, length * 0.85f, length, tilt, phase + 1.2f, seed, 2);
+            for (int line = 0; line < 3; line++)
+            {
+                MistSpan(line, length, out float start, out float end);
+                MistLine(left, y + (line - 1) * MistGap, start, end, length, tilt, phase + 0.6f * line, seed, line);
+            }
         }
 
         // One wavy mist line of a bank, from t = start to end of its length, broken wherever it
@@ -2084,7 +2127,7 @@ namespace Atlas
             m_pathInside.Clear();
             for (float t = start; t <= end; t += MistStep)
             {
-                var point = new Vector2(left + t, y + t * tilt + Mathf.Sin(t / length * 5f + phase) * 0.6f * G);
+                var point = new Vector2(left + t, y + MistDrop(t, length, tilt, phase));
                 m_points.Add(point);
                 m_pathInside.Add(IsMistlandsAt(point.x, point.y));
             }

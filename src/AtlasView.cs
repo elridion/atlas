@@ -28,29 +28,34 @@ namespace Atlas
         private const float StickZoom = 1.8f;
         private const float StickPan = 900f;
 
-        // Pins are inked black on a thin parchment outline that follows the icon: its solid pixels
-        // (alpha over IconSolid, leaving out a soft rim) grown by OutlineWidth canvas units, a
-        // fixed width so small and thin icons are not swamped. Names follow cartographic practice
-        // (Imhof, QGIS): beside the icon, LabelGap from it, in regular weight with a little
-        // letter-spacing and a slim, slightly see-through parchment underlay (LabelUnderlay in
-        // TextMeshPro's 0 to 1); crowded names give way (LayoutLabels). Canvas units.
+        // Pins are drawn with the map's pens (PinGlyphs): a pen line round a body filled in the
+        // wash of the biome the pin stands in, with no terrain ink, as a peak's body is filled
+        // in the mountains'; no halo, ring or backing. Other icons are traced from their sprite's
+        // solid pixels (alpha over IconSolid). Names follow cartographic practice (Imhof, QGIS):
+        // beside the icon, LabelGap from it, in regular weight with a little letter-spacing, bare
+        // ink on the clearest ground round the pin (PinLayout). Canvas units; PinPixels is the
+        // drawn pins' texture size, mipmapped down to their size on screen.
         private const float PinSize = 26f;
+        private const int PinPixels = 96;
         private const float PinFontSize = 16f;
-        private const float OutlineWidth = 2f;
         private const byte IconSolid = 200;
         private const float LabelGap = 4f;
         private const float LabelSpacing = 3f;
         private const float LabelClearance = 2f;
+        // The engraver's gap round a name's letters: the underlay's grow in TextMeshPro's 0 to 1,
+        // and how far past the name's box the paper behind it reaches, in canvas units.
+        private const float GapDilate = 0.45f;
+        private const float GapReach = 4f;
+        private static Material s_gapMaterial;
+        private static TMP_FontAsset s_gapFont;
         // Names are placed again when the zoom has changed by more than this share.
         private const float LayoutStep = 0.03f;
-        private static readonly Dictionary<Sprite, PaddingSprite> s_paddings = new Dictionary<Sprite, PaddingSprite>();
-        private const float LabelUnderlay = 0.35f;
-        private const float LabelUnderlaySoftness = 0.15f;
+        private static readonly Dictionary<string, PinTextures> s_pinTextures = new Dictionary<string, PinTextures>();
         private readonly List<PinLabel> m_labels = new List<PinLabel>();
         private readonly List<Rect> m_placed = new List<Rect>();
         private float m_layoutScale = -1f;
-        private static Material s_labelMaterial;
-        private static TMP_FontAsset s_labelFont;
+        private InkDensity m_density;
+        private WorldSource m_world;
 
         private static readonly AccessTools.FieldRef<Minimap, GameObject> s_pinNamePrefab =
             AccessTools.FieldRefAccess<Minimap, GameObject>("m_pinNamePrefab");
@@ -81,9 +86,15 @@ namespace Atlas
         public bool IsOpen { get; private set; }
         public int ClosedFrames { get; private set; } = 999;
 
-        public void Show(Texture paper, Texture ink, Texture fog, Snapshot snapshot)
+        public void Show(Texture paper, Texture ink, Texture fog, Snapshot snapshot, InkDensity density, WorldSource world)
         {
             if (!Build()) return;
+            m_density = density;
+            // Pins take their body colour from the world; built before it was decoded, they are
+            // built again once it is.
+            if (world != m_world) m_pinSnapshot = null;
+            m_world = world;
+            if (m_paper.texture != paper) m_pinSnapshot = null;
             m_paper.texture = paper;
             m_ink.texture = ink;
             m_fog.texture = fog;
@@ -116,6 +127,7 @@ namespace Atlas
             m_root = null;
             m_pins.Clear();
             m_pinSnapshot = null;
+            m_density = null;
         }
 
         public void Refresh(Texture fog, Snapshot snapshot)
@@ -231,6 +243,11 @@ namespace Atlas
                 m_layoutScale = m_scale;
                 LayoutLabels();
             }
+            else
+            {
+                foreach (PinLabel label in m_labels)
+                    if (label.m_rect && label.m_place >= 0) PlaceNamePaper(label);
+            }
         }
 
         // Where close-up tiles go: over the ink, under the fog. Null before the window is built.
@@ -339,41 +356,32 @@ namespace Atlas
             m_pins.Clear();
             m_labels.Clear();
             Minimap minimap = Minimap.instance;
-            if (snapshot == null || !minimap || !minimap.m_pinPrefab) return;
+            if (snapshot == null || !minimap) return;
 
             Dictionary<string, Sprite> sprites = PinSprites(minimap);
+            Dictionary<string, PinGlyph> drawn = DrawnIcons(minimap);
             TMP_FontAsset font = PinFont(minimap);
             float half = InkPainter.HalfExtent;
             float size = InkPainter.CanvasSize;
-            Material labelMaterial = font ? LabelMaterial(font) : null;
+            PinTextures check = Textures(PinGlyph.Checked, null);
             foreach (Snapshot.Pin pin in snapshot.m_pins)
             {
-                if (!sprites.TryGetValue(pin.m_icon, out Sprite sprite) || !sprite) continue;
-                // A holder per pin, so the outline can lie behind the marker: a UI parent always
-                // draws before its children, never behind them.
+                PinTextures textures;
+                if (drawn.TryGetValue(pin.m_icon, out PinGlyph glyph)) textures = Textures(glyph, null);
+                else if (sprites.TryGetValue(pin.m_icon, out Sprite sprite) && sprite) textures = Textures(PinGlyph.Traced, sprite);
+                else continue;
+                if (textures == null) continue;
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
                 holder.sizeDelta = new Vector2(PinSize, PinSize);
-                AddPadding(holder, sprite);
-                GameObject marker = Object.Instantiate(minimap.m_pinPrefab, holder);
-                var rect = (RectTransform)marker.transform;
-                rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-                rect.anchoredPosition = Vector2.zero;
-                rect.sizeDelta = new Vector2(PinSize, PinSize);
-                foreach (Graphic graphic in marker.GetComponentsInChildren<Graphic>(true)) graphic.raycastTarget = false;
-                var image = marker.GetComponent<Image>();
-                if (image)
-                {
-                    image.sprite = sprite;
-                    image.color = Paper.InkColor;
-                }
-                Transform check = marker.transform.Find("Checked");
-                if (check) check.gameObject.SetActive(pin.m_checked);
+                AddBody(holder, textures.m_body, pin.m_position);
+                AddImage(holder, "Ink", textures.m_ink);
+                if (pin.m_checked && check != null) AddImage(holder, "Checked", check.m_ink);
                 string label = Localization.instance.Localize(pin.m_name);
                 if (font && !string.IsNullOrEmpty(label))
                 {
-                    PinLabel placed = AddLabel(holder, label, font, labelMaterial);
+                    PinLabel placed = AddLabel(holder, label, font);
                     // Bosses and traders first, then named pins in the order they were made.
                     placed.m_priority = pin.m_type == Minimap.PinType.Boss || pin.m_type == Minimap.PinType.Hildir1
                         || pin.m_type == Minimap.PinType.Hildir2 || pin.m_type == Minimap.PinType.Hildir3 ? 0 : 1;
@@ -391,15 +399,45 @@ namespace Atlas
             public RectTransform m_holder;
             public RectTransform m_rect;
             public TextMeshProUGUI m_text;
+            public TextMeshProUGUI m_gapText;
+            public RawImage m_paper;
             public Vector2 m_size;
             public int m_priority;
             public int m_place = -1;
         }
 
-        private static PinLabel AddLabel(RectTransform pin, string label, TMP_FontAsset font, Material material)
+        // A name: the letters in bare ink over their gap, a stencil of the same letters grown a
+        // little (a TextMeshPro underlay, shown only as the mask) through which the paper under
+        // the name shows, so terrain ink breaks off round the lettering as an engraver's lines do.
+        private PinLabel AddLabel(RectTransform pin, string name, TMP_FontAsset font)
         {
             var rect = NewRect("Name", pin);
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            var label = new PinLabel { m_holder = pin, m_rect = rect };
+            Material gapMaterial = GapMaterial(font);
+            if (gapMaterial && m_paper && m_paper.texture)
+            {
+                var gap = NewRect("Gap", rect);
+                Stretch(gap, 0f);
+                label.m_gapText = NameText(gap, name, font);
+                label.m_gapText.fontSharedMaterial = gapMaterial;
+                gap.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+                var paper = NewRect("Paper", gap, typeof(RawImage));
+                Stretch(paper, -GapReach);
+                label.m_paper = paper.GetComponent<RawImage>();
+                label.m_paper.texture = m_paper.texture;
+                label.m_paper.raycastTarget = false;
+            }
+            var ink = NewRect("Ink", rect);
+            Stretch(ink, 0f);
+            label.m_text = NameText(ink, name, font);
+            label.m_size = label.m_text.GetPreferredValues(name);
+            rect.sizeDelta = label.m_size;
+            return label;
+        }
+
+        private static TextMeshProUGUI NameText(RectTransform rect, string label, TMP_FontAsset font)
+        {
             var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
             text.font = font;
             text.fontSize = PinFontSize;
@@ -407,18 +445,45 @@ namespace Atlas
             text.color = Paper.InkColor;
             text.textWrappingMode = TextWrappingModes.NoWrap;
             text.raycastTarget = false;
-            if (material) text.fontSharedMaterial = material;
             text.text = label;
-            Vector2 size = text.GetPreferredValues(label);
-            rect.sizeDelta = size;
-            return new PinLabel { m_holder = pin, m_rect = rect, m_text = text, m_size = size };
+            return text;
         }
 
-        // Places every name beside its pin, in priority order, at the first of the classic
-        // positions (right, top right, left, above, below) that overlaps no icon and no name
-        // already placed, preferring where it went last; a name with no room is hidden. Pins keep
-        // their screen size whatever the zoom, so only the distances between them change, and
-        // this runs only when the zoom has changed by LayoutStep. Canvas units throughout.
+        // The paper under a name's gap, for the current zoom and the name's place.
+        private void PlaceNamePaper(PinLabel label)
+        {
+            if (!label.m_paper) return;
+            Vector2 centre = label.m_holder.anchoredPosition + label.m_rect.anchoredPosition / m_scale;
+            Vector2 extent = (label.m_size + 2f * new Vector2(GapReach, GapReach)) / m_scale / InkPainter.CanvasSize;
+            Vector2 at = centre / InkPainter.CanvasSize + new Vector2(0.5f, 0.5f);
+            label.m_paper.uvRect = new Rect(at.x - extent.x * 0.5f, at.y - extent.y * 0.5f, extent.x, extent.y);
+        }
+
+        // Main thread. The gap's font material: an opaque underlay grown by GapDilate with a hard
+        // edge, which the mask turns into the letters' grown shape. One copy, shared by every
+        // name; vanilla's material is never changed.
+        private static Material GapMaterial(TMP_FontAsset font)
+        {
+            if (s_gapMaterial && s_gapFont == font) return s_gapMaterial;
+            Material source = font ? font.material : null;
+            if (!source) return null;
+            var material = new Material(source) { name = source.name + "_atlas_gap" };
+            material.EnableKeyword(ShaderUtilities.Keyword_Underlay);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayColor)) material.SetColor(ShaderUtilities.ID_UnderlayColor, Color.white);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayDilate)) material.SetFloat(ShaderUtilities.ID_UnderlayDilate, GapDilate);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlaySoftness)) material.SetFloat(ShaderUtilities.ID_UnderlaySoftness, 0f);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayOffsetX)) material.SetFloat(ShaderUtilities.ID_UnderlayOffsetX, 0f);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayOffsetY)) material.SetFloat(ShaderUtilities.ID_UnderlayOffsetY, 0f);
+            s_gapMaterial = material;
+            s_gapFont = font;
+            return material;
+        }
+
+        // Places every name beside its pin, in priority order, where PinLayout finds the clearest
+        // ground that overlaps no icon and no name already placed; a name with no room is hidden.
+        // Pins keep their screen size whatever the zoom, so only the distances between them and
+        // the stretch of sheet under each name change, and this runs only when the zoom has
+        // changed by LayoutStep. Canvas units throughout.
         private void LayoutLabels()
         {
             m_placed.Clear();
@@ -433,85 +498,145 @@ namespace Atlas
             {
                 if (!label.m_rect) continue;
                 Vector2 at = label.m_holder.anchoredPosition * m_scale;
-                int chosen = -1;
-                if (label.m_place >= 0 && Fits(at, label.m_size, label.m_place, icon)) chosen = label.m_place;
-                for (int place = 0; chosen < 0 && place < 5; place++)
-                    if (Fits(at, label.m_size, place, icon)) chosen = place;
+                int chosen = PinLayout.Choose(at, label.m_size, label.m_place, icon, LabelClearance, m_placed, InkUnder);
                 label.m_place = chosen;
                 bool show = chosen >= 0;
                 if (label.m_rect.gameObject.activeSelf != show) label.m_rect.gameObject.SetActive(show);
                 if (!show) continue;
-                Rect area = LabelArea(at, label.m_size, chosen, icon);
+                Rect area = PinLayout.Area(at, label.m_size, chosen, icon);
                 m_placed.Add(area);
                 label.m_rect.pivot = new Vector2(0.5f, 0.5f);
                 label.m_rect.anchoredPosition = area.center - at;
-                label.m_text.alignment = chosen == 0 || chosen == 1 ? TextAlignmentOptions.Left
-                    : chosen == 2 ? TextAlignmentOptions.Right : TextAlignmentOptions.Center;
+                int align = PinLayout.Alignment(chosen);
+                TextAlignmentOptions alignment = align < 0 ? TextAlignmentOptions.Left : align > 0 ? TextAlignmentOptions.Right : TextAlignmentOptions.Center;
+                label.m_text.alignment = alignment;
+                if (label.m_gapText) label.m_gapText.alignment = alignment;
+                PlaceNamePaper(label);
             }
         }
 
-        private bool Fits(Vector2 at, Vector2 size, int place, float icon)
+        // The mean ink under an area of the scaled sheet (canvas units from its centre, y up);
+        // unexplored ground shows no ink.
+        private float InkUnder(Rect area)
         {
-            Rect area = LabelArea(at, size, place, icon);
-            Rect padded = new Rect(area.x - LabelClearance, area.y - LabelClearance, area.width + 2f * LabelClearance, area.height + 2f * LabelClearance);
-            foreach (Rect other in m_placed)
-                if (other.Overlaps(padded)) return false;
-            return true;
-        }
-
-        // Where a name of the given size goes for a position, round a pin centred on at.
-        private static Rect LabelArea(Vector2 at, Vector2 size, int place, float icon)
-        {
-            switch (place)
+            if (m_density == null) return 0f;
+            float half = InkPainter.CanvasSize * 0.5f;
+            float left = area.xMin / m_scale + half, right = area.xMax / m_scale + half;
+            float top = half - area.yMax / m_scale, bottom = half - area.yMin / m_scale;
+            if (m_pinSnapshot != null)
             {
-                case 0: return new Rect(at.x + icon, at.y - size.y * 0.5f, size.x, size.y);
-                case 1: return new Rect(at.x + icon * 0.75f, at.y + icon * 0.5f, size.x, size.y);
-                case 2: return new Rect(at.x - icon - size.x, at.y - size.y * 0.5f, size.x, size.y);
-                case 3: return new Rect(at.x - size.x * 0.5f, at.y + icon, size.x, size.y);
-                default: return new Rect(at.x - size.x * 0.5f, at.y - icon - size.y, size.x, size.y);
+                float mpp = InkPainter.MetresPerPixel;
+                Vector2 centre = area.center / m_scale * mpp;
+                if (!m_pinSnapshot.IsExplored(centre.x, centre.y)) return 0f;
             }
+            return m_density.Mean(left, top, right, bottom);
         }
 
-        // A flat parchment padding behind the pin: its icon's silhouette grown by OutlineWidth.
-        private static void AddPadding(RectTransform parent, Sprite sprite)
+        // The pin's body: filled in the wash of the biome the pin stands in, as a peak's body is
+        // filled in the mountains', so terrain ink stops at the pin's own
+        // outline. Before the world is decoded, plain paper.
+        private void AddBody(RectTransform holder, Texture body, Vector3 position)
         {
-            Sprite padding = Padding(sprite, out float grow);
-            if (!padding) return;
-            var rect = NewRect("Padding", parent, typeof(Image));
+            Color32 colour = Paper.PaperColor;
+            if (m_world != null) colour = Paper.PinBodyColor(m_world.LandAt(position.x, position.z), m_world.IsWaterAt(position.x, position.z));
+            AddImage(holder, "Body", body).color = colour;
+        }
+
+        private static RawImage AddImage(RectTransform holder, string name, Texture texture)
+        {
+            var rect = NewRect(name, holder, typeof(RawImage));
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(PinSize * grow, PinSize * grow);
-            var image = rect.GetComponent<Image>();
-            image.sprite = padding;
+            rect.sizeDelta = new Vector2(PinSize, PinSize);
+            var image = rect.GetComponent<RawImage>();
+            image.texture = texture;
             image.raycastTarget = false;
+            return image;
         }
 
-        // Main thread. The icon's silhouette grown by OutlineWidth canvas units, in one flat
-        // parchment colour, cached per sprite; grow is its size against the icon's. Copies of the
-        // icon tinted parchment kept the icon's own shading, so the padding was not one colour.
-        // The sprite's texture is not readable, so its pixels are fetched through a render
-        // texture; only their alpha is used, so a texture reduced by quality settings is fine.
-        private static Sprite Padding(Sprite sprite, out float grow)
+        // The vanilla pin icons the atlas draws itself, by sprite name; any other icon is traced.
+        private static Dictionary<string, PinGlyph> DrawnIcons(Minimap minimap)
         {
-            grow = 1f;
-            if (s_paddings.TryGetValue(sprite, out PaddingSprite cached))
+            var drawn = new Dictionary<string, PinGlyph>();
+            foreach (Minimap.SpriteData data in minimap.m_icons)
             {
-                grow = cached.m_grow;
-                return cached.m_sprite;
+                if (!data.m_icon) continue;
+                PinGlyph glyph;
+                switch (data.m_name)
+                {
+                    case Minimap.PinType.Icon0: glyph = PinGlyph.Fire; break;
+                    case Minimap.PinType.Icon1: glyph = PinGlyph.House; break;
+                    case Minimap.PinType.Icon2: glyph = PinGlyph.Hammer; break;
+                    case Minimap.PinType.Icon3: glyph = PinGlyph.Point; break;
+                    case Minimap.PinType.Icon4: glyph = PinGlyph.Portal; break;
+                    case Minimap.PinType.Death: glyph = PinGlyph.Death; break;
+                    case Minimap.PinType.Bed: glyph = PinGlyph.Bed; break;
+                    case Minimap.PinType.Boss: glyph = PinGlyph.Boss; break;
+                    case Minimap.PinType.Hildir1: glyph = PinGlyph.Tomb; break;
+                    case Minimap.PinType.Hildir2: glyph = PinGlyph.Cavern; break;
+                    case Minimap.PinType.Hildir3: glyph = PinGlyph.Tower; break;
+                    default: continue;
+                }
+                if (!drawn.ContainsKey(data.m_icon.name)) drawn[data.m_icon.name] = glyph;
             }
-            Sprite made = null;
+            // Location pins carry their location's sprite; known places by the location's prefab
+            // name, any other location (a new one, another mod's) is traced.
+            foreach (Minimap.LocationSpriteData data in minimap.m_locationIcons)
+            {
+                if (!data.m_icon || string.IsNullOrEmpty(data.m_name) || drawn.ContainsKey(data.m_icon.name)) continue;
+                string name = data.m_name.ToLowerInvariant();
+                if (name.Contains("starttemple")) drawn[data.m_icon.name] = PinGlyph.StoneCircle;
+                else if (name.Contains("vendor") || name.Contains("haldor")) drawn[data.m_icon.name] = PinGlyph.Trader;
+                else if (name.Contains("hildir")) drawn[data.m_icon.name] = PinGlyph.Tent;
+                else if (name.Contains("bogwitch")) drawn[data.m_icon.name] = PinGlyph.Cauldron;
+            }
+            return drawn;
+        }
+
+        // Main thread. A pin's two textures, made once per glyph or traced sprite and kept for the
+        // session; null when a sprite could not be read.
+        private static PinTextures Textures(PinGlyph glyph, Sprite sprite)
+        {
+            string key = glyph == PinGlyph.Traced ? "sprite:" + sprite.name : glyph.ToString();
+            if (s_pinTextures.TryGetValue(key, out PinTextures cached)) return cached;
+            PinTextures made = null;
             try
             {
-                made = MakePadding(sprite, out grow);
+                PinMark mark = glyph == PinGlyph.Traced ? TraceSprite(sprite) : PinGlyphs.Draw(glyph, PinPixels);
+                made = new PinTextures { m_ink = MarkTexture(mark.m_ink, mark.m_size, Paper.InkColor, "Atlas pin ink") };
+                made.m_body = MarkTexture(mark.m_body, mark.m_size, new Color32(255, 255, 255, 255), "Atlas pin body");
             }
             catch (System.Exception e)
             {
-                Jotunn.Logger.LogWarning($"The atlas could not outline pin icon {sprite.name}: {e.Message}");
+                Jotunn.Logger.LogWarning($"The atlas could not draw pin icon {key}: {e.Message}");
             }
-            s_paddings[sprite] = new PaddingSprite { m_sprite = made, m_grow = grow };
+            s_pinTextures[key] = made;
             return made;
         }
 
-        private static Sprite MakePadding(Sprite sprite, out float grow)
+        // Coverage (rows running south) as a mipmapped texture of one colour (rows running north).
+        private static Texture2D MarkTexture(byte[] coverage, int size, Color32 colour, string name)
+        {
+            var pixels = new Color32[size * size];
+            for (int y = 0; y < size; y++)
+                for (int x = 0; x < size; x++)
+                {
+                    colour.a = coverage[(size - 1 - y) * size + x];
+                    pixels[y * size + x] = colour;
+                }
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: true)
+            {
+                name = name,
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Trilinear,
+            };
+            texture.SetPixels32(pixels);
+            texture.Apply(updateMipmaps: true, makeNoLongerReadable: true);
+            return texture;
+        }
+
+        // Main thread. The sprite's texture is not readable, so its pixels are fetched through a
+        // render texture; a texture reduced by quality settings only softens the trace.
+        private static PinMark TraceSprite(Sprite sprite)
         {
             Rect area = sprite.textureRect;
             int w = Mathf.RoundToInt(area.width), h = Mathf.RoundToInt(area.height);
@@ -533,71 +658,20 @@ namespace Atlas
             }
             Color32[] icon = read.GetPixels32();
             Object.Destroy(read);
-
-            // The padding in the icon's own pixels, then a square grid holding the icon centred
-            // with that much room all round, and each pixel's distance to the icon's shape.
-            float pad = OutlineWidth * Mathf.Max(w, h) / PinSize;
-            int margin = Mathf.CeilToInt(pad) + 1;
-            int n = Mathf.Max(w, h) + 2 * margin;
-            int ox = (n - w) / 2, oy = (n - h) / 2;
-            var solid = new bool[n * n];
-            for (int y = 0; y < h; y++)
-                for (int x = 0; x < w; x++)
-                    solid[(y + oy) * n + x + ox] = icon[y * w + x].a > IconSolid;
-            var distance = new byte[n * n];
-            new DistanceField(n).Compute(i => solid[i], distance, 16f);
-            var pixels = new Color32[n * n];
-            Color32 paper = Paper.PaperColor;
-            for (int i = 0; i < pixels.Length; i++)
+            var alpha = new byte[w * h];
+            var luma = new byte[w * h];
+            for (int i = 0; i < icon.Length; i++)
             {
-                float d = distance[i] / 16f;
-                // A crisp edge with a short fade, so the outline does not read as a cut-out.
-                paper.a = (byte)(Mathf.Clamp01((pad + 0.75f - d) / 1.5f) * 255f);
-                pixels[i] = paper;
+                alpha[i] = icon[i].a;
+                luma[i] = (byte)((icon[i].r * 54 + icon[i].g * 183 + icon[i].b * 19) >> 8);
             }
-            var texture = new Texture2D(n, n, TextureFormat.RGBA32, mipChain: false)
-            {
-                name = "Atlas pin padding",
-                wrapMode = TextureWrapMode.Clamp,
-                filterMode = FilterMode.Bilinear,
-            };
-            texture.SetPixels32(pixels);
-            texture.Apply(updateMipmaps: false, makeNoLongerReadable: true);
-            // Sized against the icon's own image: the pin shows the sprite's whole rect at PinSize.
-            grow = n / (float)Mathf.Max(w, h);
-            return Sprite.Create(texture, new Rect(0f, 0f, n, n), new Vector2(0.5f, 0.5f));
+            return PinGlyphs.Trace(alpha, luma, w, h, PinPixels, IconSolid);
         }
 
-        private struct PaddingSprite
+        private sealed class PinTextures
         {
-            public Sprite m_sprite;
-            public float m_grow;
-        }
-
-        // Main thread. The names' font material with a hard parchment underlay: TextMeshPro grows
-        // each letter's own shape by the dilate and draws it behind in parchment, a crisp rim of
-        // even width, like the icons' outline. One copy, shared by every name; vanilla's material
-        // is never changed.
-        private static Material LabelMaterial(TMP_FontAsset font)
-        {
-            if (s_labelMaterial && s_labelFont == font) return s_labelMaterial;
-            Material source = font.material;
-            if (!source) return null;
-            var material = new Material(source) { name = source.name + "_atlas" };
-            material.EnableKeyword(ShaderUtilities.Keyword_Underlay);
-            if (material.HasProperty(ShaderUtilities.ID_UnderlayColor))
-            {
-                Color halo = Paper.PaperColor;
-                halo.a = 0.85f;
-                material.SetColor(ShaderUtilities.ID_UnderlayColor, halo);
-            }
-            if (material.HasProperty(ShaderUtilities.ID_UnderlayDilate)) material.SetFloat(ShaderUtilities.ID_UnderlayDilate, LabelUnderlay);
-            if (material.HasProperty(ShaderUtilities.ID_UnderlaySoftness)) material.SetFloat(ShaderUtilities.ID_UnderlaySoftness, LabelUnderlaySoftness);
-            if (material.HasProperty(ShaderUtilities.ID_UnderlayOffsetX)) material.SetFloat(ShaderUtilities.ID_UnderlayOffsetX, 0f);
-            if (material.HasProperty(ShaderUtilities.ID_UnderlayOffsetY)) material.SetFloat(ShaderUtilities.ID_UnderlayOffsetY, 0f);
-            s_labelMaterial = material;
-            s_labelFont = font;
-            return material;
+            public Texture2D m_ink;
+            public Texture2D m_body;
         }
 
         // Every sprite a pin may use, by name: the pin icons and the location icons (traders,

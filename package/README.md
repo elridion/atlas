@@ -53,7 +53,11 @@ near-blank snowfield.
 
 ## Settings
 
-None. Atlas uses your map key and the game's own pin icons and fonts.
+None. Atlas uses your map key and the game's own fonts; your pins are redrawn in the atlas's
+pen (the game's five pin icons and the death marker in their own hand-drawn form, any other icon
+traced in outline, each filled in the colour of its biome), their names lettered beside them on
+the clearest ground. The game's own marks are drawn as map signs too: your bed and last death,
+bosses' altars, Hildir's requests, the Sacrificial Stones and the traders.
 
 ## Notes
 

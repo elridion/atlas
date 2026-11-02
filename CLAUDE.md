@@ -16,15 +16,40 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - `src/AtlasMap.cs` the controller: per world it loads or paints the ink sheet, lays the fog for the
   current snapshot, and opens `AtlasView` on the map key.
 - `src/AtlasView.cs` the window (parchment, ink and fog `RawImage`s plus pin markers) with zoom and
-  drag. Pins follow a research pass on cartographic point labels (Imhof, QGIS, Mapbox, Esri,
-): the icon inked black at 26 units on a thin 2-unit parchment outline of its solid
-  pixels (alpha over 200, so a soft rim does not widen it; a fixed width, since a proportional
-  one swamped the hammer and the dot), names in regular weight with letter-spacing and a slim,
-  slightly see-through underlay, placed by `LayoutLabels` beside the icon (right, top right,
-  left, above, below, keeping the last position), bosses and traders first, hidden when nothing
-  fits, recomputed on a zoom change over 3%. The user rejected a soft disc, the icon enlarged,
-  red icons on labels, and shifted copies (not one colour). A UI parent draws before its
-  children, hence a holder per pin.
+  drag. Pins (redone: the black icon on a parchment ring and the names' flat underlay
+  read as modern stickers on the hand-drawn map) are drawn like the sheet's own glyphs: a pen
+  line round a body with no terrain ink, filled in the wash of the biome under the pin
+  (`Paper.PinBodyColor`: the biome's glaze on clean paper as a peak's body takes the mountains',
+  water's on water; biome and water from the sheet's `WorldSource`).
+  `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen (fire: campfire, house: longhouse,
+  the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer and a reference drawing the user gave, not a
+  work hammer; circle: open circle; portal: dolmen; death: memorial stone with the yr rune on a
+  mound, never a cross; checked: struck through, all per the). The game's own
+  pins get map signs too (user: they were missing): bed (spawn point), a solid horned skull in the language of the game's boss icon (Boss,
+  from Vegvisirs), Hildir1-3 as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and
+  tower (Sealed Towers); location pins by `LocationSpriteData.m_name`: `StartTemple` a stone
+  circle seen from above (survey-map sign), vendor/Haldor a plain tied bag, Hildir a tent with pennant,
+  BogWitch a cauldron. Anything else is traced from its sprite (other locations such as the
+  Forge of Potential, other mods' pins: silhouette alpha over 200 as the body, a pen line on its
+  edge, clearly darker inner parts inked); every body reaches `Gap` past the lines, the
+  engraver's break that keeps trees off the outline. Vanilla `PinType` (read from
+  assembly_valheim): Icon0-4, Death, Bed, Shout, None, Boss, Player, RandomEvent,
+  Ping, EventArea, Hildir1-3, Memorial. Its `AddPin` call sites: player pins, profile pins (bed
+  and last death, `UpdateProfilePins`), location pins (`PinType.None`), events, players, pings
+  and shouts (all passing), and `DiscoverLocation` (bosses, Hildir); nothing places `Memorial`.
+  The snapshot keeps saved pins plus the unsaved ones that mark places: location pins
+  (`m_locationPins`), `m_spawnPointPin` and `m_deathPin`, which the saved filter alone left off
+  the atlas. Daymark's dungeon and
+  deposit pins are ordinary Icon2 and Icon3 pins. `Preview --pincat` renders the glyph table
+  (`screenshots/atlas-sample-15-pin-catalogue.png`). Names: regular weight,
+  letter-spacing, bare ink over a gap of their own letters grown a little (a TextMeshPro
+  underlay used only as a `Mask`, paper behind it), placed by `PinLayout` at the clearest of the
+  eight classic positions by the sheet's ink density (`InkDensity`, a summed-area table built
+  before the sheet is uploaded; unexplored ground counts as clear), bosses and traders first,
+  hidden when nothing fits, recomputed on a zoom change over 3%. The user rejected a soft disc,
+  the icon enlarged, red icons on labels, and shifted copies (not one colour). A UI parent draws
+  before its children, hence a holder per pin. The preview's `pins` views draw test pins with a
+  stand-in font; traced sprites and the masks are only seen in game.
 - `src/TablePatches.cs` the `MapTable.OnRead`/`OnWrite` postfixes and the `Minimap.IsOpen` postfix.
 - `src/InteractiveMap.cs` opens vanilla's large map in a nomap world.
 - `src/TableSparkles.cs` golden motes over the table while the atlas updates after "Record
@@ -384,19 +409,30 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   foot line). It was a fan of grown triangles from a hub low in the middle, whose thin
   triangles by the apex barely overlapped, so the edge from the hub up to the apex showed as a
   faint centre line on some peaks. It marks body with `InkCanvas.m_markBody`, which
-  writes one of two body masks (`BodyKind`; any later erase clears both, so the glyph in front
-  decides). The body stays fully the peak's wash; below the foot a hairline skirt
-  (`InkCanvas.Tint`, an `Op.Tint` in the record, `PeakSkirt` 2 sheet px) raises the mask
-  without touching the ink, from `PeakBleed` to nothing, so the base is not cut hard. Fading the
+  writes one of three body masks (`BodyKind` Mountain, North, Mist, one plane each; any later
+  erase clears the others, so the glyph in front decides). The Mistlands' pinnacles fill their
+  bodies the same way with `BodyKind.Mist` (below). The body stays fully the peak's wash; below the foot a skirt (`Skirt`, `InkCanvas.Tint`, an
+  `Op.Tint` in the record, `PeakSkirt` 4 sheet px, its lower edge `SkirtTaper` in from each end)
+  raises the mask without touching the ink, from the body's own strength (`PeakBleed` 1) to
+  nothing along a smoothstep, so the base is not cut hard. A 2 px skirt starting at 0.6 left a
+  step at the foot that read as the mountain colour cut off. Fading the
   body out at the base was the wrong way round (the base leads into the other
   biome, not the other biome into the mountain), and a skirt 30% of the peak deep (`cc994a8`)
   overwrote the outline before the body was scraped, so bodies became trapezoids: peaks read as
   holes and peaks behind showed through the ones in front. The skirt is now laid after the
-  body. Mountain ground keeps the mountain wash even where no peak is drawn (
+  body. Before the body, peaks and pinnacles scrape a band from a pen inside their base to
+  `BaseScrape` 1.25 pen below the foot (`ScrapeBase`, no body mark, so the skirt alone tints
+  it): the glyphs behind stand north of the foot, but their round caps, a giant tree's roots
+  and a crag's uneven feet reach a little past it, and the body's base edge is anti-aliased on
+  the foot line, so dots and slivers of the peaks and trees behind showed just under the base
+  line. Mountain ground keeps the mountain wash even where no peak is drawn (
   the biome must still read as mountains); giving it the neighbours' wash instead was tried and
-  reverted the same day. The sheet is ink then the two masks (`InkPainter.Paint`, cached together); `Paper.InkWithMips` fills bodies with
-  `PeakColor` under the ink, and close-ups glaze `Paper.PeakGlaze` over the stained parchment,
-  replaying the flag from the record. A 300 m carry of the mountain tint north, tried first,
+  reverted the same day. The sheet is ink then the three masks (`InkPainter.Paint`,
+  `SheetPlanes` 4 planes of 4096², 64 MB, cached together); `Paper.InkWithMips` reads the planes
+  in place and fills bodies with `Paper.BodyColor` under the ink, and close-ups glaze
+  `Paper.BodyGlaze` over the stained parchment, replaying the kind from the record. A kind byte
+  beside one shared mask would have saved the Mist plane (16 MB) but cannot hold a pixel shared
+  by two kinds, where a spire stands in front of a peak or a skirt runs over another body. A 300 m carry of the mountain tint north, tried first,
   spilled it over plains with no peaks. Peaks
   are tested for land at both base ends and both flanks (`PeakOnLand`), not only their centre,
   so coastal peaks do not hang over the sea.
@@ -520,7 +556,12 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   by their lowest line, so whatever stands in front hides them; drawn over
   everything, with boxes round every spire kept clear, they had left only stray lines. This
   replaced the old rule that the mist lies on top of the glyphs, and the `Mist` ink layer is
-  gone.
+  gone. A bank's foot is its bottom line's level (`MistGap` below its centre), and the bank is
+  drawn `MistFoot` north of it, the deepest its lines dip with tilt and wave: centred `MistGap`
+  above the foot, the bottom line ran up to 2.7 sheet px south of it, under the feet of glyphs
+  drawn after it, and showed as a hairline along a peak's or crag's base (
+  Mistlands mountains looked layered). Sorting banks by that lowest point instead laid them over
+  many more crowns and across the peaks' lower bodies.
   Its micro lakes are ground (the many tiny inland pools cluttered it with
   little shores). On Velen it had 1,499 inland water patches (four-way, not joined to the sea,
   most cells Mistlands), against 1,278 Plains and 988 Black Forest, but from two pixels up 799
@@ -540,7 +581,19 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   jagged flanks, a ledge, some twin tips, a solid wedge down `SpireWedge` of the east face, a
   smaller one or two behind), on real summits (`PlaceSummitSpire`: highest within `SpireCells`,
   `SpireProminence` metres) and, as filler, only on ground steeper than 1.3 `SpireSlope`, clear
-  of the summits; a fixed trapezoid on every high pixel read as fence posts.
+  of the summits; a fixed trapezoid on every high pixel read as fence posts. Their bodies are
+  filled as the peaks' are ("use the coloring approach we're using for
+  mountains"): scraped and marked `BodyKind.Mist`, with the peaks' `ScrapeBase` and skirt, so the
+  glyph in front decides. The fill is `Paper.s_mistRock` (108, 94, 122 at 0.4), the Mistlands'
+  folium a little deeper and dulled with soot: about (181, 164, 155) on clean paper against
+  the ground's wash (204, 185, 167; 193, 175, 163 in a wood), a muted mauve-grey, deeper so the
+  spire stands out and still a thin glaze so the black wedge keeps its contrast. Before, a spire's
+  body was bare paper over whatever wash lay under it. On the sheet it is not laid opaque as a
+  peak's body is: the clean-paper colour on the stained, patinated Mistlands read lighter and
+  lilac there while close-ups showed it deeper than the ground, so `Paper.MistInk` lays it as
+  the colour and opacity that give the rock's glaze over the Mistlands' wash (as `SeaInk` does
+  for the sea wash); in the preview's Mistlands sample the sheet's spire bodies come to about
+  163, 143, 130 against ground 181, 159, 138, close-ups 168, 148, 131 against 183, 161, 139.
   Scarps cover the steep rock ("some areas are very blank"): on Velen about
   40% of Mistlands land is steeper than `SpireSlope`, where trees keep off, mist keeps off above
   1.3 of it and filler spires stand on only a third of an 18 G grid, so whole slopes, mostly

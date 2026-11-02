@@ -21,12 +21,21 @@ namespace Atlas
         private const float SpireWedge = 0.65f;
         // How far (sheet pixels) a peak's wash runs out below its foot, and how strongly at the
         // foot (0 to 1), fading to nothing at the skirt's end.
-        private const float PeakSkirt = 2f;
-        private const float PeakBleed = 0.6f;
+        // It starts at the body's own strength: a lower one left a step at the foot that read as
+        // the mountain's colour cut off at its base.
+        private const float PeakSkirt = 4f;
+        private const float PeakBleed = 1f;
+        // How far in from each end of the base the skirt's lower edge stops, as a share of the
+        // base, so the wash's ends slope away instead of falling straight down.
+        private const float SkirtTaper = 0.12f;
         // How far (pen widths) a peak's scraped body reaches past its flanks, under their ink: the
         // grown fan triangles it replaced reached 0.2 to 0.6, which close-ups show as a hairline
         // of parchment between the outline and whatever stands behind.
         private const float BodyGrow = 0.4f;
+        // How far (pen widths) the band scraped under a peak's or pinnacle's base reaches below
+        // its foot (ScrapeBase): past the widest round cap of a glyph behind (a peak's 1.5 pen
+        // flank, 0.75) and a giant tree's roots, with the edge's anti-aliasing below that.
+        private const float BaseScrape = 1.25f;
         private readonly List<Vector2> m_west = new List<Vector2>(8);
         private readonly List<Vector2> m_east = new List<Vector2>(8);
 
@@ -48,7 +57,7 @@ namespace Atlas
                 case Kind.GiantTree: GiantTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Volcano: Volcano(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Crag: Crag(g.m_x, g.m_y, g.m_size, g.m_seed); break;
-                case Kind.Mist: MistBank(g.m_x, g.m_y - MistGap, g.m_seed); break;
+                case Kind.Mist: MistBank(g.m_x, g.m_y - MistFoot(g.m_seed), g.m_seed); break;
                 case Kind.IceFloe: IceFloe(g.m_x, g.m_y, g.m_size, g.m_seed); break;
             }
         }
@@ -111,6 +120,7 @@ namespace Atlas
             }
             m_east.Add(right);
 
+            ScrapeBase(left, right);
             // The outline, foot to foot.
             m_points.Clear();
             m_points.AddRange(m_west);
@@ -125,13 +135,9 @@ namespace Atlas
             // A soft edge of PeakSkirt sheet pixels below the foot, where the peak's wash runs out
             // into the ground, so the base is not cut hard; the body stays fully the peak's (user,
             //: the base leads into the other biome, not the other biome into the
-            // mountain). A deep skirt and a fading body both read wrong, so this stays a hairline.
-            if (kind != BodyKind.None)
-            {
-                Poly(new Vector2(left.x + width * 0.05f, y - 0.5f), new Vector2(right.x - width * 0.05f, y - 0.5f),
-                    new Vector2(right.x - width * 0.02f, y + PeakSkirt), new Vector2(left.x + width * 0.02f, y + PeakSkirt));
-                m_canvas.Tint(m_points, kind, y - 0.5f, PeakSkirt + 0.5f, PeakBleed);
-            }
+            // mountain). A fading body reads wrong; the skirt starts at the body's strength and
+            // runs out over a few pixels, tapering at its ends.
+            if (kind != BodyKind.None) Skirt(left, right, width, kind);
 
             // The shadow: a solid wedge from the apex, then hatching down the eastern face.
             var foot = new Vector2(apex.x + width * 0.06f, y);
@@ -214,6 +220,32 @@ namespace Atlas
             m_bodyOutline[0] += new Vector2(0f, -grow);
             m_bodyOutline[m_bodyOutline.Count - 1] += new Vector2(0f, -grow);
             m_canvas.EraseOutline(m_bodyOutline, grow);
+        }
+
+        // Scrapes a band from just inside a peak's or pinnacle's base down BaseScrape pen below it,
+        // before the body (which then marks its own part of the band again): whatever stands
+        // behind has its foot north of this one, but its pens reach a little past it (round caps,
+        // a giant tree's roots, a crag's uneven feet), and the body's base edge is anti-aliased
+        // over the foot line, so slivers of the peaks and trees behind showed just under the base
+        // line. The band takes no body, so the skirt alone tints it.
+        private void ScrapeBase(Vector2 left, Vector2 right)
+        {
+            float top = m_pen, depth = BaseScrape * m_pen;
+            Poly(left + new Vector2(0f, -top), right + new Vector2(0f, -top), right + new Vector2(0f, depth), left + new Vector2(0f, depth));
+            m_canvas.Erase(m_points);
+        }
+
+        // The skirt below a peak's or pinnacle's base (feet left and right): its body's wash
+        // raised over PeakSkirt sheet pixels without touching the ink, at the body's strength
+        // from the lower foot down and fading to nothing along a smoothstep, its lower edge
+        // SkirtTaper of the glyph's width in from each end. A pinnacle's feet differ a little in height; above the
+        // lower foot the skirt only meets its own body, so it is laid at full strength there.
+        private void Skirt(Vector2 left, Vector2 right, float width, BodyKind kind)
+        {
+            float foot = Mathf.Max(left.y, right.y);
+            Poly(new Vector2(left.x, left.y - 0.5f), new Vector2(right.x, right.y - 0.5f),
+                new Vector2(right.x - width * SkirtTaper, foot + PeakSkirt), new Vector2(left.x + width * SkirtTaper, foot + PeakSkirt));
+            m_canvas.Tint(m_points, kind, foot - 0.5f, PeakSkirt + 0.5f, PeakBleed);
         }
 
         // A body outline: the peak's with its feet raised (ScrapeBody), or a floe's corners.
@@ -748,8 +780,8 @@ namespace Atlas
         private static float SpireHeightOf(float s, int seed) => Mathf.Lerp(8f, 12f, Unit(seed, 10)) * s;
 
         // One pinnacle: 0.45 to 0.62 of its height wide (narrower read as needles), leaning a little, jagged flanks with
-        // a ledge, some with a broken twin tip; the body scraped as a peak's (ScrapeBody) but keeping
-        // the Mistlands' wash; a solid wedge down most of the east face, as the rock is black, and
+        // a ledge, some with a broken twin tip; the body scraped and filled as a peak's (ScrapeBody,
+        // Skirt), with the Mistlands' rock (BodyKind.Mist); a solid wedge down most of the east face, as the rock is black, and
         // hatching below it.
         private void Pinnacle(float x, float y, float s, int seed)
         {
@@ -775,10 +807,16 @@ namespace Atlas
             m_east.Add(Flank(apex, right, 0.6f, Unit(seed, 18) < 0.5f ? 0.05f * height : 0f));
             m_east.Add(right);
 
+            ScrapeBase(left, right);
             m_points.Clear();
             m_points.AddRange(m_west);
             for (int i = 1; i < m_east.Count; i++) m_points.Add(m_east[i]);
+            // Filled with the Mistlands' rock as a peak's body is with the mountains' wash, and
+            // its skirt run into the ground below in the same way.
+            m_canvas.m_markBody = BodyKind.Mist;
             ScrapeBody(m_points);
+            m_canvas.m_markBody = BodyKind.None;
+            Skirt(left, right, width, BodyKind.Mist);
 
             var foot = new Vector2(apex.x + width * 0.05f, y);
             Poly(apex, Along(m_east, SpireWedge), Vector2.Lerp(apex, foot, SpireWedge));

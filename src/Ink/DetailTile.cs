@@ -73,13 +73,14 @@ namespace Atlas
                         lg += (wg - lg) * water;
                         lb += (wb - lb) * water;
                     }
-                    // A peak's body takes the mountains' wash strictly, over the stained paper.
-                    for (int kind = 0; kind < 2; kind++)
+                    // A peak's or spire's body takes its kind's glaze strictly, over the stained
+                    // paper (Paper.BodyGlaze), as the sheet fills it with BodyColor.
+                    for (var kind = BodyKind.Mountain; kind <= BodyKind.Mist; kind++)
                     {
-                        float body = (kind == 0 ? canvas.m_body : canvas.m_bodyNorth)[ty * w + tx] / 255f;
+                        float body = canvas.BodyMask(kind)[ty * w + tx] / 255f;
                         if (body <= 0f) continue;
-                        Paper.PeakGlaze(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
-                            PaperAt(wash.m_parchment, paper, px, py, 2), kind == 1, out float br, out float bg, out float bb);
+                        Paper.BodyGlaze(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
+                            PaperAt(wash.m_parchment, paper, px, py, 2), kind, out float br, out float bg, out float bb);
                         lr += (br - lr) * body;
                         lg += (bg - lg) * body;
                         lb += (bb - lb) * body;

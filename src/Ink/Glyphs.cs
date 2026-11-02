@@ -17,6 +17,8 @@ namespace Atlas
         // How far down the eastern face (share of the flank) a peak's solid wedge reaches before
         // the hatching takes over: enough for ranges to read dark at the opening zoom.
         private const float PeakWedge = 0.45f;
+        // A spire's wedge reaches further down its east face: the Mistlands' rock is black.
+        private const float SpireWedge = 0.65f;
         // How far (sheet pixels) a peak's wash runs out below its foot, and how strongly at the
         // foot (0 to 1), fading to nothing at the skirt's end.
         private const float PeakSkirt = 2f;
@@ -30,7 +32,6 @@ namespace Atlas
             {
                 case Kind.Peak:
                     Peak(g.m_x, g.m_y, g.m_size, g.m_seed);
-                    MarkSolid(g.m_x - g.m_size * 0.5f, g.m_y - g.m_size, g.m_x + g.m_size * 0.62f, g.m_y);
                     break;
                 case Kind.Hill: Hill(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Broadleaf: Broadleaf(g.m_x, g.m_y, g.m_size, g.m_seed); break;
@@ -39,11 +40,11 @@ namespace Atlas
                 case Kind.DeadTree: DeadTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Spire:
                     Spire(g.m_x, g.m_y, g.m_size, g.m_seed);
-                    MarkSolid(g.m_x - 4.5f * g.m_size, g.m_y - 21f * g.m_size, g.m_x + 4.5f * g.m_size, g.m_y);
                     break;
                 case Kind.GiantTree: GiantTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Volcano: Volcano(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Crag: Crag(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+                case Kind.Mist: MistBank(g.m_x, g.m_y - MistGap, g.m_seed); break;
                 case Kind.IceFloe: IceFloe(g.m_x, g.m_y, g.m_size, g.m_seed); break;
             }
         }
@@ -280,12 +281,13 @@ namespace Atlas
         // A crown traced as a pen would: a closed loop whose radius wobbles a little all round, by
         // seed, and whose start and end overlap slightly, so no two crowns are the same shape. A
         // perfect ellipse on every tree read as stamped, not drawn.
-        private void HandCrown(float cx, float cy, float rx, float ry, int seed)
+        // wobbleScale above 1 makes a raggeder outline (the Mistlands' canopies).
+        private void HandCrown(float cx, float cy, float rx, float ry, int seed, float wobbleScale = 1f)
         {
             m_points.Clear();
             const int steps = 14;
             float start = Unit(seed, 40) * Mathf.PI * 2f;
-            float wobble = Mathf.Lerp(0.04f, 0.11f, Unit(seed, 41));
+            float wobble = Mathf.Lerp(0.04f, 0.11f, Unit(seed, 41)) * wobbleScale;
             for (int i = 0; i <= steps + 1; i++)
             {
                 float a = start + Mathf.PI * 2f * i / steps;
@@ -426,55 +428,117 @@ namespace Atlas
 
         private readonly List<Limb> m_limbs = new List<Limb>(16);
 
-        // A Mistlands rock pillar: steep sides narrowing to a broken top, its eastern face hatched
-        // with upright strokes, so it reads as a crag rather than a peak or a pine.
+        // A Mistlands crag: a black pinnacle in the peaks' hand, often with a smaller one or two
+        // standing behind it, drawn back to front. The old pillar was one symmetric trapezoid with
+        // three upright strokes on every spire and read as a fence post (Mistlands review,
+        //).
         private void Spire(float x, float y, float s, int seed)
         {
-            float height = Mathf.Lerp(13f, 20f, Unit(seed, 10)) * s;
-            float baseHalf = 4.2f * s;
-            float topHalf = 2f * s;
-            float top = y - height;
-            var baseLeft = new Vector2(x - baseHalf, y);
-            var baseRight = new Vector2(x + baseHalf, y);
-            var topLeft = new Vector2(x - topHalf, top + Unit(seed, 11) * 1.5f * s);
-            var topRight = new Vector2(x + topHalf, top + Unit(seed, 12) * 1.5f * s);
-            // The broken top: a notch between two knuckles of rock.
-            var notch = new Vector2(x + (Unit(seed, 13) - 0.5f) * topHalf, top + 1.8f * s);
-            Poly(baseLeft, topLeft, topRight, baseRight);
-            m_canvas.Erase(m_points);
-            for (int i = 0; i < 3; i++)
-            {
-                float t = (i + 1) / 4f;
-                float hx = Mathf.Lerp(x + topHalf * 0.2f, x + baseHalf * 0.85f, t);
-                float hy = Mathf.Lerp(top, y, t * 0.6f) + 1.5f * s;
-                m_canvas.Stroke(hx, hy, hx, y - 0.8f * s, Pen);
-            }
-            m_canvas.Stroke(baseLeft.x, baseLeft.y, topLeft.x, topLeft.y, 1.4f);
-            m_canvas.Stroke(baseRight.x, baseRight.y, topRight.x, topRight.y, 1.4f);
-            m_canvas.Stroke(topLeft.x, topLeft.y, notch.x, notch.y, 1.2f);
-            m_canvas.Stroke(notch.x, notch.y, topRight.x, topRight.y, 1.2f);
+            float width = SpireHeightOf(s, seed) * 0.45f;
+            if (Unit(seed, 40) < 0.55f)
+                Pinnacle(x - width * 0.4f, y - width * 0.1f, s * Mathf.Lerp(0.55f, 0.75f, Unit(seed, 41)), seed + 1);
+            if (Unit(seed, 42) < 0.2f)
+                Pinnacle(x + width * 0.45f, y - width * 0.08f, s * Mathf.Lerp(0.5f, 0.65f, Unit(seed, 43)), seed + 2);
+            Pinnacle(x, y, s, seed);
         }
 
-        // A giant Mistlands tree: a tall trunk under a canopy of three overlapping crowns.
+        // A spire's height for its size, shared with summit placement, which sets the foot so the
+        // apex lands on the summit.
+        private static float SpireHeightOf(float s, int seed) => Mathf.Lerp(8f, 12f, Unit(seed, 10)) * s;
+
+        // One pinnacle: 0.45 to 0.62 of its height wide (narrower read as needles), leaning a little, jagged flanks with
+        // a ledge, some with a broken twin tip; the body scraped as a fan like a peak's but keeping
+        // the Mistlands' wash; a solid wedge down most of the east face, as the rock is black, and
+        // hatching below it.
+        private void Pinnacle(float x, float y, float s, int seed)
+        {
+            float height = SpireHeightOf(s, seed);
+            float width = height * Mathf.Lerp(0.45f, 0.62f, Unit(seed, 11));
+            var apex = new Vector2(x + (Unit(seed, 12) - 0.5f) * 0.1f * height, y - height);
+            var left = new Vector2(x - width * 0.5f, y + (Unit(seed, 16) - 0.5f) * 0.6f * s);
+            var right = new Vector2(x + width * 0.5f, y + (Unit(seed, 17) - 0.5f) * 0.6f * s);
+            m_west.Clear();
+            m_west.Add(left);
+            m_west.Add(Flank(left, apex, 0.4f, -0.06f * width));
+            m_west.Add(Flank(left, apex, 0.72f, (Unit(seed, 14) - 0.5f) * 0.1f * width));
+            m_west.Add(apex);
+            m_east.Clear();
+            m_east.Add(apex);
+            if (Unit(seed, 13) < 0.4f)
+            {
+                // A broken twin tip: a notch, then a second point a little lower to the east.
+                m_east.Add(new Vector2(apex.x + width * 0.06f, apex.y + height * 0.18f));
+                m_east.Add(new Vector2(apex.x + width * 0.14f, apex.y + height * 0.1f));
+            }
+            m_east.Add(Flank(apex, right, 0.3f, (Unit(seed, 15) - 0.5f) * 0.1f * width));
+            m_east.Add(Flank(apex, right, 0.6f, Unit(seed, 18) < 0.5f ? 0.05f * height : 0f));
+            m_east.Add(right);
+
+            m_points.Clear();
+            m_points.AddRange(m_west);
+            for (int i = 1; i < m_east.Count; i++) m_points.Add(m_east[i]);
+            var hub = new Vector2(apex.x, y - height * 0.15f);
+            m_fan.Clear();
+            m_fan.AddRange(m_points);
+            for (int i = 0; i < m_fan.Count; i++)
+            {
+                Vector2 a = m_fan[i], b = m_fan[(i + 1) % m_fan.Count];
+                Poly(Grow(hub, hub, a, b), Grow(a, hub, a, b), Grow(b, hub, a, b));
+                m_canvas.Erase(m_points);
+            }
+
+            var foot = new Vector2(apex.x + width * 0.05f, y);
+            Poly(apex, Along(m_east, SpireWedge), Vector2.Lerp(apex, foot, SpireWedge));
+            m_canvas.Fill(m_points);
+            int strokes = 3 + (int)(Unit(seed, 21) * 2.99f);
+            for (int k = 0; k < strokes; k++)
+            {
+                float t = Mathf.Lerp(SpireWedge, 0.95f, (k + 0.5f) / strokes);
+                Vector2 from = Along(m_east, t);
+                float shadowX = Mathf.Lerp(apex.x, foot.x, (from.y - apex.y) / height);
+                var to = new Vector2(Mathf.Lerp(from.x, shadowX, Mathf.Lerp(0.6f, 0.9f, Unit(seed, 30 + k))), from.y + height * 0.06f);
+                m_canvas.Stroke(from.x, from.y, to.x, to.y, Pen);
+            }
+            m_canvas.Polyline(m_west, 1.4f);
+            m_canvas.Polyline(m_east, 1.4f);
+        }
+
+        // A Mistlands tree as the game's Yggdrasil shoots: a kinked trunk on flared roots, one or
+        // two branches up into one broad, slightly ragged canopy. Three
+        // round crowns on a straight stick read as a lollipop.
         private void GiantTree(float x, float y, float s, int seed)
         {
-            float height = 12f * s * Vary(seed, 10, 0.2f);
-            float r = 2.9f * s * Vary(seed, 14, 0.15f);
-            float crown = y - height;
-            float lean = (Unit(seed, 15) - 0.5f) * 1.6f * s;
-            m_canvas.Stroke(x + lean, crown + r, x, y, 1.4f);
-            // Outer crowns first, the middle one last and slightly higher, in front of both; each
-            // its own size and a little out of line.
-            float spread = Mathf.Lerp(2.9f, 3.9f, Unit(seed, 16)) * s;
-            DrawCrown(x + lean - spread, crown + Mathf.Lerp(0.3f, 1.2f, Unit(seed, 17)) * s, r * Vary(seed, 18, 0.15f), seed + 1);
-            DrawCrown(x + lean + spread, crown + Mathf.Lerp(0.3f, 1.2f, Unit(seed, 19)) * s, r * Vary(seed, 20, 0.15f), seed + 2);
-            DrawCrown(x + lean, crown - 0.5f * s, r, seed + 3);
+            float trunk = Mathf.Lerp(4.5f, 6f, Unit(seed, 10)) * s;
+            var foot = new Vector2(x, y);
+            var p1 = new Vector2(x + (Unit(seed, 11) - 0.5f) * 1.2f * s, y - trunk * 0.33f);
+            var p2 = new Vector2(x + (Unit(seed, 12) - 0.5f) * 1.2f * s, y - trunk * 0.66f);
+            var p3 = new Vector2(x + (Unit(seed, 13) - 0.5f) * 0.6f * s, y - trunk);
+            float rx = Mathf.Lerp(3.6f, 4.6f, Unit(seed, 17)) * s;
+            float ry = rx * Mathf.Lerp(0.55f, 0.7f, Unit(seed, 18));
+            float cx = p3.x, cy = p3.y - ry * 0.6f;
 
-            void DrawCrown(float cx, float cy, float radius, int crownSeed)
+            m_limbs.Clear();
+            m_limbs.Add(new Limb(foot, p1, 1.4f));
+            m_limbs.Add(new Limb(p1, p2, 1.3f));
+            m_limbs.Add(new Limb(p2, p3, 1.2f));
+            m_limbs.Add(new Limb(new Vector2(x, y - 0.8f * s), new Vector2(x - 1.3f * s, y + 0.2f * s), Pen));
+            m_limbs.Add(new Limb(new Vector2(x, y - 0.8f * s), new Vector2(x + 1.3f * s, y + 0.2f * s), Pen));
+            float side = Unit(seed, 15) < 0.5f ? -1f : 1f;
+            Vector2 fork = Vector2.Lerp(p2, p3, 0.4f);
+            m_limbs.Add(new Limb(fork, new Vector2(cx + side * rx * 0.7f, cy + ry * 0.6f), Pen));
+            if (Unit(seed, 16) < 0.6f) m_limbs.Add(new Limb(fork, new Vector2(cx - side * rx * 0.6f, cy + ry * 0.7f), Pen));
+            foreach (Limb limb in m_limbs) m_canvas.Scrape(limb.m_a.x, limb.m_a.y, limb.m_b.x, limb.m_b.y, limb.m_width + 1.2f);
+            foreach (Limb limb in m_limbs) m_canvas.Stroke(limb.m_a.x, limb.m_a.y, limb.m_b.x, limb.m_b.y, limb.m_width);
+
+            // One crown only: lobes behind or beside it showed as thin black crescents along its
+            // edge at the map's scale (black artifacts outside the padding).
+            Canopy(cx, cy, rx, ry, seed + 2);
+
+            void Canopy(float ox, float oy, float ex, float ey, int crownSeed)
             {
-                m_canvas.EraseEllipse(cx, cy, radius * 1.12f + 0.7f * m_pen, radius * 0.9f + 0.7f * m_pen);
-                Shade(cx, cy, radius, radius * 0.8f, crownSeed);
-                HandCrown(cx, cy, radius, radius * 0.8f, crownSeed);
+                m_canvas.EraseEllipse(ox, oy, ex * 1.12f + 0.7f * m_pen, ey * 1.12f + 0.7f * m_pen);
+                Shade(ox, oy, ex, ey, crownSeed);
+                HandCrown(ox, oy, ex, ey, crownSeed, 1.15f);
             }
         }
 
@@ -540,20 +604,34 @@ namespace Atlas
 
 
         // An ice floe: a small irregular outline lying on the water. Its body (an ellipse just
-        // around the outline) is scraped back to parchment first, so ripple lines stop at its edge.
+        // around the outline) is scraped back to parchment first, so ripple lines stop at its edge,
+        // and the outline is filled with the Deep North's wash, as ice, not the sea's (user,
+        //). The outline may sag inwards, so it is filled as a fan of convex triangles
+        // from its centre, as peak bodies are.
         private void IceFloe(float x, float y, float s, int seed)
         {
-            m_points.Clear();
             const int corners = 6;
             float size = Mathf.Lerp(2.5f, 5.5f, Unit(seed, 10)) * s;
-            m_canvas.EraseEllipse(x, y, size + 0.8f, size * 0.7f + 0.8f);
-            for (int i = 0; i <= corners; i++)
+            m_fan.Clear();
+            for (int k = 0; k < corners; k++)
             {
-                int k = i % corners;
                 float a = (k + Unit(seed, 11 + k) * 0.6f) / corners * Mathf.PI * 2f;
                 float r = size * Mathf.Lerp(0.7f, 1f, Unit(seed, 20 + k));
-                m_points.Add(new Vector2(x + Mathf.Cos(a) * r, y + Mathf.Sin(a) * r * 0.7f));
+                m_fan.Add(new Vector2(x + Mathf.Cos(a) * r, y + Mathf.Sin(a) * r * 0.7f));
             }
+            m_canvas.EraseEllipse(x, y, size + 0.8f, size * 0.7f + 0.8f);
+            var hub = new Vector2(x, y);
+            m_canvas.m_markBody = BodyKind.North;
+            for (int i = 0; i < corners; i++)
+            {
+                Vector2 a = m_fan[i], b = m_fan[(i + 1) % corners];
+                Poly(Grow(hub, hub, a, b), Grow(a, hub, a, b), Grow(b, hub, a, b));
+                m_canvas.Erase(m_points);
+            }
+            m_canvas.m_markBody = BodyKind.None;
+            m_points.Clear();
+            m_points.AddRange(m_fan);
+            m_points.Add(m_fan[0]);
             m_canvas.Polyline(m_points, Pen);
         }
 

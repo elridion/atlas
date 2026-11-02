@@ -16,9 +16,10 @@ namespace Atlas
         // The farthest a tile-drawn glyph reaches from its foot (the Mistlands' giant trees, 15 T
         // tall), at level of detail 1, in sheet pixels.
         private const float GlyphReach = 16f * T;
-        // The tile coast's and waves' pens in screen pixels, the coast a little heavier.
+        // The tile coast's and waves' pens in screen pixels, the coast heavier: the smaller waves
+        // stay a hairline that does not compete with it.
         private const float TileCoastPixels = 2.2f;
-        private const float TileRipplePixels = 1.5f;
+        private const float TileRipplePixels = 1.3f;
 
         // How far beyond a tile its ground must be sampled, in sheet pixels: glyphs standing outside
         // it, plus the margins their rules test, so a tile's neighbours decide alike at the edge.
@@ -66,7 +67,6 @@ namespace Atlas
             }
             while (next < groups.Count) record.Replay(m_canvas, groups[next++]);
             m_cancel.ThrowIfCancellationRequested();
-            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Mist), null);
             // The waves at a pen of their own in screen pixels, finer than the coast's (thinned by
             // the level of detail alone they stood almost as heavy as it at 4x), and only where the
             // tile's finer coast still has water.

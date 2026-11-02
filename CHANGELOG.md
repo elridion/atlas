@@ -14,11 +14,11 @@
   outer crowns, with the open land around it kept clear.
 - Every biome has its own pen marks: ranges of jagged, hatched peaks washed in the mountains' grey, ringed by foothills, grass and woods of
   round crowns in the Meadows, stones and dark pine woods in the Black Forest, patches of marsh lines with reeds
-  and tall ancient dead trees in the Swamp, a dry stipple and copses on the Plains, mist banks over giant trees
-  and rock pillars in the Mistlands, a cinder stipple, rocky peaks, hatched vermilion lava fields and volcano cones in the Ashlands, and a
-  near-blank snowfield with ice ridges in the Deep North.
+  and tall ancient dead trees in the Swamp, a dry stipple and copses on the Plains, veils of mist over gnarled trees
+  and black crags in the Mistlands, a cinder stipple, rocky peaks, hatched vermilion lava fields and volcano cones in the Ashlands, and a
+  near-blank snowfield with ice ridges in the Deep North, kept clear of the shore, the peaks and each other.
 - Coastlines are drawn with a fine pen and accented by groups of small level wave strokes in bays,
-  straits, river mouths and off capes, as on a classic map, with ice floes in the northern sea; rivers and
+  straits, river mouths and off capes, as on a classic map, with ice floes in the northern sea, white as the northern snow; rivers and
   streams are drawn as ink lines.
 - "Read map" at a cartography table opens the game's own interactive map, where you can place and
   edit pins. Your pins appear on the atlas the next time you record your discoveries, inked black

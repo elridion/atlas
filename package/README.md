@@ -40,15 +40,15 @@ snowfield.
 
 | Biome | Marks |
 | --- | --- |
-| Ocean | A fine coastline traced on the game's own water line, with groups of small level wave strokes that start at the shore, set in bays, straits, river mouths and off capes; the open sea is left blank. Water is washed in indigo; lakes, ponds and swamp pools share the same shore line |
+| Ocean | A fine coastline traced on the game's own water line, with groups of small level wave strokes that start at the shore, set in bays, straits, river mouths and off capes, with a sparse scatter of small groups out at sea. Water is washed in indigo; lakes, ponds and swamp pools share the same shore line |
 | Meadows | Tufts of grass on open ground, woods of egg-shaped trees shaded on their eastern side, groups of rolling hills |
 | Black Forest | Stones on open ground, woods of dense dark pines |
 | Swamp | Short marsh lines with tufts of reeds, gathered round the real pools and thinning toward the edge, tall ancient dead trees; its pools read as marsh under a faint blue glaze, only deep water open to the sea stays water |
 | Mountain | Real summits as large jagged peaks, some with shoulders or twin summits, their eastern faces hatched, smaller peaks massed between them, foothills on the real hilltops below |
 | Plains | A stipple of dry ground, copses of small round shaded trees, rolling hills |
-| Mistlands | Banks of mist drifting across woods of giant three-crowned trees, hatched rock pillars |
+| Mistlands | Veils of mist lying in the valleys over woods of gnarled, broad-crowned trees, black crags on the summits and the broken ground |
 | Ashlands | Burnt, ash-clouded ground stippled with cinders, thickest by the lava; red lava fields toned with fine engraved hatching; small rocky peaks and volcano cones with open craters |
-| Deep North | A near-blank snowfield crossed by thin bands of ice ridges, high peaks and ice floes in the northern sea |
+| Deep North | A near-blank snowfield crossed by thin bands of ice ridges, high peaks and snow-white ice floes in the northern sea |
 | Rivers | Wide rivers show as water between two banks; narrow rivers and streams as ink lines that taper toward their source |
 
 ## Settings

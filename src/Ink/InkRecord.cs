@@ -11,7 +11,6 @@ namespace Atlas
         Background,
         Tree,
         Glyph,
-        Mist,
         River,
         Coast,
         Ripple,

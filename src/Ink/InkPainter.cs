@@ -33,22 +33,38 @@ namespace Atlas
         // Wave accents (canvas pixels): groups start WaveFirstRow from land, rows WaveRowGap
         // apart; candidate points every WaveSpotStep along the shore, scored on a disc of
         // WaveShapeRadius; a score of WaveAccent or more gets a group, others a lone stroke at
-        // chance WaveLone; groups keep WaveGroupGap apart. Each wave a level tilde of crests
-        // WaveCrest long and WaveLift high, its ends WaveShoreClear from land. Islets under
-        // MajorLandCells map pixels get two strokes at most.
-        private const float WaveFirstRow = 3.2f;
-        private const float WaveRowGap = 3.4f;
+        // chance WaveLone; groups keep WaveGroupGap apart, give or take WaveGapJitter so they
+        // fall in no grid. Each wave a level tilde of two or three crests WaveCrest long and
+        // WaveLift high, its ends WaveShoreClear from land: about 30 to 40 m, a tree's width or
+        // two, so it sits among the glyphs at their scale (smaller, more
+        // delicate). Islets under MajorLandCells map pixels get two strokes at most.
+        private const float WaveFirstRow = 3f;
+        private const float WaveRowGap = 2.8f;
         private const float WaveSpotStep = 4f;
         private const float WaveShapeRadius = 22f;
         private const float WaveAccent = 0.3f;
         private const float WaveLone = 0.1f;
-        private const float WaveGroupGap = 20f;
-        private const float WaveCrest = 3.8f;
-        private const float WaveLift = 0.6f;
-        private const float WaveShoreClear = 1.8f;
+        private const float WaveGroupGap = 26f;
+        private const float WaveGapJitter = 0.3f;
+        private const float WaveCrest = 2.6f;
+        private const float WaveLift = 0.45f;
+        private const float WaveShoreClear = 1.6f;
+        // Open water: one candidate per WaveOpenStep square, taken at chance WaveOpenChance, at
+        // least WaveOpenShore from land and WaveOpenGap from any other group, so the coasts keep
+        // most of the waves and the open sea gets a sparse scatter of small groups; the chance
+        // drifts over WaveOpenDrift squares, so the scatter comes in loose patches.
+        private const float WaveOpenDrift = 4f;
+        private const float WaveOpenStep = 40f;
+        private const float WaveOpenChance = 0.65f;
+        private const float WaveOpenShore = 10f;
+        private const float WaveOpenGap = 36f;
+        // A stroke marks WaveInkHalf either side of its line and keeps WaveKeepOff from any mark,
+        // so a group's rows, under three pixels apart, still pass while no two strokes touch.
+        private const float WaveInkHalf = 0.5f;
+        private const float WaveKeepOff = 0.9f;
         // A stroke starts WaveShoreGap off a shore level with it within WaveAnchorReach, and such
         // points score WaveBesideBonus more.
-        private const float WaveShoreGap = 1.6f;
+        private const float WaveShoreGap = 1.4f;
         private const int WaveAnchorReach = 8;
         private const float WaveBesideBonus = 0.25f;
         private const int MajorLandCells = 400;
@@ -85,17 +101,20 @@ namespace Atlas
         private const float HillProminence = 6f;
         private const int ProminenceCells = 10;
         private const float SummitClearance = 0.55f;
-        private const float HillSlope = 0.35f;
-        // Mist banks: the gap between a bank's two lines, the parchment band scraped under each line
-        // (canvas pixels, narrower than the gap so one line never scrapes the other) and the step
-        // between points along a line.
-        private const float MistGap = 2.6f * G;
-        private const float MistBand = 3.4f;
+        // Mist banks: the gap between a bank's three lines (canvas pixels), the step between points
+        // along a line, and the height above the water (metres) by which banks have thinned to
+        // their fewest, as the game's mist clears on the heights.
+        private const float MistGap = 2f * G;
         private const float MistStep = 1.5f * G;
+        private const float MistCeiling = 75f;
         // Deep North pressure ridges: the scale of the noise their bands follow (canvas pixels) and
         // how close to a crest line a chevron must lie (1 is on the crest).
         private const float RidgeScale = 70f * G;
         private const float RidgeBand = 0.9f;
+        // How far a chevron keeps from the shore (in the rules' shore units) and from the next
+        // chevron (in G).
+        private const float RidgeShore = 4f * G;
+        private const float RidgeGap = 1.5f;
         // Rivers: the pen for a river, a stream at its mouth (thinning to Pen at its source), the extra
         // width scraped clear on either side, and the step between points along a course (canvas px).
         private const float RiverWidth = 1.2f;
@@ -105,10 +124,12 @@ namespace Atlas
         // River ink keeps this far (canvas pixels) from any water the coast already draws, or it
         // runs along a bank or a lake shore and the two lines merge into a smear.
         private const float RiverShoreClear = 2f;
+        // Mistlands ground this steep (height per metre) is broken crag: filler spires stand there,
+        // and woods and mist keep off it. Summit spires stand on the real summits: the highest
+        // map pixel within SpireCells that rises SpireProminence metres over its surroundings.
         private const float SpireSlope = 0.45f;
-        // Mistlands land this high above the water gets spires even where it is not steep
-        // (the Velen world's Mistlands p90 is 47 m).
-        private const float SpireHeight = 42f;
+        private const int SpireCells = 5;
+        private const float SpireProminence = 25f;
         private const float VolcanoHeight = 22f;
         // Volcanoes are drawn larger than other land glyphs, closer to the size of a peak.
         private const float VolcanoScale = 2.2f;
@@ -134,7 +155,6 @@ namespace Atlas
         private readonly List<Vector2> m_points = new List<Vector2>(16);
         private readonly List<bool> m_pathInside = new List<bool>(32);
         // Canvas pixels covered by peaks and spires, which the mist banks drawn later must not cut.
-        private byte[] m_solid;
         private readonly List<Glyph> m_glyphs = new List<Glyph>(200000);
         // Real summits placed so far: apex position (x, y) and glyph width (z).
         private readonly List<Vector3> m_summits = new List<Vector3>(1024);
@@ -169,6 +189,7 @@ namespace Atlas
             GiantTree,
             Volcano,
             Crag,
+            Mist,
             IceFloe,
         }
 
@@ -269,8 +290,6 @@ namespace Atlas
                 DrawGlyph(glyph);
                 if (!tree) m_canvas.EndGroup();
             }
-            m_canvas.m_layer = InkLayer.Mist;
-            DrawMist();
             m_canvas.m_layer = InkLayer.Ripple;
             DrawWaveAccents();
             m_canvas.m_layer = InkLayer.Floe;
@@ -697,14 +716,64 @@ namespace Atlas
             // Deep North: a near-blank snowfield, as the classic map leaves its northern waste. Its
             // only marks are chevrons of pressure ridges, gathered into thin winding bands (the
             // crest lines of a ridged noise) with open snow between, rather than sprinkled evenly.
-            Scatter(8f * m_g, 15, s =>
+            // Each chevron keeps clear of the water, of the peaks and of the other chevrons: ones
+            // touching a shore, a peak's foot or each other read as clutter.
+            float ridgeStep = 8f * m_g;
+            Scatter(ridgeStep, 15, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.DeepNorth || s.m_above >= DeepNorthPeakHeight || s.m_shore < 3f) return;
-                float ridge = 1f - Math.Abs(2f * Noise(s.m_x / RidgeScale, s.m_y / RidgeScale, m_world.m_seed + 9) - 1f);
-                if (ridge < RidgeBand || !(s.m_roll < 0.7f)) return;
+                if (!s.m_isLand || s.m_land != Land.DeepNorth || s.m_above >= DeepNorthPeakHeight || s.m_shore < RidgeShore) return;
+                if (!IsRidge(s.m_x, s.m_y) || !(s.m_roll < 0.8f)) return;
+                if (RidgeCrowded(s, ridgeStep) || NearHighGround(s.m_x, s.m_y)) return;
                 m_canvas.Stroke(s.m_x - 2.4f * m_g, s.m_y, s.m_x, s.m_y - 2f * m_g, Pen);
                 m_canvas.Stroke(s.m_x, s.m_y - 2f * m_g, s.m_x + 2.4f * m_g, s.m_y, Pen);
             });
+        }
+
+        // Whether a point lies on a crest line of the pressure ridges' noise.
+        private bool IsRidge(float x, float y) =>
+            1f - Math.Abs(2f * Noise(x / RidgeScale, y / RidgeScale, m_world.m_seed + 9) - 1f) >= RidgeBand;
+
+        // Whether a neighbouring cell of the chevron grid could put a chevron of higher priority
+        // within RidgeGap of this one. Decided from the grid's hashes and the ridge noise alone,
+        // without the ground, so the sheet and every tile agree; a neighbour off the snow can still
+        // make a chevron give way, which only thins the bands' ends.
+        private bool RidgeCrowded(Spot s, float step)
+        {
+            float halfWidth = 2.4f * m_g, height = 2f * m_g, gap = RidgeGap * m_g;
+            float priority = Unit(s.m_seed, 30);
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    int gx = s.m_gx + dx, gy = s.m_gy + dy;
+                    int seed = HashInt(gx, gy, s.m_gridSeed);
+                    if (!(Unit(seed, 3) < 0.8f) || Unit(seed, 30) < priority) continue;
+                    float x = (gx + 0.5f + (Unit(seed, 1) - 0.5f) * 0.9f) * step;
+                    float y = (gy + 0.5f + (Unit(seed, 2) - 0.5f) * 0.9f) * step;
+                    if (Math.Abs(x - s.m_x) < 2f * halfWidth + gap && Math.Abs(y - s.m_y) < height + gap && IsRidge(x, y)) return true;
+                }
+            }
+            return false;
+        }
+
+        // Whether high ground that carries peaks lies where one of them could stand over or beside
+        // a mark at (x, y): a peak rises north of its foot, so the search reaches far south and only
+        // a little north. Read from the world's own heights, the same on the sheet and every tile.
+        private bool NearHighGround(float x, float y)
+        {
+            for (float dy = -3f * G; dy <= 22f * G; dy += 2.5f * G)
+            {
+                for (float dx = -13f * G; dx <= 13f * G; dx += 2.5f * G)
+                {
+                    float wx = (x + dx) * MetresPerPixel - HalfExtent, wz = HalfExtent - (y + dy) * MetresPerPixel;
+                    float above = m_world.HeightAt(wx, wz) - m_world.m_waterLevel;
+                    if (above < DeepNorthPeakHeight) continue;
+                    Land land = m_world.m_biome[m_world.Index(wx, wz)];
+                    if ((land == Land.Mountain && above >= PeakHeight) || land == Land.DeepNorth) return true;
+                }
+            }
+            return false;
         }
 
         // One marsh mark of the swamp rule's grid (cell gx, gy, its square grid of spacing c with
@@ -775,6 +844,11 @@ namespace Atlas
                     bool high = (land == Land.Mountain && above >= PeakHeight) || (land == Land.DeepNorth && above >= DeepNorthPeakHeight);
                     bool hillCountry = ((land == Land.Meadows || land == Land.Plains) && m_world.m_wood[i] < WoodEdge)
                         || (land == Land.Mountain && above < PeakHeight);
+                    if (land == Land.Mistlands)
+                    {
+                        PlaceSummitSpire(h, size, x, z);
+                        continue;
+                    }
                     if (!high && !hillCountry) continue;
                     int radius = high ? SummitCells : HilltopCells;
                     if (!IsHighest(h, size, x, z, radius)) continue;
@@ -812,6 +886,42 @@ namespace Atlas
                 }
             }
         }
+
+        // A Mistlands crag on a real summit, sized by its prominence, the foot set so the apex of
+        // its pinnacle lands on the summit, as peaks are placed.
+        private void PlaceSummitSpire(float[] h, int size, int x, int z)
+        {
+            if (!IsHighest(h, size, x, z, SpireCells)) return;
+            float prominence = h[z * size + x] - Lowest(h, size, x, z, ProminenceCells);
+            if (prominence < SpireProminence) return;
+            float wx = (x - size / 2 + 0.5f) * m_world.m_pixelSize;
+            float wz = (z - size / 2 + 0.5f) * m_world.m_pixelSize;
+            float cx = (wx + HalfExtent) / MetresPerPixel, cy = (HalfExtent - wz) / MetresPerPixel;
+            float dx = cx - CanvasSize * 0.5f, dy = cy - CanvasSize * 0.5f;
+            float edge = EdgeRadius / MetresPerPixel * EdgeFraction;
+            if (dx * dx + dy * dy > edge * edge || !IsLandAt(cx, cy)) return;
+            int seed = HashInt(x, z, m_world.m_seed + 78);
+            float s = Mathf.Lerp(1.1f, 1.6f, Mathf.Clamp01((prominence - SpireProminence) / 60f)) * G;
+            float height = SpireHeightOf(s, seed);
+            float footY = cy + height;
+            if (!IsLandColumn(cx, footY, height) || m_landDistance[PixelAt(cx, footY)] < 4f) return;
+            m_glyphs.Add(new Glyph { m_x = cx, m_y = footY, m_size = s, m_kind = Kind.Spire, m_seed = seed });
+            m_spires.Add(new Vector3(cx, footY, height * 0.35f));
+        }
+
+        // Whether a filler spire at this foot would crowd a summit's.
+        private bool NearSummitSpire(float x, float y, float width)
+        {
+            foreach (Vector3 spire in m_spires)
+            {
+                float reach = 0.6f * (spire.z + width) + width;
+                float dx = x - spire.x, dy = y - spire.y;
+                if (dx * dx + dy * dy < reach * reach) return true;
+            }
+            return false;
+        }
+
+        private readonly List<Vector3> m_spires = new List<Vector3>();
 
         private static bool IsHighest(float[] h, int size, int x, int z, int radius)
         {
@@ -880,11 +990,11 @@ namespace Atlas
                 if (!InWood(s, Land.Plains, 6f * m_t) || !(s.m_roll < 0.9f)) return;
                 Add(s, Kind.PlainsTree, m_t);
             });
-            // Mistlands: giant trees packed closely enough to read as the biome's dark forest,
-            // off the steep ground where the spires stand.
-            Scatter(8f * m_t, 29, s =>
+            // Mistlands: gnarled trees packed closely enough that their canopies mass into one dark
+            // wood, as the Black Forest's pines do, off the steep ground where the spires stand.
+            Scatter(7f * m_t, 29, s =>
             {
-                if (s.m_slope >= SpireSlope || !InWood(s, Land.Mistlands, 15f * m_t) || !(s.m_roll < 0.85f)) return;
+                if (s.m_slope >= SpireSlope || !InWood(s, Land.Mistlands, 13f * m_t) || !(s.m_roll < 0.9f)) return;
                 Add(s, Kind.GiantTree, m_t);
             });
         }
@@ -907,6 +1017,7 @@ namespace Atlas
                 Add(s, Kind.Peak, width);
             });
             PlaceTrees();
+            PlaceMist();
             // Swamp: a few tall ancient dead trees among the marsh lines, standing clear of water.
             Scatter(30f * T, 27, s =>
             {
@@ -914,11 +1025,12 @@ namespace Atlas
                 if (!IsLandColumn(s.m_x, s.m_y, 14f * T)) return;
                 Add(s, Kind.DeadTree, T);
             });
-            // Mistlands: rock spires on the steep or high ground.
-            Scatter(12f * G, 28, s =>
+            // Mistlands: crags on the real summits (PlaceSummitSpire) and filler crags on the steep,
+            // broken ground only, clear of the summits; high flat plateaus are not crags.
+            Scatter(18f * G, 28, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 5f || !(s.m_roll < 0.8f)) return;
-                if (s.m_slope < SpireSlope && s.m_above < SpireHeight) return;
+                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 5f || !(s.m_roll < 0.35f)) return;
+                if (s.m_slope < SpireSlope * 1.3f || NearSummitSpire(s.m_x, s.m_y, 7f * G)) return;
                 if (!IsLandColumn(s.m_x, s.m_y, 22f * G)) return;
                 Add(s, Kind.Spire, G);
             });
@@ -992,65 +1104,58 @@ namespace Atlas
             return new Vector2((wx + HalfExtent) / MetresPerPixel, (HalfExtent - wz) / MetresPerPixel);
         }
 
-        // The Mistlands' fill. Unlike the other fills it lies on top of the glyphs: dashes laid
-        // under the dense giant trees were scraped away by them and left the biome looking bare.
-        // Each bank is a pair of long wavy lines drifting across the woods, each on a thin band
-        // scraped back to parchment, so the mist reads as veiling the trees behind it.
-        private void DrawMist()
+        // The Mistlands' mist banks, as glyphs sorted in with the trees and crags by their foot (the
+        // bank's lowest line): a tree or crag in front hides the bank behind it, and a bank lies
+        // over the crowns behind it. Each bank is a veil of three long wavy
+        // lines, the middle one longest, with no parchment band scraped under them: the bands
+        // read as heavy padding. Banks lie in the valleys and thin out with height, as the game's
+        // mist clears on the heights, and keep off steep crag ground (Mistlands review).
+        private void PlaceMist()
         {
-            Scatter(28f * G, 16f * G, 0.5f, 0.5f, 13, s =>
+            Scatter(30f * G, 12f * G, 0.5f, 0.5f, 13, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 6f || !(s.m_roll < 0.8f)) return;
-                float phase = Unit(s.m_seed, 4) * 6.28f;
-                float length = Mathf.Lerp(30f, 44f, Unit(s.m_seed, 5)) * G;
-                MistLine(s.m_x - length * 0.5f, s.m_y, 0f, length, length, phase);
-                MistLine(s.m_x - length * 0.5f, s.m_y + MistGap, length * 0.2f, length * 0.85f, length, phase + 0.8f);
+                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 6f || s.m_slope >= SpireSlope * 1.3f) return;
+                if (!(s.m_roll < Mathf.Lerp(0.9f, 0.35f, Mathf.Clamp01(s.m_above / MistCeiling)))) return;
+                m_glyphs.Add(new Glyph { m_x = s.m_x, m_y = s.m_y + MistGap, m_size = G, m_kind = Kind.Mist, m_seed = s.m_seed });
             });
         }
 
-        // One wavy mist line from t = start to end along a bank of the given length, broken wherever
-        // it leaves Mistlands land, so it never drifts over the sea or into another biome.
-        // The whole line is scraped before any of it is inked; scraping segment by segment would
-        // erase the end of the segment drawn just before.
-        private void MistLine(float left, float y, float start, float end, float length, float phase)
+        // A bank centred on (x, y).
+        private void MistBank(float x, float y, int seed)
+        {
+            float length = Mathf.Lerp(26f, 40f, Unit(seed, 5)) * G;
+            float tilt = (Unit(seed, 6) - 0.5f) * 0.06f;
+            float phase = Unit(seed, 4) * 6.28f;
+            float left = x - length * 0.5f;
+            MistLine(left, y - MistGap, length * 0.2f, length * 0.8f, length, tilt, phase, seed, 0);
+            MistLine(left, y, 0f, length, length, tilt, phase + 0.6f, seed, 1);
+            MistLine(left, y + MistGap, length * 0.25f, length * 0.85f, length, tilt, phase + 1.2f, seed, 2);
+        }
+
+        // One wavy mist line of a bank, from t = start to end of its length, broken wherever it
+        // leaves Mistlands land, so it never drifts over the sea or into another biome, and with
+        // a break or two, so the line looks penned in strokes, not plotted.
+        private void MistLine(float left, float y, float start, float end, float length, float tilt, float phase, int seed, int line)
         {
             m_points.Clear();
             m_pathInside.Clear();
             for (float t = start; t <= end; t += MistStep)
             {
-                var point = new Vector2(left + t, y + Mathf.Sin(t / length * 7.5f + phase) * 1.2f * G);
+                var point = new Vector2(left + t, y + t * tilt + Mathf.Sin(t / length * 5f + phase) * 0.6f * G);
                 m_points.Add(point);
-                m_pathInside.Add(IsMistlandsAt(point.x, point.y) && !IsSolidAt(point.x, point.y));
+                m_pathInside.Add(IsMistlandsAt(point.x, point.y));
             }
-            for (int pass = 0; pass < 2; pass++)
+            int count = m_points.Count;
+            float breakAt = Unit(seed, 7 + line);
+            bool broken = Unit(seed, 10 + line) < 0.6f;
+            for (int i = 1; i < count; i++)
             {
-                for (int i = 1; i < m_points.Count; i++)
-                {
-                    if (!m_pathInside[i] || !m_pathInside[i - 1]) continue;
-                    Vector2 a = m_points[i - 1], b = m_points[i];
-                    if (pass == 0) m_canvas.Scrape(a.x, a.y, b.x, b.y, MistBand);
-                    else m_canvas.Stroke(a.x, a.y, b.x, b.y, Pen);
-                }
+                if (!m_pathInside[i] || !m_pathInside[i - 1]) continue;
+                float u = (i - 0.5f) / (count - 1);
+                if (broken && Mathf.Abs(u - breakAt) < 1.5f / count) continue;
+                Vector2 a = m_points[i - 1], b = m_points[i];
+                m_canvas.Stroke(a.x, a.y, b.x, b.y, Pen);
             }
-        }
-
-        // Marks a glyph's bounding box, grown by the mist band's half width, as off limits to mist.
-        private void MarkSolid(float left, float top, float right, float bottom)
-        {
-            if (m_solid == null) m_solid = new byte[CanvasSize * CanvasSize];
-            float grow = MistBand * 0.5f + 1f;
-            int x0 = Mathf.Clamp((int)(left - grow), 0, CanvasSize - 1), x1 = Mathf.Clamp((int)(right + grow), 0, CanvasSize - 1);
-            int y0 = Mathf.Clamp((int)(top - grow), 0, CanvasSize - 1), y1 = Mathf.Clamp((int)(bottom + grow), 0, CanvasSize - 1);
-            for (int y = y0; y <= y1; y++)
-                for (int x = x0; x <= x1; x++)
-                    m_solid[y * CanvasSize + x] = 1;
-        }
-
-        private bool IsSolidAt(float x, float y)
-        {
-            if (m_solid == null) return false;
-            int px = Mathf.Clamp((int)x, 0, CanvasSize - 1), py = Mathf.Clamp((int)y, 0, CanvasSize - 1);
-            return m_solid[py * CanvasSize + px] != 0;
         }
 
         private bool IsMistlandsAt(float x, float y)
@@ -1130,18 +1235,27 @@ namespace Atlas
         // strictly horizontal). Points along the coast are scored by how the shore shapes the water
         // there: an enclosed bay, inlet or strait (much land round it), the water off a cape (little
         // land round it) and river mouths score high, a straight open coast low. The best points
-        // get a group of three to six strokes stacked away from the shore, each row shorter and
-        // shifted, and keep WaveGroupGap from other groups; straight coasts get a lone stroke now
-        // and then. No stroke touches land or another. Drawn on the sheet only, in a fixed order,
-        // so the result is deterministic; close-ups replay it.
+        // get a group of two to four strokes stacked away from the shore, each row shorter and
+        // shifted, and keep about WaveGroupGap from other groups; straight coasts get a lone
+        // stroke now and then, and the open sea a sparse scatter of two- and three-stroke groups
+        // (mostly by the coasts, some further out). No stroke
+        // touches land, a floe or another. Drawn on the sheet only, in a fixed order, so the
+        // result is deterministic; close-ups replay it.
         private void DrawWaveAccents()
         {
             int n = CanvasSize;
-            const int cell = 2;
-            int cells = n / cell;
-            var taken = new bool[cells * cells];
+            // One-pixel cells, kept sparse: rows of a group stand under three pixels apart, which
+            // a coarser grid could not tell from touching.
+            var taken = new HashSet<int>();
             float centre = n * 0.5f, limit = EdgeRadius / MetresPerPixel * EdgeFraction;
             int salt = unchecked(m_world.m_seed + 34 * 7919);
+            // Floes are inked over the waves and erase under them; keeping the waves off them
+            // spares half-erased strokes.
+            foreach (Glyph floe in m_floes)
+            {
+                float size = 5.5f * floe.m_size + 1.5f;
+                Footprint(taken, n, new Vector2(floe.m_x - size, floe.m_y), new Vector2(floe.m_x + size, floe.m_y), size * 0.7f, true);
+            }
 
             // Candidate points just off the shore, scored.
             var spots = new List<WaveSpot>();
@@ -1175,16 +1289,44 @@ namespace Atlas
                 bool accent = spot.m_score >= WaveAccent;
                 // Straight coasts: a lone stroke now and then, kept further apart.
                 if (!accent && !(Unit(spot.m_seed, 4) < WaveLone)) continue;
-                float gap = accent ? WaveGroupGap : WaveGroupGap * 1.6f;
-                bool crowded = false;
-                foreach (Vector2 other in groups)
-                    if ((other - new Vector2(spot.m_x, spot.m_y)).sqrMagnitude < gap * gap) { crowded = true; break; }
-                if (crowded) continue;
+                float gap = (accent ? WaveGroupGap : WaveGroupGap * 1.6f) * Vary(spot.m_seed, 5, WaveGapJitter);
+                if (Crowded(groups, spot.m_x, spot.m_y, gap)) continue;
                 bool islet = m_majorDistance[PixelAt(spot.m_x, spot.m_y)] / DistanceScale > m_waterDistance[PixelAt(spot.m_x, spot.m_y)] / DistanceScale + 2f;
-                int strokes = accent ? 3 + Mathf.Min(3, (int)((spot.m_score - WaveAccent) / (1f - WaveAccent) * 4f)) : 1;
+                int strokes = accent ? 2 + Mathf.Min(2, (int)((spot.m_score - WaveAccent) / (1f - WaveAccent) * 3f)) : 1;
                 if (islet) strokes = Mathf.Min(strokes, 2);
-                if (DrawWaveGroup(spot, strokes, taken, cell, cells) > 0) groups.Add(new Vector2(spot.m_x, spot.m_y));
+                if (DrawWaveGroup(spot, strokes, taken, n) > 0) groups.Add(new Vector2(spot.m_x, spot.m_y));
             }
+
+            // Open water, after the coasts so their groups keep first claim.
+            int open = (int)(n / WaveOpenStep);
+            for (int gy = 0; gy < open; gy++)
+            {
+                for (int gx = 0; gx < open; gx++)
+                {
+                    int seed = HashInt(gx, gy, salt + 7);
+                    // Broad noise thins the scatter to a fifth over some stretches of sea and
+                    // lets it gather in others, so it never reads as a sprinkled grid.
+                    float drift = Mathf.Lerp(0.2f, 1f, Mathf.Clamp01((Noise(gx / WaveOpenDrift, gy / WaveOpenDrift, salt + 8) - 0.25f) / 0.5f));
+                    if (!(Unit(seed, 0) < WaveOpenChance * drift)) continue;
+                    float x = (gx + 0.15f + Unit(seed, 1) * 0.7f) * WaveOpenStep;
+                    float y = (gy + 0.15f + Unit(seed, 2) * 0.7f) * WaveOpenStep;
+                    float dx = x - centre, dy = y - centre;
+                    if (dx * dx + dy * dy > limit * limit) continue;
+                    var p = new Vector2(x, y);
+                    if (!OnSea(p) || WaterAt(p) < WaveOpenShore) continue;
+                    if (Crowded(groups, x, y, WaveOpenGap * Vary(seed, 5, WaveGapJitter))) continue;
+                    var spot = new WaveSpot { m_x = x, m_y = y, m_seed = seed };
+                    if (DrawWaveGroup(spot, Unit(seed, 6) < 0.3f ? 3 : 2, taken, n) > 0) groups.Add(p);
+                }
+            }
+        }
+
+        private static bool Crowded(List<Vector2> groups, float x, float y, float gap)
+        {
+            var p = new Vector2(x, y);
+            foreach (Vector2 other in groups)
+                if ((other - p).sqrMagnitude < gap * gap) return true;
+            return false;
         }
 
         private struct WaveSpot
@@ -1228,7 +1370,7 @@ namespace Atlas
         // A stack of level tildes from the spot away from the shore, each row WaveRowGap further
         // out, shorter and shifted a little; a row that would touch land or another wave is
         // nudged sideways, or skipped. Returns how many were inked.
-        private int DrawWaveGroup(WaveSpot spot, int strokes, bool[] taken, int cell, int cells)
+        private int DrawWaveGroup(WaveSpot spot, int strokes, HashSet<int> taken, int n)
         {
             // Away from the shore, up or down the sheet as the water opens.
             float up = WaterAt(new Vector2(spot.m_x, spot.m_y - 4f)), down = WaterAt(new Vector2(spot.m_x, spot.m_y + 4f));
@@ -1238,12 +1380,16 @@ namespace Atlas
             float side = east >= west ? 1f : -1f;
             var dir = new Vector2(1f, 0f);
             int inked = 0;
+            float y = spot.m_y;
             for (int k = 0; k < strokes; k++)
             {
-                int crests = Mathf.Max(1, 3 - k / 2 - (Unit(spot.m_seed, 10 + k) < 0.4f ? 1 : 0));
-                float length = crests * WaveCrest * Vary(spot.m_seed, 20 + k, 0.12f);
-                float shift = (Unit(spot.m_seed, 30 + k) - 0.5f) * WaveCrest;
-                float y = spot.m_y + step * k;
+                // Two or three crests, the first row the longest; one-crest strokes read as
+                // commas, not water.
+                int crests = k == 0 && Unit(spot.m_seed, 10) < 0.6f ? 3 : 2;
+                float length = crests * WaveCrest * Vary(spot.m_seed, 20 + k, 0.08f);
+                float shift = (Unit(spot.m_seed, 30 + k) - 0.5f) * WaveCrest * 1.4f;
+                // Rows a little uneven, as a hand spaces them.
+                if (k > 0) y += step * Vary(spot.m_seed, 40 + k, 0.12f);
                 bool done = false;
                 // Where the shore lies level with the row, the stroke starts right at it and runs
                 // out to sea, the classic map's whole style.
@@ -1256,9 +1402,9 @@ namespace Atlas
                     var far = new Vector2(end, y);
                     var mid = new Vector2((start + end) * 0.5f, y);
                     if (OnSea(a) && OnSea(b) && OnSea(mid) && WaterAt(far) >= WaveShoreClear && WaterAt(mid) >= WaveShoreClear
-                        && !Footprint(taken, cell, cells, a - dir * 2f, b + dir * 2f, 1.5f, false))
+                        && !Footprint(taken, n, a - dir * 2f, b + dir * 2f, WaveKeepOff, false))
                     {
-                        Footprint(taken, cell, cells, a, b, 1f, true);
+                        Footprint(taken, n, a, b, WaveInkHalf, true);
                         WaveStroke(a, dir, length, crests);
                         inked++;
                         done = true;
@@ -1271,8 +1417,8 @@ namespace Atlas
                     var b = new Vector2(cx + length * 0.5f, y);
                     if (!OnSea(a) || !OnSea(b) || !OnSea(new Vector2(cx, y))) continue;
                     if (Mathf.Min(WaterAt(a), Mathf.Min(WaterAt(b), WaterAt(new Vector2(cx, y)))) < WaveShoreClear) continue;
-                    if (Footprint(taken, cell, cells, a - dir * 2.5f, b + dir * 2.5f, 1.5f, false)) continue;
-                    Footprint(taken, cell, cells, a, b, 1f, true);
+                    if (Footprint(taken, n, a - dir * 2.5f, b + dir * 2.5f, WaveKeepOff, false)) continue;
+                    Footprint(taken, n, a, b, WaveInkHalf, true);
                     WaveStroke(a, dir, length, crests);
                     inked++;
                     done = true;
@@ -1306,21 +1452,21 @@ namespace Atlas
             return false;
         }
 
-        // Tests (mark false) or marks the cells of the taken grid along a segment.
-        private static bool Footprint(bool[] taken, int cell, int cells, Vector2 from, Vector2 to, float radius, bool mark)
+        // Tests (mark false) or marks the sheet pixels of the taken set along a segment.
+        private static bool Footprint(HashSet<int> taken, int n, Vector2 from, Vector2 to, float radius, bool mark)
         {
             int steps = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(from, to)));
             for (int s = 0; s <= steps; s++)
             {
                 Vector2 q = Vector2.Lerp(from, to, s / (float)steps);
-                int x0 = Mathf.Clamp((int)((q.x - radius) / cell), 0, cells - 1), x1 = Mathf.Clamp((int)((q.x + radius) / cell), 0, cells - 1);
-                int y0 = Mathf.Clamp((int)((q.y - radius) / cell), 0, cells - 1), y1 = Mathf.Clamp((int)((q.y + radius) / cell), 0, cells - 1);
+                int x0 = Mathf.Clamp(Mathf.FloorToInt(q.x - radius), 0, n - 1), x1 = Mathf.Clamp(Mathf.FloorToInt(q.x + radius), 0, n - 1);
+                int y0 = Mathf.Clamp(Mathf.FloorToInt(q.y - radius), 0, n - 1), y1 = Mathf.Clamp(Mathf.FloorToInt(q.y + radius), 0, n - 1);
                 for (int cy = y0; cy <= y1; cy++)
                 {
                     for (int cx = x0; cx <= x1; cx++)
                     {
-                        if (mark) taken[cy * cells + cx] = true;
-                        else if (taken[cy * cells + cx]) return true;
+                        if (mark) taken.Add(cy * n + cx);
+                        else if (taken.Contains(cy * n + cx)) return true;
                     }
                 }
             }

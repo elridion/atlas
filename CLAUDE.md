@@ -106,18 +106,21 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   manuscripts, not measured colours. An earlier version blurred the coast and deleted small islands and
   lakes for looks; that was undone for accuracy, so swamps are busy by nature. The offline
   harness can overlay vanilla's own 12 m water boundary in red to check the coast. The sea is
-  shaded by wave accents (`DrawWaveAccents`): groups of three to six strictly level tildes
-  stacked away from the shore at chosen points, as the classic map accents its coasts.
+  shaded by wave accents (`DrawWaveAccents`): small groups of two to four strictly level tildes
+  of two or three crests (`WaveCrest` 2.6 px, about a tree's width or two) stacked away from the shore at chosen points, as the classic map accents its coasts.
   Points just off the shore are scored by the share of land on a disc round them
   (`ShoreScore`: high in bays, inlets and straits, low off capes, both accented; a straight
   coast scores low) and by river mouths; where the shore lies level with a row (east- or
   west-facing coasts, within `WaveAnchorReach`), the stroke starts right at the shore
   (`WaveShoreGap` off it) and runs out to sea, the reference's whole style,
-  and such points score `WaveBesideBonus` more; the best get groups, kept `WaveGroupGap` apart, and
-  straight coasts a lone stroke now and then. Strokes never touch land or each other (a
-  sheet-only taken grid, deterministic in score order); islets under `MajorLandCells` get two
-  strokes at most; the open sea is blank (far-sea marks read as birds). Close-ups replay them
-  at their own 1.5 screen-pixel pen (`TileRipplePixels`), dropping strokes on the close-up's
+  and such points score `WaveBesideBonus` more; the best get groups, kept about `WaveGroupGap` apart (varied by `WaveGapJitter`), and
+  straight coasts a lone stroke now and then; after the coasts, a sparse scatter of two- and
+  three-stroke groups lies out at sea (one candidate per `WaveOpenStep` square, its chance
+  drifting with a broad noise), as the user's wave brief asked (the old far-sea `^^`
+  marks read as birds). Strokes never touch land, floes or each other (a sheet-only set of
+  taken pixels, deterministic in score order); islets under `MajorLandCells` get two strokes
+  at most. A subagent retouched them to that brief: smaller, more delicate, irregular.
+  Close-ups replay them at their own 1.3 screen-pixel pen (`TileRipplePixels`), dropping strokes on the close-up's
   land. Two earlier forms were rejected: short double curves in staggered rows
   thinning out to sea, and, after a review against the classic map (`atlas-wave-review.md`),
   six rows of tildes following the coast and tilted with it ("even dumber": the reference's
@@ -247,9 +250,30 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   biome colour but no forest, which once made the biome look 60% open in a histogram.)
 - Ground fills on open land stay sparse, since the wash now tells biomes apart. The Deep North is
   a deliberate near-blank snowfield with rare chevrons, like the classic map's northern waste:
-  the user chose it over snow stars, drifts, ice shards and cracked ice. The Mistlands' mist is
-  drawn after the glyphs (over the woods), since a fill underneath was scraped away by its dense
-  giant trees.
+  the user chose it over snow stars, drifts, ice shards and cracked ice. Chevrons keep off the
+  shore, off any ground high enough for peaks (searched from the world's heights, mostly south of
+  the mark, since a peak rises north of its foot) and off each other (a hash-only neighbour test
+  like the marsh marks'), so the sheet and tiles agree. Ice floes are filled with the Deep North's
+  body wash, not left showing the sea's.
+- The Mistlands follow a review (`atlas-mistlands-review.md`; the user kept the
+  wash). Mist banks are veils of three wavy lines (middle longest, a slight tilt, a break or two)
+  with no scraped band under them (the bands read as heavy padding), laid in the
+  valleys and thinning with height to `MistCeiling` (the game's mist clears on the heights), off
+  steep ground. Banks are glyphs (`Kind.Mist`, `PlaceMist`), sorted in with the trees and crags
+  by their lowest line, so whatever stands in front hides them; drawn over
+  everything, with boxes round every spire kept clear, they had left only stray lines. This
+  replaced the old rule that the mist lies on top of the glyphs, and the `Mist` ink layer is
+  gone.
+  Crags (`Spire`) are pinnacles in the peaks' hand (`Pinnacle`: 0.45-0.62 of their height wide,
+  jagged flanks, a ledge, some twin tips, a solid wedge down `SpireWedge` of the east face, a
+  smaller one or two behind), on real summits (`PlaceSummitSpire`: highest within `SpireCells`,
+  `SpireProminence` metres) and, as filler, only on ground steeper than 1.3 `SpireSlope`, clear
+  of the summits; a fixed trapezoid on every high pixel read as fence posts. Giant trees are
+  Yggdrasil shoots (a kinked trunk on flared roots, one or two branches, one broad, slightly ragged
+  canopy, `HandCrown` wobble a little raised; extra lobes behind or beside it looked too lumpy
+  and, mostly hidden by the front crown, left thin black crescents along its edge, user
+), packed on a 7 T grid; three round crowns on a stick
+  read as lollipops.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
 - Zoomed in past 1.5 screen pixels per sheet pixel, close-ups come from fixed 256² tiles

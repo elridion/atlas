@@ -159,7 +159,7 @@ namespace Atlas
         // starts at a coast west of it, -1 when its right end does, 0 when it floats, and +2 or
         // -2 for the same off an islet's shore (InkPainter.IsletAnchor). Close-ups draw the waves
         // again from these, moving each anchored one to their own finer coast, since a replayed
-        // stroke stood off it.
+        // stroke stands off it.
         public struct Wave
         {
             public float m_x, m_y, m_length, m_phase, m_lift;

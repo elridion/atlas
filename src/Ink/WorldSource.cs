@@ -278,11 +278,10 @@ namespace Atlas
             m_lavaField = Woods.BuildLava(this);
         }
 
-        // A swamp's water counts as its ground (pools traced exactly at the minimap's detail broke
-        // every swamp into a maze of islets, and the user wants no pools), except its
-        // deep water (over SwampShallow) joined to the sea: raising that too turned the flooded
-        // fringe of swamps beside the sea into land, on Velen 3,889 raised cells touching other
-        // water. The sea is flooded four-way from the map's edge through the water that stays
+        // A swamp's water counts as its ground (pools traced exactly at the minimap's detail break
+        // every swamp into a maze of islets), except its deep water (over SwampShallow) joined to
+        // the sea: raising that too turns the flooded fringe of swamps beside the sea into land,
+        // on Velen 3,889 raised cells touching other water. The sea is flooded four-way from the map's edge through the water that stays
         // water, so a deep pool joined to the sea only across shallows is still raised.
         private void MarkSwampSea()
         {
@@ -318,13 +317,13 @@ namespace Atlas
             }
         }
 
-        // The Mistlands' small inland pools become their ground (the tiny pools
-        // cluttered the biome with little shores). Velen has 1,499 inland water patches mostly in
-        // the Mistlands, 799 of two pixels or more against the Plains' 432 and the Black Forest's
-        // 294, and all but 27 are under MistPoolCells; those few larger lakes stay. Water joined to the sea stays the sea. The
-        // sea is flooded four-way from the map's edge as InkPainter.MarkSea floods it, with a
-        // lone land pixel counted as water since the painter drops it (RemoveSpecks), so no
-        // inlet or channel of the painted sea is filled.
+        // The Mistlands' small inland pools become their ground, so the tiny pools do not clutter
+        // the biome with little shores. Velen has 1,499 inland water patches mostly in the
+        // Mistlands, 799 of two pixels or more against the Plains' 432 and the Black Forest's
+        // 294, and all but 27 are under MistPoolCells; those few larger lakes stay. Water joined
+        // to the sea stays the sea. The sea is flooded four-way from the map's edge as
+        // InkPainter.MarkSea floods it, with a lone land pixel counted as water since the painter
+        // drops it (RemoveSpecks), so no inlet or channel of the painted sea is filled.
         private void MarkMistPools()
         {
             int count = m_size * m_size;

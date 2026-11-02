@@ -153,7 +153,7 @@ namespace Atlas
 
         // Scrapes a simple polygon, concave or not, back to bare parchment in one pass, its edge
         // pushed out by grow sheet pixels; marks body as Erase does. A concave outline scraped as
-        // a fan of convex triangles left a faint line along every shared edge: each triangle
+        // a fan of convex triangles leaves a faint line along every shared edge: each triangle
         // covers a pixel on it only partly, and the masks keep the larger share while the ink
         // keeps the product of what is left, so neither comes out whole.
         public void EraseOutline(IList<Vector2> outline, float grow)

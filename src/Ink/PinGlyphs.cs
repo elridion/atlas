@@ -38,7 +38,7 @@ namespace Atlas
 
     /// <summary>
     /// The pins drawn with the map's own pens: a pen line round a body of bare paper, as every
-    /// glyph on the sheet is drawn, instead of a solid black icon on a parchment ring, which read
+    /// glyph on the sheet is drawn, instead of a solid black icon on a parchment ring, which reads
     /// as a sticker on the hand-drawn map. The body is what keeps a pin legible
     /// on dark ground: inside it the paper shows with no terrain ink. Pins are laid out in a box of
     /// PinUnits units, centred on the pin's place; pure math, so the preview draws them too.
@@ -148,20 +148,14 @@ namespace Atlas
             for (float x = 15.2f; x < 21.5f; x += 2.1f) ink.Stroke(x, 4.4f + (x - 13f) * 0.936f + 0.9f, x, 12.6f, FinePen);
         }
 
-        // The game's "hammer" pin is Mjolnir, Thor's hammer as the Norse wore it on pendants (the
-        //): a short handle with a ring on top over a broad head whose sides
-        // traced from the Skane hammer (Swedish History Museum, photo by Ola Myrin): a broad bar
-        // on top (the loop, a bird's head on the original), a neck narrowing under it, and a
-        // head as wide as the pin, flat on top, its sides straight down to sharp outer corners
-        // and its lower edge falling to a point in the middle. Inked solid with square corners
-        //, a silhouette like the pendant's.
-        // Outline traced from the user's reference drawing: the top bar arched a little in the
-        // middle, a narrow neck whose sides curve in and flare out into the head's shoulders, near
-        // upright head sides and a deep pointed lower edge.
+        // The game's "hammer" pin is Mjolnir, Thor's hammer as the Norse wore it on pendants, a
+        // solid silhouette with square corners after the Skane hammer (Swedish History Museum,
+        // photo by Ola Myrin): a broad bar on top, arched a little in the middle (the loop, a
+        // bird's head on the original), a narrow neck whose sides curve in and flare out into the
+        // head's shoulders, and a head as wide as the pin, its sides near upright down to sharp
+        // outer corners and its lower edge falling to a blunted point in the middle.
         private static readonly Vector2[] s_mjolnirEast =
         {
-            // Then made a little wider (x 1.15) and lower (x 0.86), and the lower point blunted to
-            // match the other corners, at the user's request.
             new Vector2(13f, 3.21f), new Vector2(16.11f, 3.9f), new Vector2(21.17f, 4.41f), new Vector2(21.51f, 4.84f),
             new Vector2(21.51f, 7.68f), new Vector2(20.94f, 8.03f), new Vector2(16.68f, 8.8f), new Vector2(15.99f, 9.66f),
             new Vector2(15.88f, 12.24f), new Vector2(16.45f, 14.39f), new Vector2(18.87f, 15.42f), new Vector2(22.55f, 16.02f),
@@ -216,8 +210,8 @@ namespace Atlas
         }
 
         // Where a player died, their grave: a Norse memorial stone (bautasten) on a low mound,
-        // carved with the yr rune, the Younger Futhark's rune of the yew and of death. A cross
-        // made no sense in a Norse afterlife.
+        // carved with the yr rune, the Younger Futhark's rune of the yew and of death, not a
+        // cross, which has no place in a Norse afterlife.
         private static void Death(InkCanvas ink, InkCanvas body)
         {
             List<Vector2> stone = Curve(new[]
@@ -237,8 +231,8 @@ namespace Atlas
             ink.Stroke(13f, 11.2f, 15.4f, 14.9f, RunePen);
         }
 
-        // The game's own pins (they were missing), each a plain map sign for
-        // what the place is rather than a copy of the game's icon.
+        // The game's own pins, each a plain map sign for what the place is rather than a copy of
+        // the game's icon.
 
         // The player's bed (their spawn point): a bed seen from the side, headboard to the west.
         private static void Bed(InkCanvas ink, InkCanvas body)
@@ -249,8 +243,8 @@ namespace Atlas
                 new Vector2(21.6f, 21.6f), new Vector2(4.4f, 21.6f),
             };
             body.EraseOutline(outline, Pen * 0.5f);
-            // Headboard, the mattress as one block, and the foot post: nothing more (user,
-            //: simpler).
+            // Headboard, the mattress as one block, and the foot post: nothing more, to keep it
+            // simple.
             ink.Stroke(5.6f, 7.6f, 5.6f, 21.6f, Pen);
             ink.Stroke(20.4f, 12.6f, 20.4f, 21.6f, Pen);
             ink.EraseOutline(new[] { new Vector2(5.6f, 13.2f), new Vector2(20.4f, 13.2f), new Vector2(20.4f, 17.6f), new Vector2(5.6f, 17.6f) }, 0f);

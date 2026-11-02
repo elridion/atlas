@@ -64,15 +64,14 @@ namespace Atlas
             new Tint(140, 76, 52, 0.42f),   // Ashlands: burnt red ochre
             new Tint(238, 241, 242, 0.4f),  // Deep North: chalk white
         };
-        // Water is one even indigo wash, so seas, lakes and rivers read as water. A pale shade in
-        // the shallows deepening offshore was dropped: it drew the sea floor more exactly than a
-        // hand-tinted map would.
+        // Water is one even indigo wash, so seas, lakes and rivers read as water. A shade by depth
+        // would draw the sea floor more exactly than a hand-tinted map does.
         private static readonly Tint s_water = new Tint(100, 135, 190, 0.42f);
         // The sea illustrations' wash (SeaWash): a second glaze of a deeper indigo laid over the
         // water in their bodies, so they stand a little darker and bluer than the sea round them.
         private static readonly Tint s_seaWash = new Tint(72, 100, 160, 0.22f);
         // The water's edge is anti-aliased over one pixel by the local slope of the ground, so the
-        // blue ends exactly at the water line; softening it by a fixed height spilled it tens of
+        // blue ends exactly at the water line; softening it by a fixed height spills it tens of
         // metres inland over flat beaches. This is the least slope assumed (metres a pixel).
         private const float MinShoreSlope = 0.05f;
         // Streams' water on the sheet: their channels are under the minimap's 12 m pixels, so a
@@ -122,7 +121,7 @@ namespace Atlas
         // Washes are glazes, as real watercolour is: the pigment filters the light, so the paper
         // under it, stains and all, shows through. A tint acts as its colour relative to clean paper
         // (capped a little above 1 for tints lighter than the paper); on clean paper the result is
-        // the tint mixed in by its strength, as before.
+        // the tint mixed in by its strength.
         private static float Filter(float tint, float paper) => Math.Min(tint / paper, 1.1f);
 
         public static void WaterColor(float r, float g, float b, out float wr, out float wg, out float wb)
@@ -296,7 +295,7 @@ namespace Atlas
         }
 
         // The patina is broad, so it is worked out every AgeStep paper pixels and interpolated:
-        // at every pixel its noise took four times as long as the rest of the parchment.
+        // at every pixel its noise takes four times as long as the rest of the parchment.
         private const int AgeStep = 4;
 
         private static float[] Ages(int seed)
@@ -366,7 +365,7 @@ namespace Atlas
         }
 
         // The parchment under a faint watercolour wash, one tint per biome (darker in the woods), so
-        // biomes read apart at every zoom while the ink stays black, and water in blue by depth.
+        // biomes read apart at every zoom while the ink stays black, and water in one blue.
         // The land tints are blurred among land only, so they bleed softly across biome edges but
         // never out over the water, and the water's blue stops crisply at the shore. The fog keeps
         // the bare parchment, so unexplored land shows no colour either.
@@ -509,7 +508,7 @@ namespace Atlas
         // Where the generator's streams run, as coverage of each paper pixel: the minimap misses
         // channels narrower than its 12 m pixels, so a StreamWater band is laid along their
         // courses. Rivers are wide enough to show by the heights; the generator's width for them
-        // includes their banks, and a band that wide spilled blue over the land.
+        // includes their banks, and a band that wide spills blue over the land.
         private static float[] Rivers(WorldSource world)
         {
             int n = FogSize;
@@ -545,7 +544,7 @@ namespace Atlas
 
         // The glaze a body of this kind is filled with: the mountains' or the Deep North's wash,
         // or the Mistlands' rock (s_mistRock). Bodies take it strictly, whatever biome they reach
-        // over (peaks drawn in the mountains' colour).
+        // over.
         private static Tint BodyTint(BodyKind kind)
         {
             switch (kind)
@@ -594,9 +593,8 @@ namespace Atlas
         // The sheet's ink texture lies over the paper by alpha, so it cannot glaze. The sea wash is
         // laid in it as the colour and opacity that, at full wash over clean water, give exactly
         // the glaze close-ups lay (SeaGlaze): the opacity is the largest channel's loss, so that
-        // channel is
-        // a pure glaze and stains under the wash still show through; the others come within a
-        // level or two of it on stained paper.
+        // channel is a pure glaze and stains under the wash still show through; the others come
+        // within a level or two of it on stained paper.
         private static void SeaInk(out float alpha, out float r, out float g, out float b)
         {
             Color32 p = PaperColor;
@@ -615,10 +613,10 @@ namespace Atlas
 
         // A spire's body on the sheet, as SeaInk lays the sea wash: the colour and opacity that,
         // over the Mistlands' ground wash on clean paper, give exactly the rock's glaze there
-        // (BodyColor). Laid opaque as a peak's body is, the rock was its clean-paper colour on
-        // a sheet whose Mistlands are darkened by stains and patina, so it read lighter and
-        // lilac there while close-ups (BodyGlaze over the stained paper) show it deeper than the
-        // ground; laid so, the sheet darkens the paper under it as the close-ups do. A peak's
+        // (BodyColor). Laid opaque as a peak's body is, the rock would be its clean-paper colour
+        // on a sheet whose Mistlands are darkened by stains and patina, so it would read lighter
+        // and lilac there while close-ups (BodyGlaze over the stained paper) show it deeper than
+        // the ground; laid so, the sheet darkens the paper under it as the close-ups do. A peak's
         // body stays opaque: the ground round it is mostly the same mountain wash.
         private static void MistInk(out float alpha, out float r, out float g, out float b)
         {
@@ -646,9 +644,9 @@ namespace Atlas
 
         // RGBA ink for every mip level, as LoadRawTextureData expects it, from a painted sheet: ink
         // coverage, then the body masks in BodyKind order (InkPainter.Paint), each body filled
-        // with its BodyColor under the ink (a spire's as a glaze, MistInk), with the wash of its sea illustrations (marks, or null
-        // for none). The planes are read in place, not copied out: each is 16 MB. Levels are
-        // averaged premultiplied, so ink and body mix rightly.
+        // with its BodyColor under the ink (a spire's as a glaze, MistInk), with the wash of its
+        // sea illustrations (marks, or null for none). The planes are read in place, not copied
+        // out: each is 16 MB. Levels are averaged premultiplied, so ink and body mix rightly.
         public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks)
         {
             int n = InkPainter.CanvasSize;
@@ -782,7 +780,7 @@ namespace Atlas
         }
 
         // Shows or hides one sea illustration whole, before the fog is blurred: the fog's own soft
-        // edge across a monster read as half a monster. Its box lies far out in open water, so
+        // edge across a monster reads as half a monster. Its box lies far out in open water, so
         // lifting the fog off a little unexplored sea, or laying it over a little explored sea,
         // shows or hides nothing but water.
         private static void SeaMarkFog(float[] cover, int n, float metres, Snapshot snapshot, SeaMark mark)

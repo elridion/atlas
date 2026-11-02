@@ -5,9 +5,9 @@ using UnityEngine;
 namespace Atlas
 {
     /// <summary>
-    /// The sea's illustrations (SeaGlyphs), placed on the sheet after the waves and floes (user,
-    ///): few, each in a wide stretch of open water of its own sea, ranked by how far
-    /// the water reaches round it and spread over the map. The serpents and the leviathan keep to
+    /// The sea's illustrations (SeaGlyphs), placed on the sheet after the waves and floes: few,
+    /// each in a wide stretch of open water of its own sea, ranked by how far the water reaches
+    /// round it and spread over the map. The serpents and the leviathan keep to
     /// the open ocean, the bonemaw to the Ashlands' boiling sea, and the Deep North's sea stays
     /// blank. Placement hashes the world seed, so a world always gets the same ones.
     /// </summary>

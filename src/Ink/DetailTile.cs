@@ -15,7 +15,7 @@ namespace Atlas
         // the sheet rectangle region at scale pixels per sheet pixel. The ground is sampled every
         // gridPixels tile pixels on up to threads threads. The level of detail grows with the
         // square root of the zoom past 2x (where the tile draws what the sheet draws, only
-        // sharper): trees true to scale at 8x packed into a uniform texture, so glyphs are let to
+        // sharper): trees true to scale at 8x pack into a uniform texture, so glyphs are let to
         // grow a little on screen instead.
         public static byte[] Render(InkRecord record, Paper.Wash wash, WorldSource world, SampleCache cache, RectInt region,
             int scale, float gridPixels, int threads, CancellationToken cancel)

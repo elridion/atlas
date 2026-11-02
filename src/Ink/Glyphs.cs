@@ -21,16 +21,16 @@ namespace Atlas
         private const float SpireWedge = 0.65f;
         // How far (sheet pixels) a peak's wash runs out below its foot, and how strongly at the
         // foot (0 to 1), fading to nothing at the skirt's end.
-        // It starts at the body's own strength: a lower one left a step at the foot that read as
+        // It starts at the body's own strength: a lower one leaves a step at the foot that reads as
         // the mountain's colour cut off at its base.
         private const float PeakSkirt = 4f;
         private const float PeakBleed = 1f;
         // How far in from each end of the base the skirt's lower edge stops, as a share of the
         // base, so the wash's ends slope away instead of falling straight down.
         private const float SkirtTaper = 0.12f;
-        // How far (pen widths) a peak's scraped body reaches past its flanks, under their ink: the
-        // grown fan triangles it replaced reached 0.2 to 0.6, which close-ups show as a hairline
-        // of parchment between the outline and whatever stands behind.
+        // How far (pen widths) a peak's scraped body reaches past its flanks, under their ink:
+        // enough that close-ups show no hairline of parchment between the outline and whatever
+        // stands behind.
         private const float BodyGrow = 0.4f;
         // How far (pen widths) the band scraped under a peak's or pinnacle's base reaches below
         // its foot (ScrapeBase): past the widest round cap of a glyph behind (a peak's 1.5 pen
@@ -126,17 +126,17 @@ namespace Atlas
             m_points.AddRange(m_west);
             for (int i = 1; i < m_east.Count; i++) m_points.Add(m_east[i]);
             // The body is scraped to the outline itself, not its convex hull, so the fill matches
-            // the drawn contour (a hull spilled past every sag and notch), in one
-            // pass (ScrapeBody). Deep North peaks take its wash.
+            // the drawn contour (a hull spills past every sag and notch), in one pass
+            // (ScrapeBody). Deep North peaks take its wash.
             BodyKind kind = !body ? BodyKind.None : IsNorthAt(x, y) ? BodyKind.North : BodyKind.Mountain;
             m_canvas.m_markBody = kind;
             ScrapeBody(m_points);
             m_canvas.m_markBody = BodyKind.None;
             // A soft edge of PeakSkirt sheet pixels below the foot, where the peak's wash runs out
-            // into the ground, so the base is not cut hard; the body stays fully the peak's (user,
-            //: the base leads into the other biome, not the other biome into the
-            // mountain). A fading body reads wrong; the skirt starts at the body's strength and
-            // runs out over a few pixels, tapering at its ends.
+            // into the ground, so the base is not cut hard. The body stays fully the peak's: the
+            // base leads into the other biome, not the other biome into the mountain, so a fading
+            // body reads wrong. The skirt starts at the body's strength and runs out over a few
+            // pixels, tapering at its ends.
             if (kind != BodyKind.None) Skirt(left, right, width, kind);
 
             // The shadow: a solid wedge from the apex, then hatching down the eastern face.
@@ -205,16 +205,15 @@ namespace Atlas
         private static float PeakHeightOf(float width, int seed) => width * Mathf.Lerp(0.58f, 1.02f, Unit(seed, 10));
 
         // Scrapes a peak's or pinnacle's outline (foot to foot, the base closing it) back to
-        // parchment in one pass, its flanks BodyGrow pen out under their ink. It was a fan of
-        // triangles from a hub low in the middle, each grown 0.6 pen from its centre; beside the
-        // apex they are thin, so they grew almost along their shared edges and barely overlapped,
-        // and the edge from the hub up to the apex showed as a faint line on some peaks: the body
-        // masks keep the larger of two half covers and the ink what both scrapes leave.
+        // parchment in one pass, its flanks BodyGrow pen out under their ink. A fan of grown
+        // triangles from a hub would leave a faint line from the hub up to the apex: beside the
+        // apex the triangles are thin and barely overlap, and the body masks keep the larger of
+        // two half covers.
         private void ScrapeBody(List<Vector2> outline)
         {
             float grow = BodyGrow * m_pen;
             // The feet are raised by as much as the edge grows, so the base still ends on the
-            // foot line, where the skirt takes over, as the fan's did.
+            // foot line, where the skirt takes over.
             m_bodyOutline.Clear();
             m_bodyOutline.AddRange(outline);
             m_bodyOutline[0] += new Vector2(0f, -grow);
@@ -226,8 +225,8 @@ namespace Atlas
         // before the body (which then marks its own part of the band again): whatever stands
         // behind has its foot north of this one, but its pens reach a little past it (round caps,
         // a giant tree's roots, a crag's uneven feet), and the body's base edge is anti-aliased
-        // over the foot line, so slivers of the peaks and trees behind showed just under the base
-        // line. The band takes no body, so the skirt alone tints it.
+        // over the foot line, so slivers of the peaks and trees behind would show just under the
+        // base line. The band takes no body, so the skirt alone tints it.
         private void ScrapeBase(Vector2 left, Vector2 right)
         {
             float top = m_pen, depth = BaseScrape * m_pen;
@@ -259,10 +258,10 @@ namespace Atlas
         }
 
 
-        // A hill as the classic map draws its downs: a low,
-        // lopsided dome stroke with a few hatch dashes under its eastern side, often with a
-        // smaller dome behind, so groups of hills read as rolling country. Each hill varies by
-        // seed as the peaks do (a stamp repeated over a plain): its proportions,
+        // A hill as the classic map draws its downs: a low, lopsided dome stroke with a few hatch
+        // dashes under its eastern side, often with a smaller dome behind, so groups of hills read
+        // as rolling country. Each hill varies by seed as the peaks do, so a hilly plain is not
+        // one stamp repeated: its proportions,
         // which side is steeper, the crest (one dome, a long ridge, a double crest, a shoulder),
         // none, one or two domes behind, the hatching hand and a slight wobble of the pen.
         // (x, y) is the middle of the front dome's foot; FitHill sets it so the crown, wherever
@@ -298,8 +297,8 @@ namespace Atlas
             by = y - width * (Mathf.Lerp(0.08f, 0.15f, Unit(seed, 59 + k)) + k * 0.04f);
         }
 
-        // A dome inked as a pen would trace it (hills should feel hand-drawn,
-        // as the peaks do): the line swells over the crest and thins toward the feet, lifts once
+        // A dome inked as a pen would trace it, hand-drawn as the peaks are: the line swells over
+        // the crest and thins toward the feet, lifts once
         // somewhere along the back and is set down again a hair off with a small overshoot, and
         // runs out at each foot in a short tail.
         private void Dome(float x, float y, float width, int seed, bool behind)
@@ -321,8 +320,8 @@ namespace Atlas
         // Scrapes a dome's silhouette, the outline in m_points down to the foot line y, so the
         // dome hides whatever stands behind it, other hills and its own domes behind alike. The
         // outline is not convex (wobble, saddles, shoulders), and Erase fills convex polygons
-        // only: erased whole, only the intersection of its edges' half-planes went, which is next
-        // to nothing, and the line behind ran on through the dome. EraseOutline takes it in one
+        // only: erased whole, only the intersection of its edges' half-planes would go, next to
+        // nothing, and the line behind would run on through the dome. EraseOutline takes it in one
         // pass, to the outline's centre line; the stroke inked after covers the rest of its width.
         private void ScrapeDome(float y)
         {
@@ -375,7 +374,7 @@ namespace Atlas
         // A dome's outline from its west foot to its east foot, into points. Shared by the
         // drawing, the hill's water test and its placement (the crown), so all three see the
         // drawn shape. Domes behind keep to a single crest or a shoulder: doubled crests on the
-        // domes behind as well made a hill busy.
+        // domes behind as well make a hill busy.
         private static DomeShape DomeOutline(List<Vector2> points, float x, float y, float width, int seed, bool behind)
         {
             var shape = new DomeShape { m_seed = seed };
@@ -442,7 +441,7 @@ namespace Atlas
                     else
                     {
                         // The back bows up in a gentle dome rather than running level: a flat
-                        // back read as a lid at close zoom.
+                        // back reads as a lid at close zoom.
                         float t = (u - a) / (b - a);
                         f = 1f - Mathf.Max(sink, 0f) * t + Mathf.Min(sink, 0f) * (1f - t) + RidgeBow * Mathf.Sin(Mathf.PI * t);
                     }
@@ -495,10 +494,10 @@ namespace Atlas
         // The k-th shade dash under a dome's eastern flank, from a to b, slanting back toward the
         // crest; false when the flank there is too shallow for one. Shared by the drawing and the
         // hill's water test. The dash starts exactly on the inked outline (DomeSegment over the
-        // outline's points), with no paper gap and nothing poking above: its
-        // start sits on the stroke's centre line and its round end, no wider than the outline's
-        // pen, stays inside the stroke. Hung a gap below the ideal curve, as before, the faceted
-        // and wobbled line left gaps of varying size.
+        // outline's points), with no paper gap and nothing poking above: its start sits on the
+        // stroke's centre line and its round end, no wider than the outline's pen, stays inside
+        // the stroke. Hung a fixed gap below the ideal curve, a dash would leave gaps of varying
+        // size under the faceted, wobbled line.
         private static bool DomeDash(DomeShape shape, List<Vector2> outline, float x, float y, float width, int seed, int k, out Vector2 a, out Vector2 b)
         {
             float from = shape.m_shadeFrom + (1f - shape.m_shadeFrom) * 0.14f;
@@ -610,7 +609,7 @@ namespace Atlas
 
         // A crown traced as a pen would: a closed loop whose radius wobbles a little all round, by
         // seed, and whose start and end overlap slightly, so no two crowns are the same shape. A
-        // perfect ellipse on every tree read as stamped, not drawn.
+        // perfect ellipse on every tree reads as stamped, not drawn.
         // wobbleScale above 1 makes a raggeder outline (the Mistlands' canopies).
         private void HandCrown(float cx, float cy, float rx, float ry, int seed, float wobbleScale = 1f)
         {
@@ -708,8 +707,8 @@ namespace Atlas
         }
 
         // One of the swamp's ancient dead trees: a tall bowed trunk on splayed roots, with two to
-        // four bare branches set by seed, some forked. Four fixed strokes read as a stick figure,
-        // smaller than a pine while the game's ancient trees tower.
+        // four bare branches set by seed, some forked, taller than a pine as the game's ancient
+        // trees tower; a few fixed strokes read as a stick figure.
         // A slightly wider band is scraped under every limb first, as the pines scrape under
         // themselves, so the marsh lines do not run through the tree.
         private void DeadTree(float x, float y, float s, int seed)
@@ -762,9 +761,8 @@ namespace Atlas
         private readonly List<Limb> m_limbs = new List<Limb>(16);
 
         // A Mistlands crag: a black pinnacle in the peaks' hand, often with a smaller one or two
-        // standing behind it, drawn back to front. The old pillar was one symmetric trapezoid with
-        // three upright strokes on every spire and read as a fence post (Mistlands review,
-        //).
+        // standing behind it, drawn back to front. One symmetric trapezoid with upright strokes
+        // on every spire reads as a fence post.
         private void Spire(float x, float y, float s, int seed)
         {
             float width = SpireHeightOf(s, seed) * 0.45f;
@@ -835,8 +833,8 @@ namespace Atlas
         }
 
         // A Mistlands tree as the game's Yggdrasil shoots: a kinked trunk on flared roots, one or
-        // two branches up into one broad, slightly ragged canopy. Three
-        // round crowns on a straight stick read as a lollipop.
+        // two branches up into one broad, slightly ragged canopy. Round crowns on a straight stick
+        // read as a lollipop.
         private void GiantTree(float x, float y, float s, int seed)
         {
             float trunk = Mathf.Lerp(4.5f, 6f, Unit(seed, 10)) * s;
@@ -861,8 +859,8 @@ namespace Atlas
             foreach (Limb limb in m_limbs) m_canvas.Scrape(limb.m_a.x, limb.m_a.y, limb.m_b.x, limb.m_b.y, limb.m_width + 1.2f);
             foreach (Limb limb in m_limbs) m_canvas.Stroke(limb.m_a.x, limb.m_a.y, limb.m_b.x, limb.m_b.y, limb.m_width);
 
-            // One crown only: lobes behind or beside it showed as thin black crescents along its
-            // edge at the map's scale (black artifacts outside the padding).
+            // One crown only: lobes behind or beside it show as thin black crescents along its
+            // edge at the map's scale.
             EraseCrown(crown);
             Shade(cx, cy, rx, ry, crown.m_seed);
             HandCrown(cx, cy, rx, ry, crown.m_seed, crown.m_wobble);
@@ -870,8 +868,8 @@ namespace Atlas
 
         // A volcano in the mountains' hand, at a mountain's scale: a broad cone with gently
         // concave flanks, its top cut off by a notched crater with a thin rim, the eastern face a
-        // small solid wedge under the rim and slanting hatch below. The old cone was two or three
-        // times a peak's height with a solid black face and read as an obelisk (art review).
+        // small solid wedge under the rim and slanting hatch below. A cone several times a peak's
+        // height with a solid black face reads as an obelisk.
         private void Volcano(float x, float y, float s, int seed)
         {
             float width = 14f * s * Vary(seed, 10, 0.12f);
@@ -913,13 +911,13 @@ namespace Atlas
             Poly(rimLeft, new Vector2(x - rim * 0.15f, top + height * 0.06f), new Vector2(x + rim * 0.1f, top + height * 0.02f), rimRight);
             m_canvas.Polyline(m_points, 1.2f);
             m_canvas.Ring(x, top + height * 0.01f, rim * 0.5f, rim * 0.16f, Pen);
-            // No smoke curl or lava stream: with them the cone read as a cartoon, and the map is
+            // No smoke curl or lava stream: with them the cone reads as a cartoon, and the map is
             // meant to be a sober survey. The crater alone says volcano.
         }
 
         // The Ashlands' broken rock: one or two small peaks in the mountains' own hand, the
         // smaller behind to the west, keeping the burnt ground's wash. Ridges of thin notched
-        // spires read as grass tufts and looked doodled.
+        // spires read as grass tufts and look doodled.
         private void Crag(float x, float y, float s, int seed)
         {
             float width = 6f * s * Vary(seed, 10, 0.15f);
@@ -931,9 +929,9 @@ namespace Atlas
 
         // An ice floe: a small irregular outline lying on the water. Its body (an ellipse just
         // around the outline) is scraped back to parchment first, so ripple lines stop at its edge,
-        // and the outline is filled with the Deep North's wash, as ice, not the sea's (user,
-        //). The outline may sag inwards, so it is filled in one pass as peak bodies are
-        // (InkCanvas.EraseOutline); a fan of triangles from its centre left faint seams.
+        // and the outline is filled with the Deep North's wash, as ice, not the sea's. The outline
+        // may sag inwards, so it is filled in one pass as peak bodies are
+        // (InkCanvas.EraseOutline); a fan of triangles from its centre leaves faint seams.
         private void IceFloe(float x, float y, float s, int seed)
         {
             const int corners = 6;

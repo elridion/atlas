@@ -25,8 +25,8 @@ namespace Atlas
         private static readonly AccessTools.FieldRef<Minimap, List<Minimap.PinData>> s_pins =
             AccessTools.FieldRefAccess<Minimap, List<Minimap.PinData>>("m_pins");
         // The game's location pins (the Sacrificial Stones, traders, the Forge of Potential): kept
-        // in m_pins but not saved, as vanilla adds them again each session, so the saved filter
-        // alone left them off the atlas.
+        // in m_pins but not saved, as vanilla adds them again each session, so filtering on m_save
+        // alone leaves them off the atlas.
         private static readonly AccessTools.FieldRef<Minimap, Dictionary<Vector3, Minimap.PinData>> s_locationPins =
             AccessTools.FieldRefAccess<Minimap, Dictionary<Vector3, Minimap.PinData>>("m_locationPins");
         // The profile's pins, the bed (spawn point) and the last death, are not saved either:

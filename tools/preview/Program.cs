@@ -353,8 +353,8 @@ internal static class Program
             else if (p[0].StartsWith("pins"))
             {
                 // pinsNAME:wx:wz:scale renders 3x3 tiles as tilesNAME does and lays a fixed set of
-                // test pins and names over them as the atlas window does: pen glyphs with paper
-                // bodies, names placed by PinLayout on the clearest ground. One output pixel is one
+                // test pins and names over them as the atlas window does: pen glyphs with bodies in
+                // the biome's wash, names placed by PinLayout on the clearest ground. One output pixel is one
                 // canvas unit. A stand-in serif font replaces Valheim's. pinsbareNAME leaves out the
                 // gap round the names' letters.
                 float wx = float.Parse(p[1]), wz = float.Parse(p[2]);

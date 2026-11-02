@@ -5,9 +5,8 @@ using UnityEngine;
 namespace Atlas
 {
     /// <summary>
-    /// The darker blue wash laid in a sea illustration ("give them a darker blue
-    /// wash to make them pop just a bit"), as a colourist laid a second glaze of the sea's indigo
-    /// in a map's monsters. It follows what the glyph scrapes, its body, not its box, ripples or
+    /// The darker blue wash laid in a sea illustration so it stands out a little from the sea, as
+    /// a colourist laid a second glaze of the sea's indigo in a map's monsters. It follows what the glyph scrapes, its body, not its box, ripples or
     /// foam: the glyph is drawn again from its SeaMark on a scratch canvas that keeps every
     /// erase's coverage (InkCanvas.m_scraped), grown a hair and softened. Being made from the mark
     /// alone, it is the same from a cached sheet, on the sheet (Paper.InkWithMips) and in every
@@ -24,7 +23,7 @@ namespace Atlas
         // The scraped body (which already reaches under the outline's ink) can be grown by
         // GrowPixels detail pixels; then it is blurred BlurPasses times by a box BlurRadius wide
         // either side (detail pixels): a soft edge of about 0.7 sheet px, as a wet wash spreads a
-        // little past the line. Grown half a sheet pixel and blurred twice as wide, it read as a
+        // little past the line. Grown half a sheet pixel and blurred twice as wide, it reads as a
         // blue glow round the outline in close-ups. Gain keeps a thin coil's middle at full
         // strength. EdgeFade (detail pixels) fades the blur's tail out before the area's edge.
         private const int GrowPixels = 0;
@@ -129,7 +128,7 @@ namespace Atlas
         private float Sample(int x, int y) =>
             x < 0 || y < 0 || x >= m_width || y >= m_height ? 0f : m_mask[y * m_width + x];
 
-        // The bonemaw is bare bone, so its scrape alone gave a wash that hugged the bones like a
+        // The bonemaw is bare bone, so its scrape alone gives a wash that hugs the bones like a
         // glow. Its body is washed instead: the water each arch of its backbone encloses down to
         // the waterline (detail row water), ribs and all, is filled as part of it. Whatever the
         // sea reaches from the area's edge without crossing bone or the waterline stays sea.

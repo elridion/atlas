@@ -4,8 +4,8 @@ Valheim mod for worlds without a map (`Game.m_noMap`). "Record discoveries" at a
 also records a snapshot (explored map and saved pins) on the character; the map key shows that
 snapshot as an ink drawing on parchment in the style of a classic fantasy-novel map. "Read map"
 opens vanilla's interactive map, where pins are placed. Client-side: nothing is saved in the world.
-It replaces shudnal's Nomap Printer for the user, whose printing lagged badly at the table (it
-re-baked and re-uploaded an 8192² texture and threw away ~700 MB of arrays per print).
+It replaces shudnal's Nomap Printer, whose printing lagged badly at the table (it re-baked and
+re-uploaded an 8192² texture and threw away ~700 MB of arrays per print).
 
 Stack, build, verification and git workflow are shared by all mods: see `../CLAUDE.md` and
 `../.claude/rules/`.
@@ -16,46 +16,45 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - `src/AtlasMap.cs` the controller: per world it loads or paints the ink sheet, lays the fog for the
   current snapshot, and opens `AtlasView` on the map key.
 - `src/AtlasView.cs` the window (parchment, ink and fog `RawImage`s plus pin markers) with zoom and
-  drag. Pins (redone: the black icon on a parchment ring and the names' flat underlay
-  read as modern stickers on the hand-drawn map) are drawn like the sheet's own glyphs: a pen
-  line round a body with no terrain ink, filled in the wash of the biome under the pin
-  (`Paper.PinBodyColor`: the biome's glaze on clean paper as a peak's body takes the mountains',
-  water's on water; biome and water from the sheet's `WorldSource`).
+  drag. Pins are drawn like the sheet's own glyphs: a pen line round a body with no terrain ink,
+  filled in the wash of the biome under the pin (`Paper.PinBodyColor`: the biome's glaze on clean
+  paper, as a peak's body takes the mountains', water's on water; biome and water from the
+  sheet's `WorldSource`). A black icon on a parchment ring and a flat underlay behind names read
+  as modern stickers on the hand-drawn map.
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen (fire: campfire, house: longhouse,
-  the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer and a reference drawing the user gave, not a
-  work hammer; circle: open circle; portal: dolmen; death: memorial stone with the yr rune on a
-  mound, never a cross; checked: struck through, all per the). The game's own
-  pins get map signs too (user: they were missing): bed (spawn point), a solid horned skull in the language of the game's boss icon (Boss,
-  from Vegvisirs), Hildir1-3 as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and
-  tower (Sealed Towers); location pins by `LocationSpriteData.m_name`: `StartTemple` a stone
-  circle seen from above (survey-map sign), vendor/Haldor a plain tied bag, Hildir a tent with pennant,
-  BogWitch a cauldron. Anything else is traced from its sprite (other locations such as the
-  Forge of Potential, other mods' pins: silhouette alpha over 200 as the body, a pen line on its
-  edge, clearly darker inner parts inked); every body reaches `Gap` past the lines, the
-  engraver's break that keeps trees off the outline. Vanilla `PinType` (read from
-  assembly_valheim): Icon0-4, Death, Bed, Shout, None, Boss, Player, RandomEvent,
-  Ping, EventArea, Hildir1-3, Memorial. Its `AddPin` call sites: player pins, profile pins (bed
-  and last death, `UpdateProfilePins`), location pins (`PinType.None`), events, players, pings
-  and shouts (all passing), and `DiscoverLocation` (bosses, Hildir); nothing places `Memorial`.
-  The snapshot keeps saved pins plus the unsaved ones that mark places: location pins
-  (`m_locationPins`), `m_spawnPointPin` and `m_deathPin`, which the saved filter alone left off
-  the atlas. Daymark's dungeon and
-  deposit pins are ordinary Icon2 and Icon3 pins. `Preview --pincat` renders the glyph table
-  (`screenshots/atlas-sample-15-pin-catalogue.png`). Names: regular weight,
-  letter-spacing, bare ink over a gap of their own letters grown a little (a TextMeshPro
-  underlay used only as a `Mask`, paper behind it), placed by `PinLayout` at the clearest of the
-  eight classic positions by the sheet's ink density (`InkDensity`, a summed-area table built
-  before the sheet is uploaded; unexplored ground counts as clear), bosses and traders first,
-  hidden when nothing fits, recomputed on a zoom change over 3%. The user rejected a soft disc,
-  the icon enlarged, red icons on labels, and shifted copies (not one colour). A UI parent draws
-  before its children, hence a holder per pin. The preview's `pins` views draw test pins with a
-  stand-in font; traced sprites and the masks are only seen in game.
+  the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer, not a work hammer;
+  circle: open circle; portal: dolmen; death: memorial stone with the yr rune on a mound, never a
+  cross; checked: struck through). The game's own pins get map signs too: bed (spawn point), a
+  solid horned skull in the language of the game's boss icon (Boss, from Vegvisirs), Hildir1-3
+  as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and tower (Sealed Towers); location
+  pins by `LocationSpriteData.m_name`: `StartTemple` a stone circle seen from above (survey-map
+  sign), vendor/Haldor a plain tied bag, Hildir a tent with pennant, BogWitch a cauldron.
+  Anything else is traced from its sprite (other locations such as the Forge of Potential, other
+  mods' pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
+  parts inked); every body reaches `Gap` past the lines, the engraver's break that keeps trees
+  off the outline. Vanilla `PinType` (from assembly_valheim): Icon0-4, Death, Bed, Shout, None,
+  Boss, Player, RandomEvent, Ping, EventArea, Hildir1-3, Memorial. Its `AddPin` call sites:
+  player pins, profile pins (bed and last death, `UpdateProfilePins`), location pins
+  (`PinType.None`), events, players, pings and shouts (all passing), and `DiscoverLocation`
+  (bosses, Hildir); nothing places `Memorial`. The snapshot keeps saved pins plus the unsaved
+  ones that mark places: location pins (`m_locationPins`), `m_spawnPointPin` and `m_deathPin`,
+  which a saved-only filter leaves off the atlas. Daymark's dungeon and deposit pins are
+  ordinary Icon2 and Icon3 pins. `Preview --pincat` renders the glyph table
+  (`screenshots/atlas-sample-15-pin-catalogue.png`). Names: regular weight, letter-spacing, bare
+  ink over a gap of their own letters grown a little (a TextMeshPro underlay used only as a
+  `Mask`, paper behind it), placed by `PinLayout` at the clearest of the eight classic positions
+  by the sheet's ink density (`InkDensity`, a summed-area table built before the sheet is
+  uploaded; unexplored ground counts as clear), bosses and traders first, hidden when nothing
+  fits, recomputed on a zoom change over 3%. Do not use a soft disc, an enlarged icon, red icons
+  on labels or shifted copies (not one colour) to set names apart. A UI parent draws before its
+  children, hence a holder per pin. The preview's `pins` views draw test pins with a stand-in
+  font; traced sprites and the masks are only seen in game.
 - `src/TablePatches.cs` the `MapTable.OnRead`/`OnWrite` postfixes and the `Minimap.IsOpen` postfix.
 - `src/InteractiveMap.cs` opens vanilla's large map in a nomap world.
 - `src/TableSparkles.cs` golden motes over the table while the atlas updates after "Record
-  discoveries", bursting and fading once it is done (vanilla's
-  scribble and chime play before the atlas has caught up). A local particle system with a mote
-  texture made in code on a copy of `vfx_odin_despawn`'s particle material; untested in game.
+  discoveries", bursting and fading once it is done (vanilla's scribble and chime play before
+  the atlas has caught up). A local particle system with a mote texture made in code on a copy
+  of `vfx_odin_despawn`'s particle material; untested in game.
 - `src/Snapshot.cs` the recorded exploration and pins, in `Player.m_customData`.
 - `src/Paper.cs` parchment, the biome wash, fog and the ink texture's pixel data (mip chain).
 - `src/Ink/`: `WorldSource.cs` vanilla minimap data, `Woods.cs` the wood field, `InkPainter.cs`
@@ -108,43 +107,36 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the last table visit. Accuracy wins over looks.
 - The coastline is traced (marching squares) on vanilla's own heights, unsmoothed, keeping every
   island and lake; only single 12 m pixels are dropped, and swamp pools and the Mistlands' small
-  pools are raised to land before (`SwampFloor`, `MarkMistPools`, below). Water joined to the world's
-  edge (`MarkSea`, four-way flood fill) is the sea and gets the water lines, as do wide lakes; every shore, sea or inland,
-  has the same pen (a 1 px lake shore read as unexplained inland lines to the;
-  the water's blue now tells lakes apart). The coast pen is 1.4 px on the sheet and 2.2 screen pixels in
-  close-ups, barely heavier than the waves as on the classic map (it was 2.1 and 3.5, the
-  map's heaviest line; rivers thinned with it to 1.2). Water
-  is one even indigo wash (`Paper.WaterColor`; a pale-to-dark shading by depth was dropped as
-  too exact for a hand-tinted map). Rivers and the coast are drawn before the
-  glyphs, so crowns over a bank or shore hide the line instead of being cut by it, and trees
-  keep off river courses (`m_riverMask` on the sheet, `MarkTileRivers` from the record in
-  close-ups) so streams still show; land
-  tints are blurred among land only, and the water's edge is anti-aliased over one pixel by the
-  ground's local slope, so the blue ends at the water line (a fixed 1.5 m height ramp spilled it
-  far inland over flat beaches). Streams get an 8 m band on the sheet
+  pools are raised to land before (`SwampFloor`, `MarkMistPools`, below). Water joined to the
+  world's edge (`MarkSea`, four-way flood fill) is the sea and gets the water lines, as do wide
+  lakes; every shore, sea or inland, has the same pen (a thinner lake shore reads as unexplained
+  inland lines; the water's blue tells lakes apart). The coast pen is 1.4 px on the sheet and 2.2
+  screen pixels in close-ups, barely heavier than the waves as on the classic map; rivers are
+  1.2. Water is one even indigo wash (`Paper.WaterColor`; shading by depth is too exact for a
+  hand-tinted map). Rivers and the coast are drawn before the glyphs, so crowns over a bank or
+  shore hide the line instead of being cut by it, and trees keep off river courses
+  (`m_riverMask` on the sheet, `MarkTileRivers` from the record in close-ups) so streams still
+  show; land tints are blurred among land only, and the water's edge is anti-aliased over one
+  pixel by the ground's local slope, so the blue ends at the water line (a fixed height ramp
+  spills it far inland over flat beaches). Streams get an 8 m band on the sheet
   (`Paper.Rivers`); rivers show by their heights, since the generator's river width includes the
   banks. Close-ups lay their own water from their fine heights over the land-only wash
   (`Paper.Wash.m_land`) and need no stream band.
-- The palette (paper, ink, biome washes, water) was rechecked against pigments of the period by
-  a research pass: aged calfskin paper, aged iron-gall ink, and thin glazes of green
-  earth, verdigris with indigo, yellow and red ochre, folium, chalk and soot, and indigo, all
-  muted earth tones. Values are estimates from Raman/XRF pigment studies of Insular and Nordic
-  manuscripts, not measured colours. An earlier version blurred the coast and deleted small islands and
-  lakes for looks; that was undone for accuracy, so swamps are busy by nature. The offline
-  harness can overlay vanilla's own 12 m water boundary in red to check the coast. The water
-  lines follow the 1980 redrawn Middle-earth map and the user's classic-map snippet (user,
-, after a research pass; the 1954 fold-out has no
-  wave strokes, only doubled coasts and a blank sea).
-- **The waterline is dropped for good**: its drawing code, the close-ups'
-  own trace and the no-line mask they used are removed, but `TraceWaterLines` still traces the
-  line, because the waves find the coast's bends on that trace. When it was drawn, its baseline
-  rule (user) was **no loose ends: every line a closed loop**; git history has the code. It is
-  traced `WaterLine` out on the distance from land and from
+- The palette (paper, ink, biome washes, water) follows pigments of the period: aged calfskin
+  paper, aged iron-gall ink, and thin glazes of green earth, verdigris with indigo, yellow and
+  red ochre, folium, chalk and soot, and indigo, all muted earth tones. Values are estimates from
+  Raman/XRF pigment studies of Insular and Nordic manuscripts, not measured colours. Do not blur
+  the coast or delete small islands and lakes for looks: accuracy comes first, so swamps are
+  busy by nature. The offline harness can overlay vanilla's own 12 m water boundary in red to
+  check the coast. The water lines follow the 1980 redrawn Middle-earth map (the 1954 fold-out
+  has no wave strokes, only doubled coasts and a blank sea).
+- **No waterline is drawn**, but `TraceWaterLines` still traces one, because the waves find the
+  coast's bends on that trace. It is traced `WaterLine` out on the distance from land and from
   `m_noLine`, the water that carries no line: channels (water over `ChannelReach` from any water
   `WideWater` from land, straits and inlets under about 115 m), ponds and small lakes. So at a
   strait's mouth it turns across the water instead of stopping. Islets under `SmallIsletArea`
-  count as water (`LineLand`); that threshold is now 150 for the waves' sake (see below), while
-  a drawn waterline wanted 30.
+  (150) count as water (`LineLand`); much lower, the trace wraps round the Mistlands' islet
+  fringes, so their bends fall on islets and the main coast stays bare.
 - **Sea waves** (`DrawWaves`) come in groups at the coast's pivotal points.
   Accents (`FindAccents`) are the trace's sharpest bends: turn over `AccentTurn` across
   `AccentWindow` either side, i.e. bay heads and headland tips (`BendAccent` tells them apart by
@@ -152,72 +144,60 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   apart, and then on a straight stretch of about `AccentPlain` one with `AccentPlainOdds`, only
   where it faces east or west. Land masses under `MajorLandCells` (250 map cells) get no accent
   (`Accentable`) and are no shore (`FindShore`); they are islets with groups of their own
-  (below). With `SmallIsletArea` at 30 the trace wrapped round the
-  Mistlands' islet fringes, so their bends fell on islets and the main coast stayed bare. At 150
-  (Mistlands wave review) the bends move onto the main coast.
-  A prototype that drew the coast's strokes as if islets were absent and cut them where an islet
-  stands was tried and rejected, and so was the same under islet clusters (below). A group (`DrawGroup`) has `WaveGroupMin` to `WaveGroupMax` strokes on rows
-  ruled `WaveRowPitch` apart, strictly level, long (`WaveLongCrests`, a crest more by seed) and
-  short (`WaveShortCrests`) in turn by row. A lake's or islet cluster's group has 3 to 7 strokes
- : its strokes wait in `m_group` and a group with room for fewer than its
-  hand's `m_floor` (`GroupFloor` 3) is left out (`EndGroup`). The sea's hand has floor 0 (user,
-): a floor of 3 dropped about one sea group in ten on Velen, so sea groups may draw
-  one or two strokes where room is short.
+  (below). Do not draw the coast's strokes as if islets were absent and cut them where an islet
+  stands, at the coast or under islet clusters. A group (`DrawGroup`) has `WaveGroupMin` to
+  `WaveGroupMax` strokes on rows ruled `WaveRowPitch` apart, strictly level, long
+  (`WaveLongCrests`, a crest more by seed) and short (`WaveShortCrests`) in turn by row. A lake's
+  or islet cluster's group has 3 to 7 strokes: its strokes wait in `m_group` and a group with
+  room for fewer than its hand's `m_floor` (`GroupFloor` 3) is left out (`EndGroup`). The sea's
+  hand has floor 0, so sea groups may draw one or two strokes where room is short (a floor of 3
+  drops about one sea group in ten).
   - Islets outside the Mistlands (`DrawIsletWaves`) are clustered and each cluster gets one
-    group round it ("group islands, find their group center"). Islets are the
-    land masses under `MajorLandCells` found in `MajorLand`, with their cells' centroid and
-    bounds (`m_isletCell` maps each cell to its islet); one mostly in the Mistlands is left out,
-    as its islet fields are dense and the user approved them blank.
-    **Not an islet** (masses in channels off the main coast "read as part of
-    the coast"): `MajorLandCells` was 400 and is 250 (about 36,000 m², some 190 m across), so
-    the 250-400 cell masses (11 of the 71 masses of 40-400 cells on Velen; the user's "small
-    island" is 134) are coast and get the coast's groups at their bends. An islet any of whose
-    own pixels lies within `IsletCoastGap` 12 px (about 63 m, a coast stroke's reach) of such
-    land sits in the coast's own waves and is left out of the clusters (`NearCoast`; 75 of 136
-    islets of 12 cells and more on Velen); it gets no group but still bounds every stroke. Its
-    bounds alone were not enough: their corners took in the edge of headlands beside them.
+    group round it. Islets are the land masses under `MajorLandCells` found in `MajorLand`, with
+    their cells' centroid and bounds (`m_isletCell` maps each cell to its islet); one mostly in
+    the Mistlands is left out, as its islet fields are dense and stay blank.
+    **Not an islet**: masses of `MajorLandCells` 250 and up (about 36,000 m², some 190 m across),
+    such as those in channels off the main coast, read as part of the coast and get the coast's
+    groups at their bends. An islet any of whose own pixels lies within `IsletCoastGap` 12 px
+    (about 63 m, a coast stroke's reach) of such land sits in the coast's own waves and is left
+    out of the clusters (`NearCoast`); it gets no group but still bounds every stroke. Its bounds
+    alone are not enough: their corners take in the edge of headlands beside them.
     `ClusterIslets` links islets whose bounds come within `IsletLink` 16 px (84 m; the ocean
     sample's islets lie 3-25 px apart) by single linkage, and splits a cluster wider or taller
     than `IsletClusterSpan` 48 px by linking it again at half the distance (`SplitCluster`,
-    down to `IsletLinkMin`): unsplit, islet fields chained into clusters up to 180 px across.
+    down to `IsletLinkMin`); unsplit, islet fields chain into clusters up to 180 px across.
     A cluster needs an islet of `WavedIsletCells` 12 map cells (the start's outer islets are
     13-22, the specks round them 2-6); specks only join one. Its centre is the centroid of its
-    cells. `PlaceClusterGroup` sizes the group to the cluster (a 134-cell
-    islet with four long strokes had "far too many waves"): its size is the side of a square of
-    its cells (8 px for 12 cells, 26 for 134, 36 for 249); `GroupFloor` 3 strokes up to
+    cells. `PlaceClusterGroup` sizes the group to the cluster: its size is the side of a square
+    of its cells (8 px for 12 cells, 26 for 134, 36 for 249); `GroupFloor` 3 strokes up to
     `IsletSizeBase` 12 px and one more every `IsletSizeStep` 10, `IsletStrokesMax` 5 at most;
     long rows `IsletShortCrests` 3 plus one every `IsletSizeLong` 12 px (4 to `IsletLongCrests`
-    6) and short rows two crests shorter, never under 3, so rows are long and short in turn as
-    the coast's are (user: "they have to alternate in size"). No stroke crosses or touches land
-    (strokes drawn through the islets with the islets on top showed through
-    the land and were dropped, with `CutAnchor` and `WaterParts`). Rows are the coast's ruled
-    rows, from the centroid's row out, below and above in turn, from a row over the cluster's
-    top to one under its bottom, until the budget is spent (`IsletRow`). A row through the
-    cluster's land gets one stroke off its east or west shore, the side swapping row by row
-    (the group's first side by seed), so the rows' centres sit left and right of the islet in
-    turn round one centre; strokes off both sides of a row read as one line
-    under the islet. It starts as a coast stroke does, `WaveShoreGap` off the shore, and runs
-    out until it would come within `WaveShoreGap` of any land (round, so above and below its
-    row too) less `IsletChannelGap` 10 px (`IsletRoom`), so channels between islets stay open
-    (at 5 px strokes still filled a 13 px channel); if that side has no room the other is
-    tried. A row that crosses under `IsletTipWidth` 3 px of land, or runs along a spike (no land
-    a pixel above or below just inside the shore), takes no stroke: it would run out of a
-    point. A row clear of the land gets one stroke in open water centred on the cluster, swayed
-    `IsletSway` 0.9 crest (0.5-1.3 of it by seed) east or west in turn and, on a chain whose
-    cells spread `IsletElongation` times as far one way as across and that slants more than
-    `IsletLevelChain` (25 degrees), shifted along it by its distance from the centre (at most
-    `IsletLean` px a px and half the cluster's width; a near-level chain sent its rows a full
-    lean sideways); it keeps `WaveFloatClear` off land and `IsletChannelGap` of water beyond
-    either end (`OpenRow`). Strokes stay level (tilting them up to 20 degrees
-    was rejected) and claim their rows (`Claim`), so groups keep off each other and the coast's.
-    Strokes off a shore are recorded with `IsletAnchor` (2) times their direction: close-ups
-    move them to their own shore as coast strokes and keep `TileIsletBand` 1 px above and below
-    the row clear of land too (`TileRoom`). Clusters go largest first, each `IsletSpacing` 40 px
-    from the coast's accents that drew a group (it was 60 from every accent, which left 26 of 53
-    clusters on Velen bare). Before: one group drawn through each cluster as if
-    the islets were absent, cut at the shore and capped at 12 crests a row; before that one small
-    group centred under and over each islet, which read as isolated stacks; before that, groups
-    at the islets' bends, which missed most islets.
+    6) and short rows two crests shorter, never under 3, so rows alternate long and short as the
+    coast's do. No stroke crosses or touches land (strokes drawn through islets with the islets
+    on top show through the land). Rows are the coast's ruled rows, from the centroid's row out,
+    below and above in turn, from a row over the cluster's top to one under its bottom, until
+    the budget is spent (`IsletRow`). A row through the cluster's land gets one stroke off its
+    east or west shore, the side swapping row by row (the group's first side by seed), so the
+    rows' centres sit left and right of the islet in turn round one centre; strokes off both
+    sides of a row read as one line under the islet. It starts as a coast stroke does,
+    `WaveShoreGap` off the shore, and runs out until it would come within `WaveShoreGap` of any
+    land (round, so above and below its row too) less `IsletChannelGap` 10 px (`IsletRoom`), so
+    channels between islets stay open (at 5 px strokes fill a 13 px channel); if that side has
+    no room the other is tried. A row that crosses under `IsletTipWidth` 3 px of land, or runs
+    along a spike (no land a pixel above or below just inside the shore), takes no stroke: it
+    would run out of a point. A row clear of the land gets one stroke in open water centred on
+    the cluster, swayed `IsletSway` 0.9 crest (0.5-1.3 of it by seed) east or west in turn and,
+    on a chain whose cells spread `IsletElongation` times as far one way as across and that
+    slants more than `IsletLevelChain` (25 degrees), shifted along it by its distance from the
+    centre (at most `IsletLean` px a px and half the cluster's width; a near-level chain is not
+    leaned); it keeps `WaveFloatClear` off land and `IsletChannelGap` of water beyond either end
+    (`OpenRow`). Strokes stay level, never tilted, and claim their rows (`Claim`), so groups
+    keep off each other and the coast's. Strokes off a shore are recorded with `IsletAnchor` (2)
+    times their direction: close-ups move them to their own shore as coast strokes and keep
+    `TileIsletBand` 1 px above and below the row clear of land too (`TileRoom`). Clusters go
+    largest first, each `IsletSpacing` 40 px from the coast's accents that drew a group (spacing
+    from every accent leaves many clusters bare). Small groups centred under and over each islet
+    read as isolated stacks, and groups at the islets' bends miss most islets.
   - On a coast facing east or west each stroke starts at the coast `WaveShoreGap` off it
     (`Anchored`, shore searched `AccentReach` round the accent) and runs out to sea.
   - A headland pointing north or south (normal `NorthSouth` times steeper than level) gets one
@@ -227,127 +207,111 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   - `Room` stops a stroke `WaveSlotGap` short of land, floes or the frame, dropping crests to fit,
     never under two; `Claim` keeps strokes in a row apart.
 - Each wave is also kept as an `InkRecord.Wave` (position, length, crests, phase, lift and
-  anchor; every stroke is level, so the direction it once kept is gone).
+  anchor; every stroke is level, so no direction is kept).
   Close-ups do not replay the sheet's strokes but redraw them (`DrawTileWaves`) at their own
   1.3 screen-pixel pen. An anchored stroke is moved to the close-up's own coast (`TileShore`,
-  within `TileWaveSearch`, `TileWaveGapPixels` clear) and its crests cut to the water ahead.
-  Replayed, strokes stood up to a few sheet pixels off the finer coast.
-  Anchors outside the tile's sampled ground stay put.
-- **Lakes** get straight hairlines instead of waves (lake lines distinct from
-  the sea's), in two sizes (`m_lakeTier`, `MarkWideLakes`): large lakes, middle at least
-  `LakeWaveWidth` (11 px, about 58 m) from the shore, with the lake `WaveHand` (lift 0,
-  `LakeDash` units, `LakeLongDashes` 6/`LakeShortDashes` 3, `LakeGroupMin`-`LakeGroupMax`
-  lines), and small lakes from `LakeMinWidth` (8 px, about 42 m) with the stepped-down hand
-  (`SmallLakeDash`, `SmallLakeLongDashes` 5/`SmallLakeShortDashes` 3, `StepGroupMin`-
-  `StepGroupMax`). The user's plains lake (between swamp and plains near -2900, 2436) is a
-  9 px lake that had no lines. `DrawLakeLines` (per size) draws groups at the
-  bends of the lake's shore (`FindBends`, sharpest first), then on its straight shores facing
-  east or west about every `LakePlain` 60 px along the trace (a long arm with no bend was
-  bare), retrying `LakeRetry` further on where a spot takes no group; only a drawn group keeps
-  the next `AccentSpacing` away. A group (`PlaceLakeGroup`) is one stack on consecutive rows
-  from one shore: the first line's shore within `LakeFirstReach` of the accent, each next
-  row's within `LakeDrift` of the row beside it, out from the middle until a row has no line;
-  both shores and the accent's row and the rows either side are tried and the stack with the
-  most line is drawn. Each line starts at the shore and touches it,
-  `LakeOverlap` into the coast's pen, close-ups moving it onto their own coast with no gap. A
-  line reaches at most `LakeReach` of the way to the far shore and never has fewer than
-  `LakeLeastDashes` 3 (`WaveHand.m_least`). Before:
-  groups from either shore in turn and at small bays, lines of two dashes (3.3-3.9 sheet
-  px) reading as stray hairlines, and the lake's long arm
-  bare, since a failed bend still kept 40 px of shore round it free. A lake with no
-  group drawn gets one off its west or east shore level with its middle. Lake shores get no sea
-  groups, nor one lake size's lines the other's shore. A small lake has no water `WideWater`
-  from land, so the channel rule counted all of it as `m_noLine` and it had no trace and no
-  bends; small lakes are exempt from that rule (`TraceWaterLines`). Rejected for lakes: dense
-  ripple rows in the middle, bare water, a small sea-style group, an inner line round the
-  shore. Water under `LakeMinWidth` (on Velen 29 ponds at 5-7 px, chains of forest ponds and
-  swamp-side pools among them) stays bare.
-- **Sea illustrations** (`SeaGlyphs`, placed by `DrawIllustrations` in `InkPainter.Sea.cs`;
-  user's rules): the sea serpent, the serpent coil and the leviathan in the open
-  ocean (the Ocean biome outside `IsDeepnorth`, where the Serpent swims; the leviathan is
-  decoration, not at real positions), the bonemaw serpent only in the Ashlands' sea (water of
-  the Ashlands biome: vanilla's `GetBiome` gives the Ashlands before the ocean, the Deep North
-  after it). The Deep North's sea stays blank. `IsAshlands` is not called: it runs
-  `WorldGenerator`'s static constructor, which the offline harness cannot load. Each glyph at
-  most `IllustrationsEach` 3 times. Candidates are the peaks of the open water: the distance
-  from any land, islets included, and from the frame's inner ring, on `OpenCell` 4 px cells,
-  with no farther cell within two; at least `OpenWaterMin` 90 px (about 470 m), ranked by that
-  distance times a seed-set 0.85-1.15. In rank order a spot takes the illustration of its sea
-  placed fewest times so far (ties from a seed-set first), if its box (measured by drawing the
-  glyph on a scratch canvas) sits `IllustrationClear` 40 px past its half diagonal inside the
-  open water, all four corners in the same sea, no ink at all within `IllustrationInkGap` 8 px
-  (waves, floes) and `IllustrationSpacing` 600 px (about 3.2 km) from every other one; a world
-  with fewer such spots gets fewer. Scale 0.85-1.15 and mirroring by hash. `SeaGlyphs.Draw`
-  mirrors and scales the points itself (`Hand`), scrapes scaled with the shape, pens kept at
-  their width so none falls under `Pen`; the leviathan is not mirrored but lays its profile,
-  barnacles and tufts the other way round, since its hatched east flank is the map's shade.
-  Drawn after the floes on the `Illustration` layer, one record group each, which close-ups
-  replay whole after their floes. On Velen all twelve fit: three bonemaws
-  in the Ashlands' sea and three of each other glyph, open water 92-188 px round them.
+  within `TileWaveSearch`, `TileWaveGapPixels` clear) and its crests cut to the water ahead;
+  replayed strokes would stand a few sheet pixels off the finer coast. Anchors outside the
+  tile's sampled ground stay put.
+- **Lakes** get straight hairlines instead of waves, distinct from the sea's, in two sizes
+  (`m_lakeTier`, `MarkWideLakes`): large lakes, middle at least `LakeWaveWidth` (11 px, about
+  58 m) from the shore, with the lake `WaveHand` (lift 0, `LakeDash` units, `LakeLongDashes`
+  6/`LakeShortDashes` 3, `LakeGroupMin`-`LakeGroupMax` lines), and small lakes from
+  `LakeMinWidth` (8 px, about 42 m, so a 9 px lake such as the plains lake near -2900, 2436 gets
+  lines) with the stepped-down hand (`SmallLakeDash`, `SmallLakeLongDashes` 5/
+  `SmallLakeShortDashes` 3, `StepGroupMin`-`StepGroupMax`). `DrawLakeLines` (per size) draws
+  groups at the bends of the lake's shore (`FindBends`, sharpest first), then on its straight
+  shores facing east or west about every `LakePlain` 60 px along the trace (so a long arm with
+  no bend is not bare), retrying `LakeRetry` further on where a spot takes no group; only a
+  drawn group keeps the next `AccentSpacing` away. A group (`PlaceLakeGroup`) is one stack on
+  consecutive rows from one shore: the first line's shore within `LakeFirstReach` of the accent,
+  each next row's within `LakeDrift` of the row beside it, out from the middle until a row has
+  no line; both shores and the accent's row and the rows either side are tried and the stack
+  with the most line is drawn. Each line starts at the shore and touches it, `LakeOverlap` into
+  the coast's pen, close-ups moving it onto their own coast with no gap. A line reaches at most
+  `LakeReach` of the way to the far shore and never has fewer than `LakeLeastDashes` 3
+  (`WaveHand.m_least`); two-dash lines read as stray hairlines. A lake with no group drawn gets
+  one off its west or east shore level with its middle. Lake shores get no sea groups, nor one
+  lake size's lines the other's shore. A small lake has no water `WideWater` from land, so the
+  channel rule would count all of it as `m_noLine`, with no trace and no bends; small lakes are
+  exempt from that rule (`TraceWaterLines`). Do not give lakes dense ripple rows in the middle,
+  bare water, a small sea-style group, an inner line round the shore, or groups from either
+  shore in turn. Water under `LakeMinWidth` (ponds, chains of forest ponds, swamp-side pools)
+  stays bare.
+- **Sea illustrations** (`SeaGlyphs`, placed by `DrawIllustrations` in `InkPainter.Sea.cs`):
+  the sea serpent, the serpent coil and the leviathan in the open ocean (the Ocean biome outside
+  `IsDeepnorth`, where the Serpent swims; the leviathan is decoration, not at real positions),
+  the bonemaw serpent only in the Ashlands' sea (water of the Ashlands biome: vanilla's
+  `GetBiome` gives the Ashlands before the ocean, the Deep North after it). The Deep North's sea
+  stays blank. `IsAshlands` is not called: it runs `WorldGenerator`'s static constructor, which
+  the offline harness cannot load. Each glyph at most `IllustrationsEach` 3 times. Candidates
+  are the peaks of the open water: the distance from any land, islets included, and from the
+  frame's inner ring, on `OpenCell` 4 px cells, with no farther cell within two; at least
+  `OpenWaterMin` 90 px (about 470 m), ranked by that distance times a seed-set 0.85-1.15. In
+  rank order a spot takes the illustration of its sea placed fewest times so far (ties from a
+  seed-set first), if its box (measured by drawing the glyph on a scratch canvas) sits
+  `IllustrationClear` 40 px past its half diagonal inside the open water, all four corners in
+  the same sea, no ink at all within `IllustrationInkGap` 8 px (waves, floes) and
+  `IllustrationSpacing` 600 px (about 3.2 km) from every other one; a world with fewer such
+  spots gets fewer. Scale 0.85-1.15 and mirroring by hash. `SeaGlyphs.Draw` mirrors and scales
+  the points itself (`Hand`), scrapes scaled with the shape, pens kept at their width so none
+  falls under `Pen`; the leviathan is not mirrored but lays its profile, barnacles and tufts the
+  other way round, since its hatched east flank is the map's shade. Drawn after the floes on
+  the `Illustration` layer, one record group each, which close-ups replay whole after their
+  floes.
   The fog: a glyph shows or hides whole. Its box is kept in `InkRecord.m_seaMarks` and in the
   cache's header; `Paper.Fog` lifts the fog over the box and `SeaMarkMargin` 40 m round it when
   at least `SeaMarkShown` half the box is explored, and lays it there when less is, before the
-  blur, so the fog's soft edge (about 21 m) never crosses the glyph. Since the box lies far out
-  in open water, only water is shown or hidden; a pass along its edge shows as a rounded bulge
-  or bite in the explored strip. Left to the fog alone, a pass over a glyph showed half a
-  monster. `AtlasMap` opens the atlas only once the fog was laid with the uploaded sheet's
-  marks (`s_fogMarks`).
-  Each glyph lies in a slightly darker wash of the sea's blue ("make them pop
-  just a bit"): `SeaWash` draws the glyph again from its mark (kind, sheet point, mirror and
-  scale, also kept in the cache's header) at 2x on a scratch canvas that keeps every erase's
-  coverage (`InkCanvas.m_scraped`), so the wash follows the scraped body, not the box, ripples
-  or foam; the bonemaw's bare bones would only get a glow, so the water each arch encloses down
-  to the waterline is washed too (`FillArches`). Box-blurred (about 0.7 sheet px), `Gain`,
-  mottled, and kept within `Reach` 3 px of the box, inside what the fog shows or hides whole. A
-  glaze `Paper.s_seaWash` (72, 100, 160 at 0.22): close-ups glaze it over their water
+  blur, so the fog's soft edge (about 21 m) never crosses the glyph (left to the fog alone, a
+  pass over a glyph shows half a monster). Since the box lies far out in open water, only water
+  is shown or hidden; a pass along its edge shows as a rounded bulge or bite in the explored
+  strip. `AtlasMap` opens the atlas only once the fog was laid with the uploaded sheet's marks
+  (`s_fogMarks`).
+  Each glyph lies in a slightly darker wash of the sea's blue so it stands out a little:
+  `SeaWash` draws the glyph again from its mark (kind, sheet point, mirror and scale, also kept
+  in the cache's header) at 2x on a scratch canvas that keeps every erase's coverage
+  (`InkCanvas.m_scraped`), so the wash follows the scraped body, not the box, ripples or foam;
+  the bonemaw's bare bones would only get a glow, so the water each arch encloses down to the
+  waterline is washed too (`FillArches`). Box-blurred (about 0.7 sheet px), `Gain`, mottled, and
+  kept within `Reach` 3 px of the box, inside what the fog shows or hides whole. A glaze
+  `Paper.s_seaWash` (72, 100, 160 at 0.22): close-ups glaze it over their water
   (`Paper.SeaGlaze`, from `InkRecord.m_seaWashes`); the sheet's ink texture cannot glaze, so
   `InkWithMips` lays it as the colour and opacity that give the same glaze over clean water
   (`SeaInk`). The ink sheet itself is unchanged.
-- Rejected earlier: ring lines at fixed distances, short double curves in
-  staggered rows, six rows of tildes tilted with the coast ("even dumber"), groups of tildes
-  at scored points of the shore with a scatter at sea, a waterline
-  that stopped in channels, and a band of short tildes along every coast.
+- Ring lines at fixed distances, short double curves in staggered rows, tildes tilted with the
+  coast, tildes at scored points of the shore with a scatter at sea, and a band of short tildes
+  along every coast all read badly; keep groups at the bends.
 - Peaks stand on real summits: local height maxima within `SummitCells` that rise
   `SummitProminence` above their surroundings, sized by prominence, the glyph placed so its apex
   is on the summit. Smaller filler peaks mass between them in staggered rows and keep clear of
   the summits. Hills sit on real hilltops found the same way, their foot at least half their
-  width from water and woods. Every drawn part of a hill (both domes' outlines and insides, the
-  hatch dashes) keeps `HillWaterGap` off water and river courses (`ProbeHill`, `HillDryAt`;
-  the probe shares `DomeOutline`/`DomeDash` with the drawing). A hill that would come closer
-  first drops its domes behind (`Glyph.m_lone`), then shrinks by `HillShrinkStep` down to
-  `HillMinScale`, crown kept on the hilltop (`FitHill`, `HillFoot`): on a navigation map a smaller hill on
-  its real top beats a full-size one beside it. Failing that, after every hill that fits is
-  placed, `ShiftHill` moves its hilltop as the Ashlands glyphs are moved off lava (the shared
-  `ShiftFoot`: rings of `HillShiftStep` of its width out to `HillShiftReach`, away from the
-  water its full shape touches first, then `ShiftAngles` either side), onto land of its biome
-  no more than `HillShiftDrop` of its prominence below the top, foot off woods and `HillGap`
-  clear of every hill and summit peak placed (`m_hillBoxes`), at every size `FitHill` tries.
-  On Velen 9 hills, all Plains, came within the gap (6 overlapped water,
-  each only through the dome behind: 4 the sea, 2 a lake; none a river in the preview's
-  streams): 2 dropped the dome behind, 7 also shrank to 0.8-0.9; none needed moving. The one
-  Meadows hill and the Mountain foothills (none placed) were clear. The old foot rule (foot
-  half a width off water and woods) then kept out hilltops whose shrunk hill would fit; at the
-  user's ask its water half is gone, since `FitHill` tests water on the whole
-  shape, and only the wood half stays. Plains hills on Velen rose from 89 to 155 (166 hills in
-  all), most of them near lakes and coasts.
+  width from woods (water is tested on the whole shape instead). Every drawn part of a hill
+  (both domes' outlines and insides, the hatch dashes) keeps `HillWaterGap` off water and river
+  courses (`ProbeHill`, `HillDryAt`; the probe shares `DomeOutline`/`DomeDash` with the
+  drawing). A hill that would come closer first drops its domes behind (`Glyph.m_lone`), then
+  shrinks by `HillShrinkStep` down to `HillMinScale`, crown kept on the hilltop (`FitHill`,
+  `HillFoot`): on a navigation map a smaller hill on its real top beats a full-size one beside
+  it. Failing that, after every hill that fits is placed, `ShiftHill` moves its hilltop as the
+  Ashlands glyphs are moved off lava (the shared `ShiftFoot`: rings of `HillShiftStep` of its
+  width out to `HillShiftReach`, away from the water its full shape touches first, then
+  `ShiftAngles` either side), onto land of its biome no more than `HillShiftDrop` of its
+  prominence below the top, foot off woods and `HillGap` clear of every hill and summit peak
+  placed (`m_hillBoxes`), at every size `FitHill` tries.
 - Glyphs are scattered on jittered grids per rule, sorted by their foot (north first) and drawn so
   that each scrapes its outline back to parchment before inking: southern glyphs hide northern ones.
 - Filler peaks are packed in staggered rows (16 G across, 9 G down, half-cell stagger) so ranges read as
   one dark mass, as on the classic map; with that overlap the front peak hides the lower half of
   the one behind, so the shaded wedge has to stay wide near the summit. Woods are packed so
-  densely that only their southern edge shows trunks. Both came from an art review against the
-  classic map style that the user liked.
-- Swamps and hills follow the user's reference snippet of the classic map: the
-  swamp fill is short flat marsh lines with seed-varied reed tufts on many, on a square, fully
-  jittered grid, gathered into patches by a slow noise (`MarshPatch`) with thinner bog between (still 30% of
-  cells; a near-empty bog read as too sparse); even rows over the whole swamp read as messy and
-  ruled to the user; hills are low
-  lopsided domes with hatch dashes under the eastern side, often with a smaller dome behind.
+  densely that only their southern edge shows trunks, also as on the classic map.
+- Swamps and hills follow the classic map: the swamp fill is short flat marsh lines with
+  seed-varied reed tufts on many, on a square, fully jittered grid, gathered into patches by a
+  slow noise (`MarshPatch`) with thinner bog between (still 30% of cells; a near-empty bog reads
+  too sparse, even rows over the whole swamp read as messy and ruled); hills are low lopsided
+  domes with hatch dashes under the eastern side, often with a smaller dome behind.
   Marks are sized to their grid cell (reeds of two to four blades, `Reeds` taking the cell) and
   a mark that would touch an inked neighbour of higher priority is left out (`MarshMark`, from
   hashes and the patch noise alone, so the sheet and every tile agree); marks bigger than their
-  cell with a jitter of nearly a cell had piled into knots (swamp review,
-  the). Marks keep off woods (`IsOpenLand`).
+  cell with a jitter of nearly a cell pile into knots. Marks keep off woods (`IsOpenLand`).
   Clumps follow the real water: `WorldSource.m_swampWet` (1 in a pool, 0 at 1.5 m above the
   water, from the heights before the raise, blurred) makes 65% of the patch value and the noise
   35%; reeds favour the pools' rims; marks thin over the swamp's outermost few dozen metres
@@ -356,103 +320,83 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   brown stains stand out. Dead trees are tall ancient trees (11-14 T, a bowed trunk on splayed
   roots, two to four seed-set branches, some forked) that scrape under every limb. Marks sit on
   a cell of 1.5 `MarshStep` and close-ups draw them at 0.75 of the pen: smaller cells at the
-  tile's pen closed the tufts up into lumps. A swamp's water is raised to
+  tile's pen close the tufts up into lumps. A swamp's water is raised to
   `WorldSource.SwampFloor` above the water line, in the decoded minimap and in
-  `GeneratorSampler`, so swamps are one marsh with no pools (inland pools
-  shown as water were unwanted), except deep water (over `SwampShallow` 1.5 m) joined to the
-  sea (`WorldSource.MarkSwampSea`, flooded from the map's edge through the water that stays
-  water): raising that too turned the flooded fringe of swamps beside the sea into land (on
-  Velen 3,889 raised cells touched other water).
+  `GeneratorSampler`, so swamps are one marsh with no inland pools, except deep water (over
+  `SwampShallow` 1.5 m) joined to the sea (`WorldSource.MarkSwampSea`, flooded from the map's
+  edge through the water that stays water): raising that too turns the flooded fringe of swamps
+  beside the sea into land.
 - Broadleaf, plains and giant-tree crowns are hand-traced (`HandCrown`: a closed loop whose
   radius wobbles by seed, with a slight overlap), with seed-varied size, aspect, trunk length,
-  lean and shade span; perfect ellipses read as stamped. Pines got the same
-  treatment at the user's ask: varied height and width, a leaning tip, a bowed west flank, an
-  uneven base, trunk and shade split by seed.
-- The Ashlands were made sober after the user found them "doodly" (the map is
-  meant to read as a serious survey): lava fields are toned with an even engraved hatch of
-  diagonal lines (`LavaHatch`, `Lava.cs`) instead of dashed streamlines; volcanoes lost their
-  smoke curl and lava stream; crags are one or two small peaks in the mountains' hand (`Peak`
-  with `body: false`, keeping the burnt ground's wash) instead of thin notched spires that read
-  as grass tufts; the ground is one even cinder stipple, denser by the lava, with no ticks or
-  fissures. Crags and volcanoes keep their whole base off lava (`ClearOfLava`); the peak above
-  may rise in front of a lake behind it (user: "peaks yes, bases not"). A crag or volcano whose
-  foot is clear but whose base would reach into lava is moved instead of left out (user,
-): after every glyph that fits where it was scattered is placed, `ShiftOffLava` tries
-  feet in rings a tenth of its width apart out to one width (`LavaShiftStep`, `LavaShiftReach`),
-  straight away from the lava (the field's slope along the base) first, then 30, 60 and 90
-  degrees either side, and takes the first that passes every test (`VolcanoRoom`, `CragRoom`:
-  land, biome, shore, column, `PeakOnLand`, frame) and keeps off the volcanoes and crags already
-  placed (`AshCrowded`). Whether the ground calls for the glyph (`VolcanoChosen`, `CragChosen`:
-  heights, slope, the cell's roll) is decided where it was scattered only. A moved glyph also
-  keeps its base `LavaShiftMargin` off lava north and south and its whole body off lava: feet
-  land at a lake's edge, and a crag a pixel clear of a lake, or a cone rising over a U-shaped
-  lake with the lava's wash showing through its body, read as standing in it. Glyphs scattered
-  on lava itself stay out (pushed to the rim they sat in its bays). On Velen 7 were kept out by
-  lava under their base: 6 came back (2 volcanoes moved 0.4 and 0.5 of a width, 4 crags 0.2-0.8),
-  one volcano, in a U of lava, stays out. No summit or filler peak touches lava, so none moves.
-  Before that, a second pass from a Fable art review (4/10) had made them: volcanoes at mountain scale in
-  the peaks' hand (concave flanks, notched crater, small wedge and hatch, S-curve smoke, a lava
-  stream), kept a cone's width apart and off the coast; lava fields from 110 cells up with
-  streamlines along each field's contour and a darker vermilion glaze clipped to its edge after
-  the blur; a burnt-sienna wash mottled with grey ash clouds; crag ridges of 3-6 notched,
-  hatched spires kept off lava; fissure pairs; a cinder stipple of two sizes and ticks, denser by
-  the lava. Before that, after the user found them bad: a sparse cinder
-  stipple instead of a diagonal hatch, lava fields from `Woods.BuildLava` (vanilla's patchy lava
-  mask, kept from 40 cells and blurred 4 passes) outlined and filled with flow strokes on their
-  own `Lava` layer (`Lava.cs`, sheet only, replayed by close-ups) over a vermilion wash, crag
-  clusters (`Crag`) on steep ground, and more volcanoes. The old lava-crack glyph is gone.
+  lean and shade span; perfect ellipses read as stamped. Pines vary the same way: height and
+  width, a leaning tip, a bowed west flank, an uneven base, trunk and shade split by seed.
+- The Ashlands are sober, as on a serious survey: lava fields are toned with an even engraved
+  hatch of diagonal lines (`LavaHatch`, `Lava.cs`); volcanoes have no smoke curl or lava stream;
+  crags are one or two small peaks in the mountains' hand (`Peak` with `body: false`, keeping
+  the burnt ground's wash), since thin notched spires read as grass tufts; the ground is one
+  even cinder stipple, denser by the lava, with no ticks or fissures. Streamlines or flow strokes
+  in lava fields, smoke curls, spire ridges, fissure pairs and ash-cloud mottling read as
+  doodles. Crags and volcanoes keep their whole base off lava (`ClearOfLava`); the peak above
+  may rise in front of a lake behind it. A crag or volcano whose foot is clear but whose base
+  would reach into lava is moved instead of left out: after every glyph that fits where it was
+  scattered is placed, `ShiftOffLava` tries feet in rings a tenth of its width apart out to one
+  width (`LavaShiftStep`, `LavaShiftReach`), straight away from the lava (the field's slope along
+  the base) first, then 30, 60 and 90 degrees either side, and takes the first that passes every
+  test (`VolcanoRoom`, `CragRoom`: land, biome, shore, column, `PeakOnLand`, frame) and keeps off
+  the volcanoes and crags already placed (`AshCrowded`). Whether the ground calls for the glyph
+  (`VolcanoChosen`, `CragChosen`: heights, slope, the cell's roll) is decided where it was
+  scattered only. A moved glyph also keeps its base `LavaShiftMargin` off lava north and south
+  and its whole body off lava: feet land at a lake's edge, and a crag a pixel clear of a lake, or
+  a cone rising over a U-shaped lake with the lava's wash showing through its body, reads as
+  standing in it. Glyphs scattered on lava itself stay out (pushed to the rim they sit in its
+  bays). No summit or filler peak touches lava, so none moves.
 - Biome washes follow the ground exactly, but every peak's body is filled strictly with the
-  mountains' wash, or the Deep North's for peaks standing there: `Peak`
-  erases its outline itself, since a convex hull let the fill spill past sags and notches, in
-  one pass (`ScrapeBody`, `InkCanvas.EraseOutline`, an `Op.EraseOutline` in the record: exact
-  coverage of a concave outline, flanks grown `BodyGrow` 0.4 pen under their ink, base on the
-  foot line). It was a fan of grown triangles from a hub low in the middle, whose thin
-  triangles by the apex barely overlapped, so the edge from the hub up to the apex showed as a
-  faint centre line on some peaks. It marks body with `InkCanvas.m_markBody`, which
-  writes one of three body masks (`BodyKind` Mountain, North, Mist, one plane each; any later
-  erase clears the others, so the glyph in front decides). The Mistlands' pinnacles fill their
-  bodies the same way with `BodyKind.Mist` (below). The body stays fully the peak's wash; below the foot a skirt (`Skirt`, `InkCanvas.Tint`, an
-  `Op.Tint` in the record, `PeakSkirt` 4 sheet px, its lower edge `SkirtTaper` in from each end)
-  raises the mask without touching the ink, from the body's own strength (`PeakBleed` 1) to
-  nothing along a smoothstep, so the base is not cut hard. A 2 px skirt starting at 0.6 left a
-  step at the foot that read as the mountain colour cut off. Fading the
-  body out at the base was the wrong way round (the base leads into the other
-  biome, not the other biome into the mountain), and a skirt 30% of the peak deep (`cc994a8`)
-  overwrote the outline before the body was scraped, so bodies became trapezoids: peaks read as
-  holes and peaks behind showed through the ones in front. The skirt is now laid after the
-  body. Before the body, peaks and pinnacles scrape a band from a pen inside their base to
-  `BaseScrape` 1.25 pen below the foot (`ScrapeBase`, no body mark, so the skirt alone tints
-  it): the glyphs behind stand north of the foot, but their round caps, a giant tree's roots
-  and a crag's uneven feet reach a little past it, and the body's base edge is anti-aliased on
-  the foot line, so dots and slivers of the peaks and trees behind showed just under the base
-  line. Mountain ground keeps the mountain wash even where no peak is drawn (
-  the biome must still read as mountains); giving it the neighbours' wash instead was tried and
-  reverted the same day. The sheet is ink then the three masks (`InkPainter.Paint`,
-  `SheetPlanes` 4 planes of 4096², 64 MB, cached together); `Paper.InkWithMips` reads the planes
-  in place and fills bodies with `Paper.BodyColor` under the ink, and close-ups glaze
-  `Paper.BodyGlaze` over the stained parchment, replaying the kind from the record. A kind byte
-  beside one shared mask would have saved the Mist plane (16 MB) but cannot hold a pixel shared
-  by two kinds, where a spire stands in front of a peak or a skirt runs over another body. A 300 m carry of the mountain tint north, tried first,
-  spilled it over plains with no peaks. Peaks
-  are tested for land at both base ends and both flanks (`PeakOnLand`), not only their centre,
-  so coastal peaks do not hang over the sea.
-- Peaks vary by seed, after the user asked for mountains like the classic map's: a
-  jagged ridge line (a plain crag, a shoulder on the east, or a twin summit on the west), the
-  east face a solid wedge for the top `PeakWedge` of the flank and slanting hatch strokes below,
-  some with a spur down the lit face; then, on the user's ask for more variation, proportions
-  from broad and low to tall and narrow (`PeakHeightOf`, shared with summit placement, which sets
-  the foot so the apex lands on the summit), blunt flat tops, a snow line on tall peaks, and
-  three hatching hands (slanting, level, steep; dense or open). The body is erased as the
-  outline itself (above). Broadleaf and plains crowns have
-  their eastern part filled (`Shade`, `CrownShade`), as the pines fill their eastern half.
-- Hills vary by seed as the peaks do (a hilly plain read as one stamp
-  repeated), still the classic map's low lopsided domes in the same hand. `DomeOutline` sets
+  mountains' wash, or the Deep North's for peaks standing there: `Peak` erases its outline
+  itself, since a convex hull lets the fill spill past sags and notches, in one pass
+  (`ScrapeBody`, `InkCanvas.EraseOutline`, an `Op.EraseOutline` in the record: exact coverage of
+  a concave outline, flanks grown `BodyGrow` 0.4 pen under their ink, base on the foot line); a
+  fan of triangles from a hub leaves a faint centre line up to the apex. It marks body with
+  `InkCanvas.m_markBody`, which writes one of three body masks (`BodyKind` Mountain, North,
+  Mist, one plane each; any later erase clears the others, so the glyph in front decides). The
+  Mistlands' pinnacles fill their bodies the same way with `BodyKind.Mist` (below). The body
+  stays fully the peak's wash; below the foot a skirt (`Skirt`, `InkCanvas.Tint`, an `Op.Tint`
+  in the record, `PeakSkirt` 4 sheet px, its lower edge `SkirtTaper` in from each end) raises
+  the mask without touching the ink, from the body's own strength (`PeakBleed` 1) to nothing
+  along a smoothstep, so the base is not cut hard; a shallower skirt starting weaker leaves a
+  step that reads as the mountain colour cut off. The base leads into the other biome, so never
+  fade the body out at the base. The skirt is laid after the body: laid before, it overwrites
+  the outline before the body is scraped, bodies become trapezoids, peaks read as holes and
+  peaks behind show through the ones in front. Before the body, peaks and pinnacles scrape a
+  band from a pen inside their base to `BaseScrape` 1.25 pen below the foot (`ScrapeBase`, no
+  body mark, so the skirt alone tints it): the glyphs behind stand north of the foot, but their
+  round caps, a giant tree's roots and a crag's uneven feet reach a little past it, and the
+  body's base edge is anti-aliased on the foot line, so dots and slivers of the peaks and trees
+  behind would show just under the base line. Mountain ground keeps the mountain wash even where
+  no peak is drawn, so the biome still reads as mountains; do not give it the neighbours' wash.
+  The sheet is ink then the three masks (`InkPainter.Paint`, `SheetPlanes` 4 planes of 4096²,
+  64 MB, cached together); `Paper.InkWithMips` reads the planes in place and fills bodies with
+  `Paper.BodyColor` under the ink, and close-ups glaze `Paper.BodyGlaze` over the stained
+  parchment, replaying the kind from the record. A kind byte beside one shared mask would save
+  the Mist plane (16 MB) but cannot hold a pixel shared by two kinds, where a spire stands in
+  front of a peak or a skirt runs over another body. Carrying the mountain tint north spills it
+  over plains with no peaks. Peaks are tested for land at both base ends and both flanks
+  (`PeakOnLand`), not only their centre, so coastal peaks do not hang over the sea.
+- Peaks vary by seed, like the classic map's mountains: a jagged ridge line (a plain crag, a
+  shoulder on the east, or a twin summit on the west), the east face a solid wedge for the top
+  `PeakWedge` of the flank and slanting hatch strokes below, some with a spur down the lit face;
+  proportions from broad and low to tall and narrow (`PeakHeightOf`, shared with summit
+  placement, which sets the foot so the apex lands on the summit), blunt flat tops, a snow line
+  on tall peaks, and three hatching hands (slanting, level, steep; dense or open). The body is
+  erased as the outline itself (above). Broadleaf and plains crowns have their eastern part
+  filled (`Shade`, `CrownShade`), as the pines fill their eastern half.
+- Hills vary by seed as the peaks do, so a hilly plain does not read as one stamp repeated,
+  still the classic map's low lopsided domes in the same hand. `DomeOutline` sets
   the proportions (height 0.22-0.37 of the width, the taller ones fuller-sided), the crest off
   centre (0.38-0.62) with each flank its own steepness, and the crest style: one dome (half),
   a long low ridge with a flattish back sinking a little to one end, a double crest with a
   softened saddle (either top the taller), or a lower knoll run into one flank (`DomeRise`).
   Every outline has a slight two-frequency wobble, nothing at the feet, and is inked as a pen
-  would trace it (hills should feel hand-drawn, as the peaks do): its points
+  would trace it, hand-drawn as the peaks are: its points
   unevenly spaced and nudged off the curve so it runs in short facets, the line swelling over
   the crest and thinning toward the feet, one pen lift along the back set down a hair off with
   a small overshoot, short tails at the feet, and each hatch dash at its own angle. Domes behind
@@ -460,53 +404,50 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   side, the second smaller and further back), at seed-set offsets and sizes, and only single or
   shouldered. Four hatching hands under the east flank of the eastern top (`DomeDash`): a
   sparse long pair, three tapering, four or five short, three long; slant by seed, never below
-  the foot. Each dash starts exactly on the inked outline, no gap and no overshoot (user,
-): `DomeDash` slides it along its own line up to the first crossing with the
-  stroked segments (`DomeSegment`, the same lift, tails and facets `Dome` inks), so its start
-  sits on the stroke's centre line and its round end, no wider than the outline's pen, stays
-  inside it; length and angle are kept. Hung a fixed gap below the ideal curve, the faceted,
-  wobbled line left gaps of every size. A dome scrapes its silhouette before inking, as peaks
+  the foot. Each dash starts exactly on the inked outline, no gap and no overshoot: `DomeDash`
+  slides it along its own line up to the first crossing with the stroked segments
+  (`DomeSegment`, the same lift, tails and facets `Dome` inks), so its start sits on the
+  stroke's centre line and its round end, no wider than the outline's pen, stays inside it;
+  length and angle are kept. Hung a fixed gap below the ideal curve, dashes leave gaps of every
+  size under the faceted, wobbled line. A dome scrapes its silhouette before inking, as peaks
   and trees do, but in one pass with `InkCanvas.EraseOutline` (`ScrapeDome`, outline down to
   the foot line): `InkCanvas.Erase` only fills convex polygons, so erasing the wobbled,
-  saddled outline whole left the line of a hill behind showing through. Pens stay 1.1-1.3 and `Pen`. The crown is the outline's highest point,
-  wherever the crest puts it: `HillFoot` sets the foot from it so the crown lands exactly on
-  the hilltop (the old fixed `HillRise` of 0.42 width put the crown about 0.12 width south of
-  it). On Velen (offline) 169 hills placed, none within `HillWaterGap` of water or a river.
-- The parchment carries stains (`Paper.Stains`, user's request), reworked the same
-  day from a research pass (Quilez domain warping, coffee-ring physics, Curtis et al. watercolour
-  glazing, conservation notes on foxing) after the user asked for stains that look more natural
-  and carry into the painted parts. Stains are optical density: the paper is multiplied by
-  `pow(tint, D)` per channel (brown for blots, redder for foxing), densities add and are softly
-  capped. Blots (old water stains with re-wetting rims, drop rings) are domain-warped, turned
-  and stretched, with a tide line that rises sharply at the edge and fades inward, at least
-  1.5 paper pixels wide. Foxing comes in Gaussian clusters, biased toward the sheet's edge, plus
-  lone spots, each a ragged core with a soft halo. The biome wash and the water's blue are glazes
-  (`Paper.Filter`: the tint relative to clean paper multiplies the paper), so stains show through
-  them; on clean paper the colours are as before. Water stops at the frame; beyond it is bare
-  margin. The fog shares the stained parchment, so stains run on unbroken. After the user found
-  the map "a bit too clean", coverage was doubled and an uneven patina (`Paper.Age`, warped fBm
-  blotches, worked out every 4 paper pixels) laid over the whole sheet. The parchment is made
+  saddled outline whole would leave the line of a hill behind showing through. Pens stay
+  1.1-1.3 and `Pen`. The crown is the outline's highest point, wherever the crest puts it:
+  `HillFoot` sets the foot from it so the crown lands exactly on the hilltop.
+- The parchment carries stains (`Paper.Stains`) modelled on domain warping (Quilez),
+  coffee-ring physics, Curtis et al. watercolour glazing and conservation notes on foxing, so
+  they look natural and carry into the painted parts. Stains are optical density: the paper is
+  multiplied by `pow(tint, D)` per channel (brown for blots, redder for foxing), densities add
+  and are softly capped. Blots (old water stains with re-wetting rims, drop rings) are
+  domain-warped, turned and stretched, with a tide line that rises sharply at the edge and fades
+  inward, at least 1.5 paper pixels wide. Foxing comes in Gaussian clusters, biased toward the
+  sheet's edge, plus lone spots, each a ragged core with a soft halo. The biome wash and the
+  water's blue are glazes (`Paper.Filter`: the tint relative to clean paper multiplies the
+  paper), so stains show through them; on clean paper the colours are unchanged. Water stops at
+  the frame; beyond it is bare margin. The fog shares the stained parchment, so stains run on
+  unbroken. An uneven patina (`Paper.Age`, warped fBm blotches, worked out every 4 paper
+  pixels) lies over the whole sheet so the map does not look too clean. The parchment is made
   once per world (`AtlasMap.Parchment`, shared by fog and wash) with its blots and rows in
-  parallel: about 1.4 s offline, against 4.3 s single-threaded.
+  parallel (about 1.4 s offline, 4.3 s single-threaded).
 - A faint watercolour wash per biome lies under the ink (`Paper.Washed`, darker in woods except
   the Deep North's, whose chalk a stronger wash would whiten, so its snow keeps one colour, and
   the Mountains', which keep the peaks' grey so the biome still reads as mountains; pale on
-  water, blurred so it bleeds softly across edges); it replaced the earlier pure-black-ink rule
-  when the user found the map hard to read. The fog keeps the bare parchment, so
-  unexplored land shows no colour. The paper is built from the decoded world each session, not
-  cached; it is ready about a second after the world's minimap.
-- Woods are shapes, not scattered trees (forest and open land must not be "a
-  weird mix"). `Woods.Build` turns vanilla's forest mask (red in Meadows, Black Forest, Plains;
+  water, blurred so it bleeds softly across edges); black ink alone is hard to read. The fog
+  keeps the bare parchment, so unexplored land shows no colour. The paper is built from the
+  decoded world each session, not cached; it is ready about a second after the world's minimap.
+- Woods are shapes, not scattered trees, so forest and open land do not read as a mix.
+  `Woods.Build` turns vanilla's forest mask (red in Meadows, Black Forest, Plains;
   green in the Mistlands) into a field: copses and clearings under 12 and 16 map pixels dropped,
   then blurred, edge at 0.5. Trees stand only where their foot and crown centre are inside, so
-  the outer crowns alone form the edge. Edge lines were tried and dropped: a scalloped edge after
-  the trees looked fuzzy with a gap inside it, and a plain line under the trees read as height
-  contours to the user (removed). Ground
-  fills and hills keep `WoodClearance` from every wood. Vanilla's mask (`Minimap.GetMaskColor`)
-  marks all Black Forest land as forest, Meadows by `WorldGenerator.InForest`, Plains where the
-  forest factor is under 0.8 and the Mistlands by a smoothstep of it, so the Black Forest is one
-  solid wood; its old noise clearings were invented and are gone. (Cells under water keep the
-  biome colour but no forest, which once made the biome look 60% open in a histogram.)
+  the outer crowns alone form the edge. Do not draw edge lines: a scalloped edge after the trees
+  looks fuzzy with a gap inside it, and a plain line under the trees reads as height contours.
+  Ground fills and hills keep `WoodClearance` from every wood. Vanilla's mask
+  (`Minimap.GetMaskColor`) marks all Black Forest land as forest, Meadows by
+  `WorldGenerator.InForest`, Plains where the forest factor is under 0.8 and the Mistlands by a
+  smoothstep of it, so the Black Forest is one solid wood with no invented clearings. (Cells
+  under water keep the biome colour but no forest, so a histogram of the mask overstates open
+  land.)
   The mask marks no forest in the Deep North, yet vanilla grows woods there: every Deep North
   tree in ZoneSystem's vegetation (`_LocationList_DeepNorth` in the `d59cfac` SoftRef bundle:
   `snowfirtree`, `snowfirtree_sparse`, `pinetree_snow`, `pinetree_snow_dead`, `snowfirtree_small`,
@@ -527,77 +468,70 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `p.y - 30`, `maxTilt` 30. The alt biomes change counts only: Wolf Mountain adds
   `firtree_mountain2` (10-20), Drake and Fortress Mountain block `firtree_mountain`, the small
   firs stay everywhere. Gentle ground (12 m central differences, under 30 degrees) is about 45%
-  of Velen's mountain land in every height band and mixed pixel by pixel; mountain land under
+  of mountain land in every height band and mixed pixel by pixel; mountain land under
   `PeakHeight` 50 m is only about 2%, so a height split like the Deep North's would draw almost
   no woods. `WorldSource.MarkMountainForest` therefore fills the mask's red where most land
-  within `MountainFirWindow` 2 pixels (60 m) is under 280 m and gentle; per pixel it drew specks
-  of trees among the peaks. Close-ups sample the sheet's own field (`GeneratorSampler`), since
-  slope needs neighbours and the generator's finer heights would bring back the specks. Peaks
-  stand on the same ground, so their trees (the conifer rule, salt 24) keep off the peaks' bases
-  (`ClearOfPeakBases`): a tree whose foot is south of a peak's foot, within its height plus
+  within `MountainFirWindow` 2 pixels (60 m) is under 280 m and gentle; per pixel it would draw
+  specks of trees among the peaks. Close-ups sample the sheet's own field (`GeneratorSampler`),
+  since slope needs neighbours and the generator's finer heights would bring back the specks.
+  Peaks stand on the same ground, so their trees (the conifer rule, salt 24) keep off the peaks'
+  bases (`ClearOfPeakBases`): a tree whose foot is south of a peak's foot, within its height plus
   `PeakBaseGap` and within `PeakBaseWidth` of the peak's width plus its crown, would be drawn in
   front of the base and is left out; trees north of a foot are hidden behind the peak. The peaks
   are recorded (`InkRecord.AddPeak`) so close-ups test the same. The mountain wash is not
   darkened under the woods. The preview's mountain woods sit where the game's do, as no forest
   factor is involved, except that alt biomes cannot be seen offline.
-- Ground fills on open land stay sparse, since the wash now tells biomes apart. The Deep North is
-  a deliberate near-blank snowfield with rare chevrons, like the classic map's northern waste:
-  the user chose it over snow stars, drifts, ice shards and cracked ice. Its woods (above) are the
-  one dense mark; the open snow between stays blank. Chevrons keep off the
-  shore, off the woods (`IsOpenLand`, as ground fills), off any ground high enough for peaks (searched from the world's heights, mostly south of
-  the mark, since a peak rises north of its foot) and off each other (a hash-only neighbour test
-  like the marsh marks'), so the sheet and tiles agree. Ice floes are filled with the Deep North's
-  body wash, not left showing the sea's.
-- The Mistlands follow a review (the user kept the
-  wash). Mist banks are veils of three wavy lines (middle longest, a slight tilt, a break or two)
-  with no scraped band under them (the bands read as heavy padding), laid in the
-  valleys and thinning with height to `MistCeiling` (the game's mist clears on the heights), off
-  steep ground. Banks are glyphs (`Kind.Mist`, `PlaceMist`), sorted in with the trees and crags
-  by their lowest line, so whatever stands in front hides them; drawn over
-  everything, with boxes round every spire kept clear, they had left only stray lines. This
-  replaced the old rule that the mist lies on top of the glyphs, and the `Mist` ink layer is
-  gone. A bank's foot is its bottom line's level (`MistGap` below its centre), and the bank is
-  drawn `MistFoot` north of it, the deepest its lines dip with tilt and wave: centred `MistGap`
-  above the foot, the bottom line ran up to 2.7 sheet px south of it, under the feet of glyphs
-  drawn after it, and showed as a hairline along a peak's or crag's base (
-  Mistlands mountains looked layered). Sorting banks by that lowest point instead laid them over
-  many more crowns and across the peaks' lower bodies.
-  Its micro lakes are ground (the many tiny inland pools cluttered it with
-  little shores). On Velen it had 1,499 inland water patches (four-way, not joined to the sea,
-  most cells Mistlands), against 1,278 Plains and 988 Black Forest, but from two pixels up 799
-  against 432 and 294, and 1,472 of them under 32 cells while only 27 reached 32-777.
-  `WorldSource.MarkMistPools` fills those under `MistPoolCells` 32 (about 4,600 m², a pool some
-  70 m across) to their lowest rim, at least `MistPoolFloor` 0.5 m above the water, so no hollow
-  is left for summits, crags or mist; 1,455 patches, 4,887 cells. The larger lakes stay and may
-  get lake lines. The sea is flooded from the map's edge as `MarkSea` does, a lone land pixel
-  counting as water since `RemoveSpecks` drops it, so no inlet or channel of the painted sea is
-  filled. `m_mistPool` marks the raised pixels (1) and the land round them that touches no other
-  water (2); `GeneratorSampler` raises its samples under the water there to the sheet's own
-  height and takes the sheet's wood field (16-31 cell pools in a wood are clearings, as the
-  forest mask has no trees on water), so close-ups agree with the sheet. Former pool rims now
-  pass the spires' shore test, so a few filler spires stand where the steep ground beside a pool
-  was. The offline preview samples the minimap, so only the game shows the generator's side.
+- Ground fills on open land stay sparse, since the wash tells biomes apart. The Deep North is
+  a deliberate near-blank snowfield with rare chevrons, like the classic map's northern waste,
+  not snow stars, drifts, ice shards or cracked ice. Its woods (above) are the one dense mark;
+  the open snow between stays blank. Chevrons keep off the shore, off the woods (`IsOpenLand`,
+  as ground fills), off any ground high enough for peaks (searched from the world's heights,
+  mostly south of the mark, since a peak rises north of its foot) and off each other (a
+  hash-only neighbour test like the marsh marks'), so the sheet and tiles agree. Ice floes are
+  filled with the Deep North's body wash, not left showing the sea's.
+- The Mistlands keep their wash. Mist banks are veils of three wavy lines (middle longest, a
+  slight tilt, a break or two) with no scraped band under them (bands read as heavy padding),
+  laid in the valleys and thinning with height to `MistCeiling` (the game's mist clears on the
+  heights), off steep ground. Banks are glyphs (`Kind.Mist`, `PlaceMist`), sorted in with the
+  trees and crags by their lowest line, so whatever stands in front hides them; drawn over
+  everything, with boxes round every spire kept clear, they leave only stray lines. There is no
+  `Mist` ink layer. A bank's foot is its bottom line's level (`MistGap` below its centre), and
+  the bank is drawn `MistFoot` north of it, the deepest its lines dip with tilt and wave:
+  centred `MistGap` above the foot, the bottom line runs up to 2.7 sheet px south of it, under
+  the feet of glyphs drawn after it, and shows as a hairline along a peak's or crag's base.
+  Sorting banks by that lowest point instead lays them over many more crowns and across the
+  peaks' lower bodies.
+  Its micro lakes are ground: many tiny inland pools clutter it with little shores, and the
+  Mistlands have far more small inland water patches (four-way, not joined to the sea) than any
+  other biome, nearly all under 32 cells. `WorldSource.MarkMistPools` fills those under
+  `MistPoolCells` 32 (about 4,600 m², a pool some 70 m across) to their lowest rim, at least
+  `MistPoolFloor` 0.5 m above the water, so no hollow is left for summits, crags or mist. The
+  larger lakes stay and may get lake lines. The sea is flooded from the map's edge as `MarkSea`
+  does, a lone land pixel counting as water since `RemoveSpecks` drops it, so no inlet or
+  channel of the painted sea is filled. `m_mistPool` marks the raised pixels (1) and the land
+  round them that touches no other water (2); `GeneratorSampler` raises its samples under the
+  water there to the sheet's own height and takes the sheet's wood field (16-31 cell pools in a
+  wood are clearings, as the forest mask has no trees on water), so close-ups agree with the
+  sheet. Former pool rims pass the spires' shore test, so a few filler spires stand where the
+  steep ground beside a pool was. The offline preview samples the minimap, so only the game
+  shows the generator's side.
   Crags (`Spire`) are pinnacles in the peaks' hand (`Pinnacle`: 0.45-0.62 of their height wide,
   jagged flanks, a ledge, some twin tips, a solid wedge down `SpireWedge` of the east face, a
   smaller one or two behind), on real summits (`PlaceSummitSpire`: highest within `SpireCells`,
   `SpireProminence` metres) and, as filler, only on ground steeper than 1.3 `SpireSlope`, clear
-  of the summits; a fixed trapezoid on every high pixel read as fence posts. Their bodies are
-  filled as the peaks' are ("use the coloring approach we're using for
-  mountains"): scraped and marked `BodyKind.Mist`, with the peaks' `ScrapeBase` and skirt, so the
-  glyph in front decides. The fill is `Paper.s_mistRock` (108, 94, 122 at 0.4), the Mistlands'
-  folium a little deeper and dulled with soot: about (181, 164, 155) on clean paper against
-  the ground's wash (204, 185, 167; 193, 175, 163 in a wood), a muted mauve-grey, deeper so the
-  spire stands out and still a thin glaze so the black wedge keeps its contrast. Before, a spire's
-  body was bare paper over whatever wash lay under it. On the sheet it is not laid opaque as a
-  peak's body is: the clean-paper colour on the stained, patinated Mistlands read lighter and
-  lilac there while close-ups showed it deeper than the ground, so `Paper.MistInk` lays it as
-  the colour and opacity that give the rock's glaze over the Mistlands' wash (as `SeaInk` does
-  for the sea wash); in the preview's Mistlands sample the sheet's spire bodies come to about
-  163, 143, 130 against ground 181, 159, 138, close-ups 168, 148, 131 against 183, 161, 139.
-  Scarps cover the steep rock ("some areas are very blank"): on Velen about
-  40% of Mistlands land is steeper than `SpireSlope`, where trees keep off, mist keeps off above
-  1.3 of it and filler spires stand on only a third of an 18 G grid, so whole slopes, mostly
-  beside the coast and the filled pools, were bare paper even inside the forest mask.
+  of the summits; a fixed trapezoid on every high pixel reads as fence posts. Their bodies are
+  filled as the peaks' are: scraped and marked `BodyKind.Mist`, with the peaks' `ScrapeBase` and
+  skirt, so the glyph in front decides. The fill is `Paper.s_mistRock` (108, 94, 122 at 0.4),
+  the Mistlands' folium a little deeper and dulled with soot: about (181, 164, 155) on clean
+  paper against the ground's wash (204, 185, 167; 193, 175, 163 in a wood), a muted mauve-grey,
+  deeper so the spire stands out and still a thin glaze so the black wedge keeps its contrast.
+  On the sheet it is not laid opaque as a peak's body is: the clean-paper colour on the stained,
+  patinated Mistlands reads lighter and lilac there while close-ups show it deeper than the
+  ground, so `Paper.MistInk` lays it as the colour and opacity that give the rock's glaze over
+  the Mistlands' wash (as `SeaInk` does for the sea wash).
+  Scarps cover the steep rock, which would otherwise be bare paper even inside the forest mask:
+  about 40% of Mistlands land is steeper than `SpireSlope`, where trees keep off, mist keeps
+  off above 1.3 of it and filler spires stand on only a third of an 18 G grid.
   `DrawScarps` (salt 19, so sheet and tiles draw it alike) puts a survey cliff sign (`Scarp`: a
   slightly broken edge along the contour, four or five hachures downhill, longest in the middle)
   on ground of `SpireSlope` and up, `ScarpStep` 6 G, staggered, `ScarpOdds`, `ScarpShore` off
@@ -608,40 +542,32 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `FindMist`, and recorded, `InkRecord.AddMist`, for close-ups), off river courses, and
   `ScarpClear` off every placed glyph's drawn footprint (`ClearOfGlyphs`, `GlyphBox`; a giant
   tree's as its crown and its trunk apart, `GiantCrownFoot`, `GiantTrunkHalf`): placed among
-  the trees and spires they overpopulated the map (not close to trees or
-  mountains). So they run after `PlaceGlyphs` (in close-ups after `PlaceTrees`), still on the
-  background layer under every glyph; close-ups test their own trees and the sheet's other
-  glyphs from `InkRecord.AddGlyphBox`. In the Mistlands sample at 4x (offline) about one
-  scarp in seven of the first version is left, all on the open rock.
-  Giant trees are
-  Yggdrasil shoots (a kinked trunk on flared roots, one or two branches, one broad, slightly ragged
-  canopy, `HandCrown` wobble a little raised; extra lobes behind or beside it looked too lumpy
-  and, mostly hidden by the front crown, left thin black crescents along its edge, user
-), packed on a 7 T grid; three round crowns on a stick
-  read as lollipops.
+  the trees and spires they overpopulate the map. So they run after `PlaceGlyphs` (in
+  close-ups after `PlaceTrees`), still on the background layer under every glyph; close-ups test
+  their own trees and the sheet's other glyphs from `InkRecord.AddGlyphBox`.
+  Giant trees are Yggdrasil shoots (a kinked trunk on flared roots, one or two branches, one
+  broad, slightly ragged canopy, `HandCrown` wobble a little raised), packed on a 7 T grid;
+  extra lobes behind or beside the crown look lumpy and leave thin black crescents along its
+  edge, and three round crowns on a stick read as lollipops.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
 - Zoomed in past 1.5 screen pixels per sheet pixel, close-ups come from fixed 256² tiles
   (`DetailTiles`) at one level only, the finest the view reaches (4x, 8x with a UI scale over
   1), mipmapped on the worker and faded in over 0.2 s, laid over the sheet (opaque, under the
-  fog). A pyramid of 2x, 4x and 8x tiles, coarse ones shown while fine ones were missing, looked
-  scratchy to the user as levels replaced each other. Tiles are drawn ahead of
-  need, one per worker (half the cores, at most 4): the view from the pointer outward and a ring
-  of one tile round it; zoomed out, up to 48 tiles round the pointer, where a zoom lands. At most
-  3 textures are uploaded a frame and 320 kept (about 110 MB with mips). Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs from cells
-  `GlyphReach` beyond it, so neighbours draw the same glyphs and margins and seams do not show.
-  The sheet's non-tree glyphs are recorded as groups with their feet (`InkRecord.BeginGroup`),
-  and a tile sorts them in with its own trees and draws all from north to south; replayed over
-  all the trees, spires behind trees covered them in the Mistlands.
-  This replaced one big tile for the whole view, which the user found slow to catch up even with
-  the sample cache. The
-  ground fills, trees and coast are drawn afresh (`InkPainter.PaintTile`) from a
-  `TileGrid` sampled every few tile pixels; everything else is replayed from the `InkRecord`
-  (every pen call of the painting with its `InkLayer`, about 720k calls, 20 MB, indexed in 64 px
-  cells). Because only
-  painting yields the record, the world is painted once per session in the background even when
-  the sheet came from the disk cache. In game the plain sheet looked too pixelated at
-  4x zoom, and the user then found close zoom lacking detail, which is what led to this.
+  fog). Do not show coarser tile levels while fine ones load: levels replacing each other look
+  scratchy. Tiles are drawn ahead of need, one per worker (half the cores, at most 4): the view
+  from the pointer outward and a ring of one tile round it; zoomed out, up to 48 tiles round the
+  pointer, where a zoom lands. At most 3 textures are uploaded a frame and 320 kept (about
+  110 MB with mips). Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs
+  from cells `GlyphReach` beyond it, so neighbours draw the same glyphs and margins and seams do
+  not show. The sheet's non-tree glyphs are recorded as groups with their feet
+  (`InkRecord.BeginGroup`), and a tile sorts them in with its own trees and draws all from north
+  to south; replayed over all the trees, spires behind trees would cover them. The ground fills,
+  trees and coast are drawn afresh (`InkPainter.PaintTile`) from a `TileGrid` sampled every few
+  tile pixels; everything else is replayed from the `InkRecord` (every pen call of the painting
+  with its `InkLayer`, about 720k calls, 20 MB, indexed in 64 px cells). Because only painting
+  yields the record, the world is painted once per session in the background even when the
+  sheet came from the disk cache.
 - Tiles sample the world generator (`GeneratorSampler`: `GetBiome`, `GetBiomeHeight` and the
   forest factor, exactly what vanilla's minimap is built from), which vanilla itself calls off
   the main thread from `HeightmapBuilder`; `Mathf.PerlinNoise` underneath means the offline
@@ -653,7 +579,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - The tile's level of detail is the square root of half the zoom (1 at 2x, 2 at 8x): ground fills
   and trees shrink and pack by it, and every pen width and glyph margin thins by it
   (`InkCanvas.m_penScale`, `m_pen`), recorded layers included. Trees at full scale (lod 4 at 8x)
-  were true to life but read as a uniform bubble texture. Scatter grids are anchored to the sheet
+  are true to life but read as a uniform bubble texture. Scatter grids are anchored to the sheet
   and hashed per level, level 1 as the sheet, so glyphs do not move as the view pans.
 - Rivers and streams come from `WorldGenerator.GetRivers()`/`GetStreams()`, copied in
   `WorldSource.Capture` and inked along vanilla's own sine curve (`RiverPath.PointAt`, from
@@ -663,7 +589,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   with the same rule on the cached heights, so in-game courses differ from the previews.
 - Tall glyphs test their whole column with `IsLandColumn` as well as the shore margin at their
   foot, or peaks and trees on south-facing coasts or thin spits reach into the sea.
-- Thresholds were set from the Velen world's height percentiles (Ashlands land p90 22 m above
+- Thresholds are set from the Velen world's height percentiles (Ashlands land p90 22 m above
   water, Deep North p90 59 m, Mountain p50 90 m).
 - The offline preview in `tools/preview/` feeds vanilla's cached minimap files
   (`worlds_local/<world>/cacheMinimap*`, gzip of Color32 or half buffers) through `WorldSource` and

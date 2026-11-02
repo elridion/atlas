@@ -38,36 +38,34 @@ namespace Atlas
         private const float CrownCell = 8f;
 
         // The coast's pen, in canvas pixels: barely heavier than the waves beside it, as on the
-        // classic map (it was 2.1, the map's heaviest line).
+        // classic map.
         private const float CoastWidth = 1.4f;
-        // The sea's water lines, after the 1980 redrawn Middle-earth map (wave
-        // research in atlas-wave-style-research.md), in canvas pixels. A thin waterline follows
-        // every lined shore WaterLine out and is always a closed loop, never a loose end (user,
-        //): narrow channels and water that carries no line count as land for it, so
-        // it bridges a strait's mouth instead of stopping there. Lakes are lined only when their
-        // water lies LakeMinWidth from the shore somewhere, about 40 m.
+        // The sea's water lines follow the 1980 redrawn Middle-earth map; sizes in canvas pixels.
+        // The waterline is traced, not drawn, WaterLine out from every lined shore and is always a
+        // closed loop, never a loose end: narrow channels and water that carries no line count as
+        // land for it, so it bridges a strait's mouth instead of stopping there. Lakes are lined
+        // only when their water lies LakeMinWidth from the shore somewhere, about 40 m.
         private const float WaterLine = 2.8f;
         private const float LakeMinWidth = 8f;
         // Water farther than ChannelReach from any water WideWater from land is a channel: a
-        // strait or inlet under about 115 m across (75 m still lined straits on both banks, wave
-        // verify review).
+        // strait or inlet under about 115 m across (a narrower limit leaves straits lined on both
+        // banks).
         private const float WideWater = 11f;
         private const float ChannelReach = 12f;
         // Islets under SmallIsletArea square canvas pixels (about 4,200 m², some 65 m across) are
-        // left out of the waterline's trace, which counts them as water. The waterline is off for
-        // now, so this steers only where the waves find the coast's bends: at 30 the trace wrapped
-        // round the Mistlands' islet fringes, its bends sat on islets (which get no waves) and the
-        // main coast behind stayed bare (Mistlands wave review, user chose 150). If the
-        // waterline comes back, give it its own threshold: it wanted 30, ringing islets above that.
+        // left out of the waterline's trace, which counts them as water. This steers where the
+        // waves find the coast's bends: at a lower area the trace wraps round the Mistlands' islet
+        // fringes, its bends sit on islets (which get no waves) and the main coast behind stays
+        // bare.
         private const float SmallIsletArea = 150f;
         // Waves come in groups at the coast's pivotal points: WaveGroupMin to
         // WaveGroupMax strokes on rows ruled WaveRowPitch apart, long (WaveLongCrests) and short
         // (WaveShortCrests) in turn, a crest more by seed. Each starts at the coast, WaveShoreGap
         // off it, and runs out to sea with WaveSlotGap kept to any other stroke or shore ahead.
         // A headland pointing north or south may have up to WaveFloating strokes floating off its
-        // tip, kept WaveFloatClear from land. Each crest is WaveCrest long and WaveLift high: a
-        // lift under half a pixel left the tildes reading as flat dashes at the opening zoom, and
-        // two-crest short rows as stubs beside the long ones.
+        // tip, kept WaveFloatClear from land. Each crest is WaveCrest long and WaveLift high: with
+        // a lift under half a pixel the tildes read as flat dashes at the opening zoom, and
+        // two-crest short rows read as stubs beside the long ones.
         private const float WaveRowPitch = 3.2f;
         private const int WaveGroupMin = 3;
         private const int WaveGroupMax = 7;
@@ -98,8 +96,7 @@ namespace Atlas
         // bends, each line starting at the shore and running into the lake, long
         // (LakeLongDashes) and short (LakeShortDashes) units of LakeDash in turn, reaching at most
         // LakeReach of the way to the far shore so a line never spans the lake. A large lake with
-        // no bend gets one group off its west or east shore level with its middle. Floating
-        // ripple rows in the middle and a line round the shore were tried and dropped.
+        // no bend gets one group off its west or east shore level with its middle.
         private const float LakeWaveWidth = 11f;
         private const int LakeGroupMin = 3;
         private const int LakeGroupMax = 5;
@@ -110,8 +107,8 @@ namespace Atlas
         // A lake's group is one stack (PlaceLakeGroup): the first line's shore within
         // LakeFirstReach of the accent (the trace runs WaterLine inside the shore), each next
         // row's within LakeDrift of the row beside it (a shore at 30 degrees from level moves
-        // 5.5 px a row), and no line under LakeLeastDashes (two read as stray marks, user
-        //). Straight shores facing east or west get a group about every LakePlain.
+        // 5.5 px a row), and no line under LakeLeastDashes (two read as stray marks). Straight
+        // shores facing east or west get a group about every LakePlain.
         private const float LakeFirstReach = 8f;
         private const float LakeDrift = 6f;
         private const int LakeLeastDashes = 3;
@@ -120,16 +117,13 @@ namespace Atlas
         // A lake's line starts this far inside the shore's pixel edge, under the coast's pen.
         private const float LakeOverlap = 0.5f;
         // Lakes between LakeMinWidth and LakeWaveWidth (about 40 to 60 m from shore to middle)
-        // and islets get a stepped-down hand (a long lake between swamp and
-        // plains, 9 px to its middle, had no lines). StepGroupMin to StepGroupMax lines a group;
-        // a small lake's are SmallLakeDash units, SmallLakeLongDashes and SmallLakeShortDashes in
-        // turn; an islet's are the sea's tildes with IsletCrest crests, IsletLongCrests and
+        // and islets get a stepped-down hand, so narrower lakes are lined too. StepGroupMin to
+        // StepGroupMax lines a group; a small lake's are SmallLakeDash units, SmallLakeLongDashes
+        // and SmallLakeShortDashes in turn; an islet's are the sea's tildes with IsletCrest crests, IsletLongCrests and
         // IsletShortCrests in turn (two-crest short rows read as stubs, so three stay), one group
         // in IsletSpacing so a chain of islets is not lined from end to end. A lake's or an islet
-        // cluster's group with room for fewer than GroupFloor strokes is left out (user,
-        //: never fewer than 3 or more than 7 a group). The sea's hand has no floor
-        //: its groups may draw one or two strokes where room is short, as
-        // about one sea group in ten on Velen did.
+        // cluster's group with room for fewer than GroupFloor strokes is left out. The sea's hand
+        // has no floor: its groups may draw one or two strokes where room is short.
         private const int GroupFloor = 3;
         private const int StepGroupMin = 3;
         private const int StepGroupMax = 4;
@@ -138,15 +132,14 @@ namespace Atlas
         private const int SmallLakeShortDashes = 3;
         private const float IsletCrest = 2.4f;
         // A cluster's group keeps this far from the coast's groups, as they keep from each other
-        // (AccentSpacing). At 60, with groups sized to their islets, half the clusters on Velen
-        // (26 of 53) stood bare beside a coast group.
+        // (AccentSpacing). A wider spacing leaves about half the clusters bare beside a coast
+        // group.
         private const float IsletSpacing = 40f;
-        // Islets are grouped into clusters ("group islands, find their group
-        // center"): single linkage on their bounds with IsletLink sheet pixels between. Each
-        // cluster gets one group round its centroid (PlaceClusterGroup), its strokes level; on a
-        // cluster whose cells spread IsletElongation times as far one way as across, its open
-        // rows are shifted left or right to follow the chain (rows move to
-        // follow the island group's direction, the lines themselves stay horizontal).
+        // Islets are grouped into clusters by single linkage on their bounds with IsletLink sheet
+        // pixels between. Each cluster gets one group round its centroid (PlaceClusterGroup), its
+        // strokes level; on a cluster whose cells spread IsletElongation times as far one way as
+        // across, its open rows are shifted left or right to follow the chain while the strokes
+        // themselves stay level.
         private const float IsletLink = 16f;
         private const float IsletClusterSpan = 48f;
         private const float IsletLinkMin = 3f;
@@ -156,9 +149,9 @@ namespace Atlas
         private const float IsletLean = 2.5f;
         // The sine of 25 degrees: a chain flatter than that gets no lean.
         private const float IsletLevelChain = 0.42f;
-        // A group is sized to its cluster (a 134-cell islet with four long
-        // strokes had "far too many waves"). Its size is the side of a square of its cells, in
-        // sheet pixels (8 for WavedIsletCells, 26 for 134 cells, 36 just under MajorLandCells):
+        // A group is sized to its cluster, so a small islet gets few waves. Its size is the side
+        // of a square of its cells, in sheet pixels (8 for WavedIsletCells, 26 for 134 cells, 36
+        // just under MajorLandCells):
         // GroupFloor strokes up to IsletSizeBase, one more every IsletSizeStep, IsletStrokesMax
         // at most; a long row IsletShortCrests and one more every IsletSizeLong, between one more
         // than that and IsletLongCrests, a short row two crests shorter, never under
@@ -175,17 +168,15 @@ namespace Atlas
         // instead of ruled on one vertical line.
         private const float IsletSway = 0.9f;
         // Land masses from MajorLandCells (about 36,000 m², some 190 m across) are coast: they get
-        // the coast's groups at their bends. At 400, masses of 250-400 cells lying in channels
-        // off the main coast got islet groups that read as part of the coast;
-        // on Velen 11 of the 71 masses of 40-400 cells are over 250, and the user's "small
-        // island" is 134. An islet whose bounds come within IsletCoastGap (about 63 m, the reach
-        // of a coast stroke) of such land is no islet either: it lies in the coast's own waves
-        // and gets no group of its own.
+        // the coast's groups at their bends. With a higher threshold, masses lying in channels
+        // off the main coast get islet groups, though they read as part of the coast. An islet
+        // whose bounds come within IsletCoastGap (about 63 m, the reach of a coast stroke) of such
+        // land is no islet either: it lies in the coast's own waves and gets no group of its own.
         private const int MajorLandCells = 250;
         private const float IsletCoastGap = 12f;
         // A stroke off an islet stops this far (about 53 m, four crests) short of other land, so
         // channels between islets stay open water and their strokes run out to the open sea
-        // (IsletRoom); at 5 px strokes still filled the channel between two islets 13 px apart.
+        // (IsletRoom); a smaller gap lets strokes fill the channel between close islets.
         private const float IsletChannelGap = 10f;
         // A row crossing less land than this (sheet pixels) only grazes a tip and takes no stroke.
         private const int IsletTipWidth = 3;
@@ -508,8 +499,7 @@ namespace Atlas
             }
             MarkWideLakes();
             List<ContourLines.Line> waterLines = TraceWaterLines();
-            // The waterline itself is not drawn (dropped for good); the waves find
-            // the coast's bends on its trace.
+            // The waterline itself is not drawn; the waves find the coast's bends on its trace.
             m_canvas.m_layer = InkLayer.Ripple;
             DrawWaves(waterLines);
             m_canvas.m_layer = InkLayer.Floe;
@@ -837,7 +827,7 @@ namespace Atlas
         }
 
         // Whether the whole column a tall glyph stands in, from its foot up to height, is land:
-        // testing only the top let a pine on a thin spit of land reach across the water between.
+        // testing only the top lets a pine on a thin spit of land reach across the water between.
         private bool IsLandColumn(float x, float y, float height)
         {
             for (int k = 1; k <= 4; k++)
@@ -858,7 +848,7 @@ namespace Atlas
         private bool IsWoodAt(float x, float y) => m_grid != null ? m_grid.IsWood(x, y) : m_wood[PixelAt(x, y)] != 0;
 
         // Whether a peak of the given width and height standing at (x, y) lies wholly over land:
-        // its centre column, both ends of its base and both flanks. Testing the column alone let
+        // its centre column, both ends of its base and both flanks. Testing the column alone lets
         // the wide base of a coastal peak hang out over the sea.
         private bool PeakOnLand(float x, float y, float width, float height)
         {
@@ -869,9 +859,9 @@ namespace Atlas
         }
 
         // Whether a peak-like glyph of the given width standing at (x, y) keeps its base off every
-        // lava field, along its whole width with a margin. Testing the foot alone let crags and
+        // lava field, along its whole width with a margin. Testing the foot alone lets crags and
         // volcanoes stand with their bases in lava lakes; the peak above may still rise in front
-        // of a lake behind it ("peaks yes, bases not").
+        // of a lake behind it.
         private bool ClearOfLava(float x, float y, float width)
         {
             float half = width * 0.6f;
@@ -1027,18 +1017,17 @@ namespace Atlas
                 if (!IsOpenLand(s, Land.BlackForest, 3f) || !(s.m_roll < 0.4f)) return;
                 Stone(s.m_x, s.m_y, m_g, s.m_seed);
             });
-            // Swamp: the classic map's marsh sign, short flat water
-            // lines with tufts of reeds on many, gathered into patches by a slow noise: crowded
-            // fen in places, thin open bog between. Even rows over the whole swamp read as messy
-            // and ruled, so the grid is square and fully jittered.
-            // The bog between patches keeps a fair share of marks: a near-empty one read as too
-            // sparse. Marks are sized to their cell and one that would touch a
-            // neighbour of higher priority is left out, decided from hashes alone (MarshMark), so
-            // the sheet and every tile agree; marks bigger than their cell with a jitter of nearly
-            // a cell piled up into knots.
+            // Swamp: the classic map's marsh sign, short flat water lines with tufts of reeds on
+            // many, gathered into patches by a slow noise: crowded fen in places, thin open bog
+            // between. Even rows over the whole swamp read as messy and ruled, so the grid is
+            // square and fully jittered. The bog between patches keeps a fair share of marks, as
+            // a near-empty one reads as too sparse. Marks are sized to their cell and one that
+            // would touch a neighbour of higher priority is left out, decided from hashes alone
+            // (MarshMark), so the sheet and every tile agree; marks bigger than their cell with a
+            // jitter of nearly a cell pile up into knots.
             float marsh = MarshStep * 1.5f * m_g;
-            // Close-ups draw the marks a little finer: at the tile's pen the small tufts closed
-            // up into lumps. The sheet keeps the full Pen.
+            // Close-ups draw the marks a little finer: at the tile's pen the small tufts close up
+            // into lumps. The sheet keeps the full Pen.
             float marshPen = m_grid != null ? 0.75f * Pen : Pen;
             Scatter(marsh, 11, s =>
             {
@@ -1071,9 +1060,9 @@ namespace Atlas
             });
             // Ashlands: a sparse stipple of cinders of uneven size on the burnt ground, none on the
             // lava fields, which carry their own flow marks. A dense diagonal hatch over all of it
-            // read as a flat grey blanket.
+            // reads as a flat grey blanket.
             // Denser by the lava's edge, thinning out on the open plain, as the classic map
-            // stipples its blasted plains. One even dot: cinder ticks and fissure pairs made the
+            // stipples its blasted plains. One even dot: cinder ticks and fissure pairs make the
             // ground look doodled.
             Scatter(4.5f * m_g, 12, s =>
             {
@@ -1086,8 +1075,7 @@ namespace Atlas
             // only marks are chevrons of pressure ridges, gathered into thin winding bands (the
             // crest lines of a ridged noise) with open snow between, rather than sprinkled evenly.
             // Each chevron keeps clear of the water, of the peaks, of the woods and of the other
-            // chevrons: ones touching a shore, a peak's foot or each other read as clutter (user,
-            //).
+            // chevrons: ones touching a shore, a peak's foot or each other read as clutter.
             float ridgeStep = 8f * m_g;
             Scatter(ridgeStep, 15, s =>
             {
@@ -1100,12 +1088,11 @@ namespace Atlas
         }
 
         // Mistlands: the steep broken rock the spires stand on, where neither trees nor mist lie,
-        // was left as bare paper ("some areas are very blank"). Small scarps
-        // follow the ground: each edge runs along the contour, its hachures point downhill, so
-        // the marks read as the terrain's own cliffs rather than a texture. Only on the open rock
-        // between the glyphs (not close to trees or mountains, so they do not
-        // overpopulate the map), so this runs once every glyph is placed, on the background
-        // layer, before any glyph is inked.
+        // would otherwise be bare paper. Small scarps follow the ground: each edge runs along the
+        // contour, its hachures point downhill, so the marks read as the terrain's own cliffs
+        // rather than a texture. Only on the open rock between the glyphs, away from trees and
+        // mountains so they do not overpopulate the map, so this runs once every glyph is placed,
+        // on the background layer, before any glyph is inked.
         private void DrawScarps()
         {
             float scarpStep = ScarpStep * m_g;
@@ -1121,7 +1108,7 @@ namespace Atlas
                 if (!ClearOfMist(s.m_x, s.m_y, ex, ey)) return;
                 float clear = ScarpClear * m_g;
                 if (!ClearOfGlyphs(s.m_x, s.m_y, ex + clear, ey + clear)) return;
-                // Rivers are inked before the scarps now, so a scarp would cross the stream.
+                // Rivers are inked before the scarps, so a scarp would cross the stream.
                 var along = new Vector2(-down.y, down.x) * half;
                 if (OnRiver(s.m_x, s.m_y) || OnRiver(s.m_x + along.x, s.m_y + along.y) || OnRiver(s.m_x - along.x, s.m_y - along.y)) return;
                 Scarp(s.m_x, s.m_y, m_g, s.m_seed, down);
@@ -1168,7 +1155,7 @@ namespace Atlas
         }
 
         // A glyph's footprint, filed for the scarps. A giant tree's is its crown and the trunk
-        // under it apart: one box round both blanked the rock beside every trunk.
+        // under it apart: one box round both blanks the rock beside every trunk.
         private void AddFootprint(Glyph g)
         {
             Vector4 box = GlyphBox(g);
@@ -1334,7 +1321,7 @@ namespace Atlas
                 m_priority = Unit(seed, 30),
             };
             // The clumps follow the real water: wetness from the heights before the pools were
-            // raised, with a little noise so they do not trace the pools exactly; noise alone made
+            // raised, with a little noise so they do not trace the pools exactly; noise alone makes
             // invented patches.
             float wx = mark.m_x * MetresPerPixel - HalfExtent, wz = HalfExtent - mark.m_y * MetresPerPixel;
             float wet = m_world.Sample(m_world.m_swampWet, wx, wz);
@@ -1423,9 +1410,8 @@ namespace Atlas
                     {
                         if (prominence < HillProminence) continue;
                         float width = Mathf.Lerp(9f, 15f, Mathf.Clamp01((prominence - HillProminence) / 25f)) * G;
-                        // Water is FitHill's test, on the hill's whole drawn shape: the old rule kept the foot
-                        // half a width off water, which shut out hilltops whose shrunk hill fits
-                        // (34 on Velen, user asked for them).
+                        // Water is FitHill's test, on the hill's whole drawn shape: keeping the foot
+                        // half a width off water would shut out hilltops whose shrunk hill fits.
                         HillFoot(cx, cy, width, seed, out float woodX, out float woodY);
                         if (m_woodDistance[PixelAt(woodX, woodY)] < width * 0.5f) continue;
                         if (FitHill(cx, cy, width, seed, moved: false, out Glyph hill)) AddHill(hill);
@@ -1927,7 +1913,7 @@ namespace Atlas
             // A glyph whose foot is clear but whose base would reach into lava is moved a little
             // off it afterwards (ShiftOffLava), once every glyph that fits where it was scattered
             // has its place. One scattered on the lava itself stays out: pushed to the nearest
-            // clear ground it stood in a bay of the lake, reading as standing in it.
+            // clear ground it would stand in a bay of the lake, reading as standing in it.
             var volcanoMisses = new List<Spot>();
             var cragMisses = new List<Spot>();
             Scatter(24f * G, 30, s =>
@@ -1968,8 +1954,7 @@ namespace Atlas
                 Add(moved, Kind.Crag, CragScale * G);
             }
             // Sea: ice floes in the northern sea. The open sea is otherwise left blank but for a
-            // few illustrations (DrawIllustrations); wave marks far out read as birds (wave
-            // review).
+            // few illustrations (DrawIllustrations); wave marks far out read as birds.
             Scatter(15f * G, 33, s =>
             {
                 if (m_sea[s.m_pixel] == 0 || s.m_water < 4f * G || !(s.m_roll < 0.5f)) return;
@@ -1995,8 +1980,8 @@ namespace Atlas
                 },
                 (x, y, a, b) =>
                 {
-                    // One pen for every shore, sea or inland: a lighter one for lakes left their
-                    // outlines reading as unexplained lines, and the water's blue now tells them.
+                    // One pen for every shore, sea or inland: a lighter one for lakes leaves their
+                    // outlines reading as unexplained lines, and the water's blue tells them apart.
                     Vector2 p = SourceToCanvas(a), q = SourceToCanvas(b);
                     m_canvas.Stroke(p.x, p.y, q.x, q.y, CoastWidth);
                 });
@@ -2015,9 +2000,9 @@ namespace Atlas
         // over the crowns behind it. Each bank is a veil of three long wavy
         // lines, the middle one longest, with no parchment band scraped under them: the bands
         // read as heavy padding. Banks lie in the valleys and thin out with height, as the game's
-        // mist clears on the heights, and keep off steep crag ground (Mistlands review).
+        // mist clears on the heights, and keep off steep crag ground.
         // The banks are found before the ground fills (FindMist), so the scarps can keep off them,
-        // and join the glyphs here, where they always did.
+        // and join the glyphs here.
         private void PlaceMist() => m_glyphs.AddRange(m_mist);
 
         private void FindMist()
@@ -2026,9 +2011,9 @@ namespace Atlas
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 6f || s.m_slope >= SpireSlope * 1.3f) return;
                 if (!(s.m_roll < Mathf.Lerp(0.9f, 0.35f, Mathf.Clamp01(s.m_above / MistCeiling)))) return;
-                // The foot is the bottom line's level, as it always was, so banks sort in with the
-                // trees and crags as before; the bank is drawn as far north of it as its lowest
-                // line dips (MistFoot), so no line runs on south of the foot.
+                // The foot, by which banks sort in with the trees and crags, is the bottom line's
+                // level; the bank is drawn as far north of it as its lowest line dips (MistFoot), so
+                // no line runs on south of the foot.
                 float foot = s.m_y + MistGap;
                 m_mist.Add(new Glyph { m_x = s.m_x, m_y = foot, m_size = G, m_kind = Kind.Mist, m_seed = s.m_seed });
                 var bank = new Vector3(s.m_x, foot - MistFoot(s.m_seed), MistLength(s.m_seed) * 0.5f);
@@ -2087,12 +2072,11 @@ namespace Atlas
             t * tilt + Mathf.Sin(t / length * 5f + phase) * 0.6f * G;
 
         // How far south of a bank's centre its lowest line reaches, pen included; the bank is drawn
-        // that far north of its foot. Centred MistGap above the foot, the tilt and wave carried the
+        // that far north of its foot. Centred MistGap above the foot, the tilt and wave carry the
         // bottom line up to about 2.7 sheet px south of it, past the feet of glyphs drawn after
-        // the bank as standing in front, so it ran on under them and showed below a peak's or
-        // crag's base line as a hairline along it (mountains in the Mistlands
-        // looked layered). Sorting the bank by that lowest point instead laid it over many more
-        // crowns and over the peaks' lower bodies.
+        // the bank as standing in front, so it runs on under them and shows below a peak's or
+        // crag's base line as a hairline along it. Sorting the bank by that lowest point instead
+        // lays it over many more crowns and over the peaks' lower bodies.
         private static float MistFoot(int seed)
         {
             float length = MistLength(seed), tilt = MistTilt(seed), phase = MistPhase(seed);
@@ -2215,7 +2199,7 @@ namespace Atlas
             }
         }
 
-        // The waves, after the user's classic-map snippet: small groups of level
+        // The waves, after the classic map: small groups of level
         // strokes at the coast's pivotal points, bay heads and headland tips, and now and then on a
         // long straight coast, then one group behind each cluster of islets. The rows are ruled
         // across the sheet, not along the coast, which gives the uneven hand-ruled look. Drawn on
@@ -2245,8 +2229,7 @@ namespace Atlas
             DrawIsletWaves(salt, drawn);
         }
 
-        // The islets' waves ("try to group islands, find their group center").
-        // Islets outside the Mistlands are clustered (ClusterIslets) and each cluster gets one
+        // The islets' waves. Islets outside the Mistlands are clustered (ClusterIslets) and each cluster gets one
         // group round its centroid. Larger clusters first, each IsletSpacing from the coast's
         // groups; strokes claim their rows, so later groups keep off earlier ones.
         private void DrawIsletWaves(int salt, List<Accent> coast)
@@ -2396,7 +2379,7 @@ namespace Atlas
 
         // A cluster wider or taller than IsletClusterSpan is split by linking its islets again
         // at half the distance, down to IsletLinkMin: in a field of islets single linkage chains
-        // everything into one cluster hundreds of pixels across (on Velen up to 180), and a
+        // everything into one cluster hundreds of pixels across, and a
         // group sized to that would be a hatched sea, too large to stay behind the islets.
         private void SplitCluster(List<int> group, float link, List<List<int>> into)
         {
@@ -2475,16 +2458,16 @@ namespace Atlas
             return Mathf.Sqrt(dx * dx + dy * dy);
         }
 
-        // One group for a cluster, sized to it (a small islet gets a small
-        // group). Its strokes never cross or touch land: a row through the cluster gets one
+        // One group for a cluster, sized to it, so a small islet gets a small group. Its strokes
+        // never cross or touch land: a row through the cluster gets one
         // stroke, off its east and west shore in turn, starting WaveShoreGap off it and running
         // out to sea as the coast's do; a row clear of it gets one stroke in open water, centred
         // on the cluster (shifted along a slanting chain, IsletLean) and swayed a crest or so east
         // and west in turn (IsletSway), so the stack reads as drawn by hand round one centre.
         // Rows are long and short in turn. They go out from the centroid's row, below and above
         // in turn, until the cluster's stroke budget is spent; a row that takes no stroke is
-        // skipped. Drawing the strokes through the islets and the islets on top was tried and
-        // dropped: the strokes showed through the land.
+        // skipped. Strokes drawn through the islets, with the islets on top, show through the
+        // land.
         private void PlaceClusterGroup(IsletCluster cluster, int salt)
         {
             float size = Mathf.Sqrt(cluster.m_cells) * m_world.m_pixelSize / MetresPerPixel;
@@ -2653,8 +2636,8 @@ namespace Atlas
 
         // A lake's group: lines on consecutive rows from one shore, the row nearest the accent
         // first and then out either way, each line starting within LakeDrift of the one beside
-        // it, so the group stands as one stack (lines from either shore in turn
-        // and rows with gaps read as stray marks). The stack is tried off the shore the accent
+        // it, so the group stands as one stack (lines from either shore in turn and rows with
+        // gaps read as stray marks). The stack is tried off the shore the accent
         // faces from and off the other, from the accent's row and the rows either side, and the
         // one with the most line is drawn.
         private void PlaceLakeGroup(Accent accent, int salt)
@@ -2717,8 +2700,8 @@ namespace Atlas
         }
 
         // A group's strokes wait in m_group until it is placed whole, so one that cannot have the
-        // hand's m_floor strokes is left out instead of drawn as a stub or two (
-        // never fewer than 3 a group on lakes and round islets; the sea's floor is 0).
+        // hand's m_floor strokes is left out instead of drawn as a stub or two (never fewer than
+        // 3 a group on lakes and round islets; the sea's floor is 0).
         private void BeginGroup() => m_group.Clear();
 
         // Draws the waiting strokes, or gives their rows back if there are too few; true if drawn.
@@ -2847,8 +2830,8 @@ namespace Atlas
 
         // The shore on row py nearest ax within AccentReach whose water lies on the dir side; start
         // is where a stroke off it begins, WaveShoreGap clear of the coast's pen. Only major land
-        // is a shore: islets get no waves, yet a row reaching past the accent's coast to an islet
-        // beside it anchored strokes there. The slack covers the
+        // is a shore: islets get no coast waves, yet a row reaching past the accent's coast to an
+        // islet beside it would anchor strokes there. The slack covers the
         // major-land mask's coarser 12 m cells.
         private bool FindShore(int py, float ax, float reach, int dir, out float start)
         {
@@ -2874,7 +2857,7 @@ namespace Atlas
             if (best < 0) return false;
             if (m_hand.m_lake)
             {
-                // A lake's line starts at the shore itself (lines that touch it).
+                // A lake's line starts at the shore itself, touching it.
                 start = dir > 0 ? best + 1 : best;
                 return true;
             }
@@ -2922,8 +2905,8 @@ namespace Atlas
         private float RowY(int r, int salt) => (r + 0.5f + (Unit(HashInt(r, -1, salt), 1) - 0.5f) * 0.12f) * WaveRowPitch;
 
         // A stroke's crests: long and short in turn, a long row a crest longer by seed. With the
-        // extra crest on short rows too, a short row stood as long as the long row beside it and
-        // the alternation was lost.
+        // extra crest on short rows too, a short row could stand as long as the long row beside
+        // it and the alternation would be lost.
         private int Crests(int seed, bool longRow) =>
             longRow ? m_hand.m_long + (Unit(seed, 1) < 0.5f ? 0 : 1) : m_hand.m_short;
 
@@ -3388,7 +3371,7 @@ namespace Atlas
         }
 
         // Only a group actually drawn keeps the next AccentSpacing away: a bend whose bay is too
-        // small for lines of LakeLeastDashes no longer leaves the shore round it bare. A straight
+        // small for lines of LakeLeastDashes does not leave the shore round it bare. A straight
         // spot that cannot take a group is tried again LakeRetry further on.
         private void DrawLakeLines(List<ContourLines.Line> lines, List<Vector2[]> paths, List<Bend> bends, int salt, WaveHand hand)
         {
@@ -3492,7 +3475,7 @@ namespace Atlas
             return m_land[pixel] == 0 && m_sea[pixel] != 0;
         }
 
-        // A tilde from a along dir: crests that rise and dip by lift (WaveLift at sea, LakeLift on
+        // A tilde from a along dir: crests that rise and dip by lift (WaveLift at sea, none on
         // a lake), running out flat at both ends, eight points a crest so close-ups show a curve,
         // not a zigzag. The phase (radians) shifts the crests, so neighbouring strokes in a row do
         // not crest in step.

@@ -79,7 +79,7 @@ namespace Atlas
             // The sheet's other glyphs (peaks, spires, hills) are sorted in with the tile's own
             // trees by their feet and drawn from north to south, so whichever stands in front
             // hides the other, as on the sheet; laid over all the trees, a spire behind a tree
-            // covered it.
+            // would cover it.
             List<InkRecord.Group> groups = record.Groups(InkLayer.Glyph, m_left, m_top, m_right, m_bottom);
             groups.Sort((a, b) => a.m_foot.CompareTo(b.m_foot));
             int next = 0;
@@ -108,7 +108,7 @@ namespace Atlas
 
         // The coast on the tile's own heights, one pen for sea and inland water alike. Its width
         // is set in screen pixels, divided back out of the pen scale: the sheet's coast thinned
-        // only by the level of detail stood 6 pixels wide at 4x.
+        // only by the level of detail stands 6 pixels wide at 4x.
         private void DrawTileCoast()
         {
             float width = TileCoastPixels / m_tileScale / m_pen;
@@ -122,10 +122,10 @@ namespace Atlas
         private const float TileWaveGapPixels = 2.6f;
 
         // The sheet's waves drawn again, at a pen of their own in screen pixels, finer than the
-        // coast's (thinned by the level of detail alone they stood almost as heavy as it at 4x).
+        // coast's (thinned by the level of detail alone they stand almost as heavy as it at 4x).
         // A wave that starts at the coast is moved to the tile's own coast, which runs up to a few
-        // sheet pixels from the sheet's: replayed where the sheet drew them, they stood off it
-        //. Its crests are then cut to the water ahead. An anchor outside the
+        // sheet pixels from the sheet's: replayed where the sheet drew them, they stand off it.
+        // Its crests are then cut to the water ahead. An anchor outside the
         // tile's ground is left where it is, as the tile cannot see that coast. Floating waves
         // stay put and are left out where the tile has land.
         private void DrawTileWaves(InkRecord record)
@@ -148,8 +148,8 @@ namespace Atlas
                 {
                     // A stroke off an islet keeps clear of the land above and below its row too.
                     float band = Math.Abs(wave.m_anchor) == IsletAnchor ? TileIsletBand : 0f;
-                    // A lake's line (lift 0) starts on the coast's pen itself, touching it (user,
-                    //); its room is measured from just off the shore.
+                    // A lake's line (lift 0) starts on the coast's pen itself, touching it; its
+                    // room is measured from just off the shore.
                     bool lake = wave.m_lift == 0f;
                     float tip = dir > 0 ? x : x + length, from = 0f;
                     if (tip - TileWaveSearch > grid.m_left && tip + TileWaveSearch < gridRight && TileShore(tip, y, dir, out float shore))

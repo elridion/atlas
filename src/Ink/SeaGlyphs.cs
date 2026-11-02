@@ -5,8 +5,8 @@ using UnityEngine;
 namespace Atlas
 {
     /// <summary>
-    /// Illustrations for the open sea (the blank open sea may get some artistic
-    /// filling), drawn with the atlas's own pen so they sit with its peaks and woods, in the hand
+    /// Illustrations for the blank open sea, drawn with the atlas's own pen so they sit with its
+    /// peaks and woods, in the hand
     /// of the engraved sea monsters and ships on Olaus Magnus' Carta Marina and Ortelius'
     /// Islandia: sober, small, no faces. InkPainter.DrawIllustrations places them; Catalogue lays
     /// every one out for the offline preview. Each glyph scrapes its silhouette back to parchment
@@ -33,8 +33,7 @@ namespace Atlas
         // A surface whose outward normal points east at least this much is in shade and hatched.
         private const float ShadeFacing = 0.55f;
 
-        // The sea serpent is shown twice, without and with one fin swept back off its head, for
-        // the user to choose from.
+        // The glyphs' names, indexed by kind.
         public static readonly string[] Names =
         {
             "Sea serpent", "Serpent coil", "Leviathan", "Bonemaw serpent",
@@ -126,8 +125,8 @@ namespace Atlas
         // Valheim's ocean serpent as the old maps drew theirs: three coils of its back breaking
         // the water, each a round body cut by the waterline, growing toward the raised neck, and
         // the long snouted head at the top, all in plain outline a shade heavier than the land
-        // glyphs' (the plain hand, fewer and bolder marks; a sawtooth crest,
-        // throat plates, hatching and a frill of fins were all tried and dropped as too busy).
+        // glyphs', with few and bold marks: a sawtooth crest, throat plates, hatching or a frill
+        // of fins make it too busy.
         private static void Serpent(Hand c, float x, float y, bool fin)
         {
             // Laid out 56 wide and drawn at this scale, so three coils, the neck and the head
@@ -171,8 +170,8 @@ namespace Atlas
         // step, a long snout narrowing to the tip, the jaw a single curve under it with the
         // mouth a closed line, a small eye set under the brow. Drawn as a few curved strokes,
         // as the serpents of the Carta Marina and the Islandia map are, not as a polygon: a
-        // flat-topped skull with a square, evenly toothed jaw read as a toy figure (user,
-        //). The head faces the way the neck's back is not; tilt turns the snout
+        // flat-topped skull with a square, evenly toothed jaw reads as a toy figure. The head
+        // faces the way the neck's back is not; tilt turns the snout
         // from the neck's own lean (negative lifts it). fin adds one fin swept back off the
         // crown. As a skeleton (bone) the same silhouette is drawn in straight strokes, with a
         // hooked snout, a dark hollow for the eye, the jaw hanging open and a few teeth.
@@ -258,9 +257,8 @@ namespace Atlas
 
         // A serpent thrown into a loop above the water, its body passing in front of itself where
         // the loop closes, the tail's tip rising out of the sea to the west and the head rising
-        // out of the loop to the east. The first coil read as a snail: a flat
-        // spiral has no crossing, and a crossing is what makes a coil; with a crest all round the
-        // ring it then read as a cog, so it is plain outline alone.
+        // out of the loop to the east. The crossing is what makes a coil: a flat spiral reads as
+        // a snail. It is plain outline alone, since a crest all round the ring reads as a cog.
         private static void Coil(Hand c, float x, float y)
         {
             const float s = 1.12f;
@@ -323,10 +321,8 @@ namespace Atlas
 
         // Valheim's leviathan lying in the sea like a reef: a long low shell with a rough, rocky
         // top, the eastern flank hatched down its curve, a few abyssal barnacles standing as cones
-        // on its back among tufts of growth and weed hanging down its flanks to the water. The
-        // previous one was a bare dome with rings and ticks (messy); a beaked
-        // head at the west end read as a face and was removed. Mirrored, the
-        // shell's profile and the barnacles, tufts and ripples run the other way round, while the
+        // on its back among tufts of growth and weed hanging down its flanks to the water. It has
+        // no head: a beaked head at the west end reads as a face. Mirrored, the shell's profile and the barnacles, tufts and ripples run the other way round, while the
         // hatching, ledges and weed stay on the flanks the light gives them.
         private static void LeviathanShell(Hand c, float x, float y, bool mirror)
         {
@@ -516,8 +512,8 @@ namespace Atlas
                 a.Add(spine[i] + nrm * h);
                 b.Add(spine[i] - nrm * h);
                 // The scrape reaches past the edge lines sideways, and a little along the spine
-                // so neighbouring quads overlap: meeting edge to edge they each left the shared
-                // pixels half inked, a faint seam wherever ink lay under them (the crossing of a
+                // so neighbouring quads overlap: meeting edge to edge they each leave the shared
+                // pixels half inked, a faint seam wherever ink lies under them (the crossing of a
                 // coil). A segment's lines are inked only after the next quad is scraped, or the
                 // overlap eats their ends and the edges bead.
                 grow.Add(nrm * 0.6f * edge);

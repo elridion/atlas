@@ -533,8 +533,8 @@ namespace Atlas
         }
 
         // The pin's body: filled in the wash of the biome the pin stands in, as a peak's body is
-        // filled in the mountains', so terrain ink stops at the pin's own
-        // outline. Before the world is decoded, plain paper.
+        // filled in the mountains', so terrain ink stops at the pin's own outline. Before the
+        // world is decoded, plain paper.
         private void AddBody(RectTransform holder, Texture body, Vector3 position)
         {
             Color32 colour = Paper.PaperColor;

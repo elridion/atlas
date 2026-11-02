@@ -27,11 +27,19 @@ namespace Atlas
         // Coast and ripples, in canvas pixels. Ripples only run along water at least OpenWidth wide
         // on both sides of a point, so rivers and narrow straits keep just their two banks.
         private const float CoastWidth = 2.1f;
-        private const float RippleNear = 4.5f * G;
-        private const float RippleFar = 8.5f * G;
+        // Ripple lines out from the coast, and for each the share of its length drawn (noise
+        // threshold; 1 is unbroken).
+        private static readonly float[] s_ripples = { 4.5f * G, 8.5f * G, 13f * G, 18f * G };
+        private static readonly float[] s_rippleGaps = { 1f, 0.68f, 0.55f, 0.45f };
         private const float OpenWidth = 9f * G;
         private const float DistanceScale = 4f;
         private const float FrameGap = 7f;
+        // Glyph feet stay inside this fraction of the frame's radius, clear of the inner ring.
+        private const float EdgeFraction = 0.97f;
+        // The thinnest pen line, in canvas pixels; thinner lines fade to grey at the opening zoom.
+        private const float Pen = 1f;
+        // Plains stipple dots, one pen width across.
+        private const float StippleRadius = 0.6f;
         // Coast clean-up: swamp water shallower than SwampDeep metres counts as land, and islands
         // or enclosed lakes smaller than these many map pixels (12 m each) are not drawn.
         private const float SwampDeep = 3f;
@@ -42,17 +50,35 @@ namespace Atlas
         private const float PeakHeight = 50f;
         private const float DeepNorthPeakHeight = 45f;
         private const float HillSlope = 0.35f;
-        private const float SpireSlope = 0.55f;
+        // Around a range, gentler ground already counts as foothills once this high above the water.
+        private const float FoothillSlope = 0.25f;
+        private const float FoothillHeight = 25f;
+        // Mist banks: the gap between a bank's two lines, the parchment band scraped under each line
+        // (canvas pixels, narrower than the gap so one line never scrapes the other) and the step
+        // between points along a line.
+        private const float MistGap = 2.6f * G;
+        private const float MistBand = 3.4f;
+        private const float MistStep = 1.5f * G;
+        // Deep North pressure ridges: the scale of the noise their bands follow (canvas pixels) and
+        // how close to a crest line a chevron must lie (1 is on the crest).
+        private const float RidgeScale = 70f * G;
+        private const float RidgeBand = 0.9f;
+        private const float SpireSlope = 0.45f;
+        // Mistlands land this high above the water gets spires even where it is not steep
+        // (the Velen world's Mistlands p90 is 47 m).
+        private const float SpireHeight = 42f;
         private const float VolcanoHeight = 22f;
-        private const float WetHeight = 0.6f;
         // Volcanoes are drawn larger than other land glyphs, closer to the size of a peak.
-        private const float VolcanoScale = 1.6f;
+        private const float VolcanoScale = 2.2f;
 
         private readonly WorldSource m_world;
         private readonly CancellationToken m_cancel;
         private readonly InkCanvas m_canvas = new InkCanvas(CanvasSize);
         private readonly List<Vector2> m_points = new List<Vector2>(16);
+        private readonly List<bool> m_mistInside = new List<bool>(32);
         private readonly List<Glyph> m_glyphs = new List<Glyph>(200000);
+        // Ice floes sit on the water, so they are drawn after the coast's ripple lines, over them.
+        private readonly List<Glyph> m_floes = new List<Glyph>(4096);
         private float[] m_coast;
         private byte[] m_land;
         private byte[] m_waterDistance;
@@ -119,9 +145,11 @@ namespace Atlas
             m_cancel.ThrowIfCancellationRequested();
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             foreach (Glyph glyph in m_glyphs) DrawGlyph(glyph);
+            DrawMist();
             m_cancel.ThrowIfCancellationRequested();
             DrawCoast();
             DrawRipples();
+            foreach (Glyph floe in m_floes) DrawGlyph(floe);
             DrawFrame();
         }
 
@@ -263,27 +291,44 @@ namespace Atlas
 
         // Jittered grid: one candidate per cell. Each cell's jitter, roll and glyph seed hash from the
         // world seed, the salt and the cell alone, so tuning one rule never moves another's glyphs.
-        private void Scatter(float spacing, int salt, Action<Spot> visit)
+        private void Scatter(float spacing, int salt, Action<Spot> visit) =>
+            Scatter(spacing, spacing, 0.9f, 0f, salt, visit);
+
+        // Rows: separate column and row spacing, a jitter as a fraction of the cell, and every other
+        // row shifted by stagger cells, so glyphs pack like bricks.
+        private void Scatter(float spacingX, float spacingY, float jitter, float stagger, int salt, Action<Spot> visit)
         {
-            int cells = (int)(CanvasSize / spacing);
+            int columns = (int)(CanvasSize / spacingX);
+            int rows = (int)(CanvasSize / spacingY);
             float edge = EdgeRadius / MetresPerPixel;
             float centre = CanvasSize * 0.5f;
             int worldSeed = unchecked(m_world.m_seed + salt * 7919);
-            for (int gy = 0; gy < cells; gy++)
+            for (int gy = 0; gy < rows; gy++)
             {
-                for (int gx = 0; gx < cells; gx++)
+                for (int gx = 0; gx < columns; gx++)
                 {
                     int seed = HashInt(gx, gy, worldSeed);
-                    float x = (gx + 0.5f + (Unit(seed, 1) - 0.5f) * 0.9f) * spacing;
-                    float y = (gy + 0.5f + (Unit(seed, 2) - 0.5f) * 0.9f) * spacing;
+                    float x = (gx + 0.5f + (gy % 2) * stagger + (Unit(seed, 1) - 0.5f) * jitter) * spacingX;
+                    float y = (gy + 0.5f + (Unit(seed, 2) - 0.5f) * jitter) * spacingY;
                     float dx = x - centre, dy = y - centre;
-                    if (dx * dx + dy * dy > edge * edge * 0.985f) continue;
+                    // Inside the frame's inner ring, with room for the glyph above its foot.
+                    float limit = edge * EdgeFraction;
+                    if (dx * dx + dy * dy > limit * limit) continue;
                     Spot spot = Look(x, y);
                     spot.m_roll = Unit(seed, 3);
                     spot.m_seed = seed;
                     visit(spot);
                 }
             }
+        }
+
+        // Whether canvas point (x, y) is land: tall glyphs test their top too, since the shore
+        // margin at their foot does not stop the summit of a peak or a tree from reaching the sea.
+        private bool IsLandAt(float x, float y)
+        {
+            int px = Mathf.Clamp((int)x, 0, CanvasSize - 1);
+            int py = Mathf.Clamp((int)y, 0, CanvasSize - 1);
+            return m_land[py * CanvasSize + px] != 0;
         }
 
         private void Add(Spot spot, Kind kind, float size)
@@ -295,137 +340,155 @@ namespace Atlas
 
         private static int HashInt(int x, int y, int seed) => Atlas.Noise.HashInt(x, y, seed);
 
-        // Textures that lie flat on the land; glyphs placed later scrape them away behind their bodies.
+        // Every biome but the mountains and the near-blank Deep North has a ground fill of its own,
+        // laid over all of its land, woods included, so biomes can be told apart by the fill alone;
+        // trees and other glyphs are drawn on top and scrape the fill away behind their bodies.
+        // Every pen line is at least Pen wide and full strength: thinner or fainter lines average
+        // away to grey at the opening zoom.
         private void DrawBackground()
         {
-            // Swamp: short horizontal strokes of standing water in the low, wet ground.
-            Scatter(9f * G, 11, s =>
+            // Meadows: short tufts of grass.
+            Scatter(12f * G, 14, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_above > WetHeight || s.m_shore < 3f || !(s.m_roll <0.4f)) return;
-                m_canvas.Stroke(s.m_x - 2.2f * G, s.m_y, s.m_x + 2.2f * G, s.m_y, 0.7f, 0.8f);
+                if (!s.m_isLand || s.m_land != Land.Meadows || s.m_shore < 3f || !(s.m_roll < 0.45f)) return;
+                Grass(s.m_x, s.m_y, G);
             });
-            // Ashlands: dense diagonal hatching darkens the burnt ground.
+            // Black Forest: scattered stones on the forest floor.
+            Scatter(9f * G, 17, s =>
+            {
+                if (!s.m_isLand || s.m_land != Land.BlackForest || s.m_shore < 3f || !(s.m_roll < 0.5f)) return;
+                Stone(s.m_x, s.m_y, G, s.m_seed);
+            });
+            // Swamp: small wavelets of standing water, with flat strokes of still water between.
+            Scatter(8f * G, 11, s =>
+            {
+                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 3f) return;
+                if (s.m_roll < 0.45f) Wavelet(s.m_x, s.m_y, G);
+                else if (s.m_roll < 0.7f) m_canvas.Stroke(s.m_x - 1.5f * G, s.m_y, s.m_x + 1.5f * G, s.m_y, Pen);
+            });
+            // Plains: a stipple of fine dots, the dry heath's own tone.
+            Scatter(4f * G, 16, s =>
+            {
+                if (!s.m_isLand || s.m_land != Land.Plains || s.m_shore < 2f || !(s.m_roll < 0.6f)) return;
+                m_canvas.Dot(s.m_x, s.m_y, StippleRadius);
+            });
+            // Ashlands: dense diagonal hatching darkens the burnt ground. Deliberately a grey tone.
             Scatter(5f * G, 12, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_shore < 2f || !(s.m_roll <0.75f)) return;
+                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_shore < 2f || !(s.m_roll < 0.75f)) return;
                 m_canvas.Stroke(s.m_x - 1.4f * G, s.m_y + 1.4f * G, s.m_x + 1.4f * G, s.m_y - 1.4f * G, 0.7f, 0.75f);
             });
-            // Mistlands: drifting lines of dots.
-            Scatter(30f * G, 13, s =>
+            // Deep North: a near-blank snowfield, as the classic map leaves its northern waste. Its
+            // only marks are chevrons of pressure ridges, gathered into thin winding bands (the
+            // crest lines of a ridged noise) with open snow between, rather than sprinkled evenly.
+            Scatter(8f * G, 15, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 6f || !(s.m_roll <0.6f)) return;
-                float phase = Unit(s.m_seed, 4) * 6.28f;
-                float length = 26f * G;
-                for (float t = 0f; t <= length; t += 2.4f * G)
-                {
-                    float wave = Mathf.Sin(t / length * 9.42f + phase) * 1.6f * G;
-                    m_canvas.Dot(s.m_x - length * 0.5f + t, s.m_y + wave, 0.6f, 0.85f);
-                }
-            });
-            // Meadows and Plains: sparse tufts of grass in the open.
-            Scatter(22f * G, 14, s =>
-            {
-                if (!s.m_isLand || s.m_shore < 3f) return;
-                bool meadow = s.m_land == Land.Meadows && !s.m_forest && (s.m_roll <0.25f);
-                bool plain = s.m_land == Land.Plains && !s.m_forest && (s.m_roll <0.4f);
-                if (meadow || plain) Grass(s.m_x, s.m_y, G);
-            });
-            // Deep North: low chevrons of glacier ice.
-            Scatter(15f * G, 15, s =>
-            {
-                if (!s.m_isLand || s.m_land != Land.DeepNorth || s.m_above >= DeepNorthPeakHeight || s.m_shore < 3f || !(s.m_roll <0.55f)) return;
-                m_canvas.Stroke(s.m_x - 3f * G, s.m_y, s.m_x, s.m_y - 2.4f * G, 0.8f, 0.9f);
-                m_canvas.Stroke(s.m_x, s.m_y - 2.4f * G, s.m_x + 3f * G, s.m_y, 0.8f, 0.9f);
+                if (!s.m_isLand || s.m_land != Land.DeepNorth || s.m_above >= DeepNorthPeakHeight || s.m_shore < 3f) return;
+                float ridge = 1f - Math.Abs(2f * Noise(s.m_x / RidgeScale, s.m_y / RidgeScale, m_world.m_seed + 9) - 1f);
+                if (ridge < RidgeBand || !(s.m_roll < 0.7f)) return;
+                m_canvas.Stroke(s.m_x - 2.4f * G, s.m_y, s.m_x, s.m_y - 2f * G, Pen);
+                m_canvas.Stroke(s.m_x, s.m_y - 2f * G, s.m_x + 2.4f * G, s.m_y, Pen);
             });
         }
 
         private void PlaceGlyphs()
         {
-            // Mountains: shaded peaks sized by height, in the Mountain biome and the high Deep North.
-            Scatter(18f * G, 21, s =>
+            // Mountains: staggered rows of overlapping peaks, half a peak's height apart and three
+            // quarters of a width across, so a range reads as one dark mass, as on the classic maps.
+            // Sized by height, in the Mountain biome and the high Deep North.
+            Scatter(16f * G, 9f * G, 0.3f, 0.5f, 21, s =>
             {
-                if (!s.m_isLand || !(s.m_roll <0.85f)) return;
+                if (!s.m_isLand || !(s.m_roll < 0.97f)) return;
                 bool mountain = s.m_land == Land.Mountain && s.m_above >= PeakHeight;
                 bool north = s.m_land == Land.DeepNorth && s.m_above >= DeepNorthPeakHeight;
                 if (!mountain && !north) return;
-                float width = Mathf.Lerp(12f, 26f, Mathf.Clamp01((s.m_above - PeakHeight) / 180f)) * G;
-                if (s.m_shore < width * 0.6f) return;
+                float width = Mathf.Lerp(18f, 30f, Mathf.Clamp01((s.m_above - PeakHeight) / 160f)) * G;
+                if (s.m_shore < width * 0.45f || !IsLandAt(s.m_x, s.m_y - width * 0.75f)) return;
                 Add(s, Kind.Peak, width);
             });
-            // Hills: open humps on steep ground below the peaks.
-            Scatter(15f * G, 22, s =>
+            // Hills: groups of open humps on steep open ground, and a ring of foothills around each
+            // range. None under forest: the trees cover the hills there.
+            Scatter(10f * G, 22, s =>
             {
-                if (!s.m_isLand || s.m_slope < HillSlope || s.m_above < 3f || !(s.m_roll <0.6f)) return;
-                bool hillCountry = s.m_land == Land.Meadows || s.m_land == Land.BlackForest || s.m_land == Land.Plains
-                    || (s.m_land == Land.Mountain && s.m_above < PeakHeight);
+                if (!s.m_isLand || s.m_above < 3f || !(s.m_roll < 0.75f)) return;
+                bool open = (s.m_land == Land.Meadows && !s.m_forest) || s.m_land == Land.Plains;
+                bool foothill = s.m_land == Land.Mountain && s.m_above < PeakHeight;
+                bool steep = s.m_slope >= HillSlope || (foothill && s.m_slope >= FoothillSlope && s.m_above >= FoothillHeight);
                 float width = Mathf.Lerp(9f, 13f, Unit(s.m_seed, 4)) * G;
-                if (!hillCountry || s.m_shore < width * 0.5f) return;
+                if (!(open || foothill) || !steep || s.m_shore < width * 0.5f) return;
                 Add(s, Kind.Hill, width);
             });
-            // Meadows woods: round broadleaf trees where vanilla grows forest.
-            Scatter(8f * G, 23, s =>
+            // Meadows woods: egg-shaped crowns packed so tightly that only the southern edge shows
+            // trunks, the rest hidden behind the row in front.
+            Scatter(5.2f * G, 23, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Meadows || !s.m_forest || s.m_slope >= HillSlope || s.m_shore < 3f || !(s.m_roll <0.85f)) return;
+                if (!s.m_isLand || s.m_land != Land.Meadows || !s.m_forest || s.m_shore < 4f || !(s.m_roll < 0.95f)) return;
+                if (!IsLandAt(s.m_x, s.m_y - 8f * G)) return;
                 Add(s, Kind.Broadleaf, G);
             });
-            // Black Forest: dense pointed pines with a few clearings.
-            Scatter(7f * G, 24, s =>
+            // Black Forest: dense pines with a few clearings.
+            Scatter(5.5f * G, 24, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.BlackForest || s.m_slope >= HillSlope || s.m_shore < 3f || !(s.m_roll <0.8f)) return;
+                if (!s.m_isLand || s.m_land != Land.BlackForest || s.m_shore < 4f || !(s.m_roll < 0.9f)) return;
+                if (!IsLandAt(s.m_x, s.m_y - 11f * G)) return;
                 if (Noise(s.m_x / (40f * G), s.m_y / (40f * G), m_world.m_seed) > 0.72f) return;
                 Add(s, Kind.Conifer, G);
             });
-            // Plains: lone flat-topped trees where vanilla puts its sparse woods.
+            // Plains: a few lone round trees where vanilla puts its sparse woods.
             Scatter(12f * G, 25, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Plains || !s.m_forest || s.m_shore < 3f || !(s.m_roll <0.5f)) return;
+                if (!s.m_isLand || s.m_land != Land.Plains || !s.m_forest || s.m_shore < 3f || !(s.m_roll < 0.5f)) return;
                 Add(s, Kind.PlainsTree, G);
             });
-            // Swamp: marsh tufts and a scattering of dead trees.
+            // Swamp: a few marsh tufts among the water strokes, and some dead trees.
             Scatter(11f * G, 26, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 3f || !(s.m_roll <0.55f)) return;
+                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 3f || !(s.m_roll < 0.35f)) return;
                 Add(s, Kind.MarshTuft, G);
             });
             Scatter(24f * G, 27, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f || !(s.m_roll <0.35f)) return;
+                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f || !(s.m_roll < 0.35f)) return;
                 Add(s, Kind.DeadTree, G);
             });
-            // Mistlands: rock spires on the steep ground, giant trees in the misty woods.
-            Scatter(14f * G, 28, s =>
+            // Mistlands: rock spires on the steep or high ground, and woods of giant trees packed
+            // closely enough to read as the biome's dark forest.
+            Scatter(12f * G, 28, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_slope < SpireSlope || s.m_shore < 5f || !(s.m_roll <0.8f)) return;
+                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 5f || !(s.m_roll < 0.8f)) return;
+                if (s.m_slope < SpireSlope && s.m_above < SpireHeight) return;
+                if (!IsLandAt(s.m_x, s.m_y - 22f * G)) return;
                 Add(s, Kind.Spire, G);
             });
-            Scatter(13f * G, 29, s =>
+            Scatter(8f * G, 29, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Mistlands || !s.m_mist || s.m_slope >= SpireSlope || s.m_shore < 6f || !(s.m_roll <0.5f)) return;
+                if (!s.m_isLand || s.m_land != Land.Mistlands || !s.m_mist || s.m_slope >= SpireSlope || s.m_shore < 5f || !(s.m_roll < 0.75f)) return;
+                if (!IsLandAt(s.m_x, s.m_y - 14f * G)) return;
                 Add(s, Kind.GiantTree, G);
             });
-            // Ashlands: smoking volcanoes on the heights, lava cracks in the flows.
+            // Ashlands: a few large smoking volcanoes on the heights, lava cracks in the flows.
             Scatter(34f * G, 30, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_above < VolcanoHeight || s.m_shore < 12f * G || !(s.m_roll <0.45f)) return;
+                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_above < VolcanoHeight || s.m_shore < 14f * G || !(s.m_roll < 0.3f)) return;
                 Add(s, Kind.Volcano, VolcanoScale * G);
             });
             Scatter(16f * G, 31, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Ashlands || !s.m_lava || s.m_shore < 6f * G || !(s.m_roll <0.55f)) return;
+                if (!s.m_isLand || s.m_land != Land.Ashlands || !s.m_lava || s.m_shore < 6f * G || !(s.m_roll < 0.55f)) return;
                 Add(s, Kind.Fissure, G);
             });
             // Sea: a few wave marks far out, ice floes in the northern sea.
-            Scatter(60f * G, 32, s =>
+            Scatter(34f * G, 32, s =>
             {
-                if (s.m_isLand || s.m_water < 28f * G || !IsOpenWater(s.m_pixel) || !(s.m_roll <0.45f)) return;
+                if (s.m_isLand || s.m_water < 24f * G || !IsOpenWater(s.m_pixel) || !(s.m_roll < 0.5f)) return;
                 if (WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
                 Add(s, Kind.Wave, G);
             });
             Scatter(15f * G, 33, s =>
             {
-                if (s.m_isLand || s.m_water < 4f * G || !(s.m_roll <0.5f)) return;
+                if (s.m_isLand || s.m_water < 4f * G || !(s.m_roll < 0.5f)) return;
                 if (!WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
-                Add(s, Kind.IceFloe, G);
+                m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
         }
 
@@ -459,6 +522,55 @@ namespace Atlas
             return new Vector2((wx + HalfExtent) / MetresPerPixel, (HalfExtent - wz) / MetresPerPixel);
         }
 
+        // The Mistlands' fill. Unlike the other fills it lies on top of the glyphs: dashes laid
+        // under the dense giant trees were scraped away by them and left the biome looking bare.
+        // Each bank is a pair of long wavy lines drifting across the woods, each on a thin band
+        // scraped back to parchment, so the mist reads as veiling the trees behind it.
+        private void DrawMist()
+        {
+            Scatter(28f * G, 16f * G, 0.5f, 0.5f, 13, s =>
+            {
+                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 6f || !(s.m_roll < 0.8f)) return;
+                float phase = Unit(s.m_seed, 4) * 6.28f;
+                float length = Mathf.Lerp(30f, 44f, Unit(s.m_seed, 5)) * G;
+                MistLine(s.m_x - length * 0.5f, s.m_y, 0f, length, length, phase);
+                MistLine(s.m_x - length * 0.5f, s.m_y + MistGap, length * 0.2f, length * 0.85f, length, phase + 0.8f);
+            });
+        }
+
+        // One wavy mist line from t = start to end along a bank of the given length, broken wherever
+        // it leaves Mistlands land, so it never drifts over the sea or into another biome.
+        // The whole line is scraped before any of it is inked; scraping segment by segment would
+        // erase the end of the segment drawn just before.
+        private void MistLine(float left, float y, float start, float end, float length, float phase)
+        {
+            m_points.Clear();
+            m_mistInside.Clear();
+            for (float t = start; t <= end; t += MistStep)
+            {
+                var point = new Vector2(left + t, y + Mathf.Sin(t / length * 7.5f + phase) * 1.2f * G);
+                m_points.Add(point);
+                m_mistInside.Add(IsMistlandsAt(point.x, point.y));
+            }
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int i = 1; i < m_points.Count; i++)
+                {
+                    if (!m_mistInside[i] || !m_mistInside[i - 1]) continue;
+                    Vector2 a = m_points[i - 1], b = m_points[i];
+                    if (pass == 0) m_canvas.Scrape(a.x, a.y, b.x, b.y, MistBand);
+                    else m_canvas.Stroke(a.x, a.y, b.x, b.y, Pen);
+                }
+            }
+        }
+
+        private bool IsMistlandsAt(float x, float y)
+        {
+            if (!IsLandAt(x, y)) return false;
+            float wx = x * MetresPerPixel - HalfExtent, wz = HalfExtent - y * MetresPerPixel;
+            return m_world.m_biome[m_world.Index(wx, wz)] == Land.Mistlands;
+        }
+
         private void DrawRipples()
         {
             int n = CanvasSize;
@@ -471,15 +583,19 @@ namespace Atlas
                 return dx * dx + dy * dy > edge * edge || !IsOpenWater(y * n + x) || !IsOpenWater((y + 1) * n + x + 1);
             };
             // Distances run to the centre of the nearest land pixel; the coast lies half a pixel out.
-            DistanceField.Contour(n, distance, RippleNear + 0.5f, skip, (a, b) =>
-                m_canvas.Stroke(a.x + 0.5f, a.y + 0.5f, b.x + 0.5f, b.y + 0.5f, 1.0f, 0.9f));
-            // The outer line is fainter and breaks off here and there, as if the pen ran dry.
+            // Each line further out breaks off more often, as if the pen ran dry, so the ripples fade
+            // with distance while every stroke stays full ink.
             int seed = m_world.m_seed;
-            DistanceField.Contour(n, distance, RippleFar + 0.5f, skip, (a, b) =>
+            for (int i = 0; i < s_ripples.Length; i++)
             {
-                if (Noise(a.x / 18f, a.y / 18f, seed + 5) > 0.68f) return;
-                m_canvas.Stroke(a.x + 0.5f, a.y + 0.5f, b.x + 0.5f, b.y + 0.5f, 0.8f, 0.65f);
-            });
+                float gaps = s_rippleGaps[i];
+                int salt = seed + 5 + i;
+                DistanceField.Contour(n, distance, s_ripples[i] + 0.5f, skip, (a, b) =>
+                {
+                    if (gaps < 1f && Noise(a.x / 18f, a.y / 18f, salt) > gaps) return;
+                    m_canvas.Stroke(a.x + 0.5f, a.y + 0.5f, b.x + 0.5f, b.y + 0.5f, Pen);
+                });
+            }
         }
 
         private void DrawFrame()

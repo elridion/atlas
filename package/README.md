@@ -31,17 +31,19 @@ pins you place appear only after your next visit to a cartography table.
 
 ## The pen marks
 
+Every biome except the mountains has a ground fill of its own (the first mark in each row), so you can tell them apart even where the woods are thin. The Deep North is the exception that proves it: a near-blank snowfield.
+
 | Biome | Marks |
 | --- | --- |
-| Ocean | A heavy coastline and two ripple lines along open water; a few wave marks far out |
-| Meadows | Round broadleaf woods, open humps on hillsides, tufts of grass |
-| Black Forest | Dense pointed pines with clearings, hills |
-| Swamp | Marsh tufts, standing water, crooked dead trees |
-| Mountain | Peaks with a shaded eastern face, sized by height, snow lines on the tallest |
-| Plains | Lone flat-topped trees and dry grass |
-| Mistlands | Rock spires, giant trees and drifting lines of mist |
-| Ashlands | Smoking volcanoes, lava cracks and burnt, hatched ground |
-| Deep North | Glacier ridges, high peaks and ice floes in the northern sea |
+| Ocean | A heavy coastline ringed by ripple lines that fade out over open water; wave marks further out |
+| Meadows | Tufts of grass, dense woods of egg-shaped trees, groups of open hills |
+| Black Forest | Stones on the forest floor under dense dark pines, with a few clearings |
+| Swamp | Wavelets and still water, marsh tufts, crooked dead trees |
+| Mountain | Ranges of overlapping peaks with a solid shaded eastern face, sized by height, ringed by foothills |
+| Plains | A stipple of dry ground, a few lone round trees, open hills |
+| Mistlands | Banks of mist drifting across the woods, giant three-crowned trees, hatched rock pillars |
+| Ashlands | Burnt, hatched ground, lava cracks and a few large smoking volcanoes |
+| Deep North | A near-blank snowfield crossed by thin bands of ice ridges, high peaks and ice floes in the northern sea |
 
 ## Settings
 

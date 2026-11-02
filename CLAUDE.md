@@ -67,6 +67,20 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   open (at least `OpenWidth` wide), so rivers keep just their banks.
 - Glyphs are scattered on jittered grids per rule, sorted by their foot (north first) and drawn so
   that each scrapes its outline back to parchment before inking: southern glyphs hide northern ones.
+- Peaks are packed in staggered rows (16 G across, 9 G down, half-cell stagger) so ranges read as
+  one dark mass, as on the classic map; with that overlap the front peak hides the lower half of
+  the one behind, so the shaded wedge has to stay wide near the summit. Forests are packed so
+  densely that only their southern edge shows trunks. Both came from an art review against the
+  classic map style that the user liked.
+- Every biome except the mountains has its own ground fill so it can be told apart without trees
+ . The Deep North is a deliberate near-blank snowfield with rare
+  chevrons, like the classic map's northern waste: the user chose it over snow stars, drifts,
+  ice shards and cracked ice. The Mistlands' mist is drawn after the glyphs (over the woods),
+  since a fill underneath was scraped away by its dense giant trees.
+- Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
+  grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
+- Tall glyphs test their top with `IsLandAt` as well as the shore margin at their foot, or peaks
+  and trees on south-facing coasts reach into the sea.
 - Thresholds were set from the Velen world's height percentiles (Ashlands land p90 22 m above
   water, Deep North p90 59 m, Mountain p50 90 m).
 - An offline preview harness (not in the repo) fed vanilla's cached minimap files

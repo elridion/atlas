@@ -22,7 +22,14 @@ namespace Atlas
         }
 
         // A straight pen stroke with round ends.
-        public void Stroke(float x0, float y0, float x1, float y1, float width, float strength = 1f)
+        public void Stroke(float x0, float y0, float x1, float y1, float width, float strength = 1f) =>
+            Capsule(x0, y0, x1, y1, width, strength, erase: false);
+
+        // Scrapes a band with round ends back to bare parchment.
+        public void Scrape(float x0, float y0, float x1, float y1, float width) =>
+            Capsule(x0, y0, x1, y1, width, 1f, erase: true);
+
+        private void Capsule(float x0, float y0, float x1, float y1, float width, float strength, bool erase)
         {
             float r = width * 0.5f;
             float dx = x1 - x0, dy = y1 - y0;
@@ -40,7 +47,8 @@ namespace Atlas
                     float t = lengthSqr > 0f ? Mathf.Clamp01(((px - x0) * dx + (py - y0) * dy) / lengthSqr) : 0f;
                     float ex = px - (x0 + t * dx), ey = py - (y0 + t * dy);
                     float coverage = r + 0.5f - Mathf.Sqrt(ex * ex + ey * ey);
-                    Darken(y * m_size + x, coverage * strength);
+                    if (erase) Lighten(y * m_size + x, coverage);
+                    else Darken(y * m_size + x, coverage * strength);
                 }
             }
         }

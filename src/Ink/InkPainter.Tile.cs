@@ -10,7 +10,8 @@ namespace Atlas
     /// ground fills, trees and coast are drawn afresh from a grid sampled for the tile
     /// (TileGrid), at a level of detail that grows with the zoom, so zooming in shows more and
     /// finer trees and an exact coast instead of the sheet's marks made bigger. Everything else
-    /// (peaks, hills, rivers, mist, ripples, the frame) is replayed from the sheet's record.
+    /// (peaks, hills, rivers, mist, ripples, the sea's illustrations, the frame) is replayed from
+    /// the sheet's record.
     /// </summary>
     internal sealed partial class InkPainter
     {
@@ -39,6 +40,11 @@ namespace Atlas
 
         private void RunTile(InkRecord record)
         {
+            // The sheet's mist banks near the tile, which the tile's scarps keep off as the
+            // sheet's do: a bank reaches 30 sheet px either side of its centre.
+            var banks = new List<Vector3>();
+            record.MistBanks(m_left - PeakCell, m_top - PeakCell, m_right + PeakCell, m_bottom + PeakCell, banks);
+            foreach (Vector3 bank in banks) AddMistBank(bank);
             m_canvas.m_layer = InkLayer.Background;
             DrawBackground();
             record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Lava), null);
@@ -60,6 +66,15 @@ namespace Atlas
             record.Peaks(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, peaks);
             foreach (Vector3 peak in peaks) AddPeakBase(peak);
             PlaceTrees();
+            // The scarps keep off the tile's own trees and the sheet's other glyphs, as on the
+            // sheet, on the background under every glyph.
+            foreach (Glyph glyph in m_glyphs) AddFootprint(glyph);
+            var boxes = new List<Vector4>();
+            record.GlyphBoxes(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, boxes);
+            foreach (Vector4 box in boxes) AddGlyphBox(box);
+            m_canvas.m_layer = InkLayer.Background;
+            DrawScarps();
+            m_canvas.m_layer = InkLayer.Tree;
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             // The sheet's other glyphs (peaks, spires, hills) are sorted in with the tile's own
             // trees by their feet and drawn from north to south, so whichever stands in front
@@ -76,7 +91,12 @@ namespace Atlas
             while (next < groups.Count) record.Replay(m_canvas, groups[next++]);
             m_cancel.ThrowIfCancellationRequested();
             DrawTileWaves(record);
-            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Floe, InkLayer.Frame), null);
+            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Floe), null);
+            // The sea's illustrations whole, each as one group, so one reaching into the tile
+            // from beside it scrapes and inks exactly as on the sheet.
+            foreach (InkRecord.Group group in record.Groups(InkLayer.Illustration, m_left, m_top, m_right, m_bottom))
+                record.Replay(m_canvas, group);
+            record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Frame), null);
         }
 
         private static int Layers(params InkLayer[] layers)
@@ -123,19 +143,11 @@ namespace Atlas
             {
                 float x = wave.m_x, y = wave.m_y, length = wave.m_length;
                 int crests = wave.m_crests;
-                int dir = wave.m_anchor;
-                if (dir == CutAnchor)
-                {
-                    // An islet cluster's stroke, cut by the close-up's own finer islets. Its
-                    // ground outside the grid repeats the edge, but a part that reaches into the
-                    // tile from beyond the grid is longer than two crests either way.
-                    Vector2 along = wave.m_dir == Vector2.zero ? Vector2.right : wave.m_dir;
-                    WaterParts(new Vector2(x, y), along, length, crests, m_grid.IsLand, m_parts);
-                    foreach (Vector2 part in m_parts) WaveStroke(new Vector2(x, y), along, length, crests, wave.m_phase, wave.m_lift, part.x, part.y);
-                    continue;
-                }
+                int dir = Math.Sign(wave.m_anchor);
                 if (dir != 0)
                 {
+                    // A stroke off an islet keeps clear of the land above and below its row too.
+                    float band = Math.Abs(wave.m_anchor) == IsletAnchor ? TileIsletBand : 0f;
                     // A lake's line (lift 0) starts on the coast's pen itself, touching it (user,
                     //); its room is measured from just off the shore.
                     bool lake = wave.m_lift == 0f;
@@ -143,16 +155,21 @@ namespace Atlas
                     if (tip - TileWaveSearch > grid.m_left && tip + TileWaveSearch < gridRight && TileShore(tip, y, dir, out float shore))
                         tip = lake ? shore : shore + dir * gap;
                     if (lake) from = grid.m_step;
+                    // Off an islet the start moves out until the band round it is water too,
+                    // where the shore curves back under or over the row.
+                    for (float s = 0f; band > 0f && s < TileWaveSearch && (grid.IsLand(tip, y - band) || grid.IsLand(tip, y + band)); s += 0.25f)
+                        tip += dir * 0.25f;
                     float crest = length / crests;
-                    float room = TileRoom(tip + dir * from, y, dir, length, gap) + from;
-                    // A lake's line keeps its three dashes, as on the sheet.
-                    int least = lake ? LakeLeastDashes : 2;
+                    float room = TileRoom(tip + dir * from, y, dir, length, gap, band) + from;
+                    // A lake's line keeps its three dashes, as on the sheet, an islet's stroke
+                    // its three crests.
+                    int least = lake ? LakeLeastDashes : band > 0f ? IsletShortCrests : 2;
                     while (crests > least && crests * crest > room) crests--;
                     if (crests * crest > room) continue;
                     length = crests * crest;
                     x = dir > 0 ? tip : tip - length;
                 }
-                else if (TileRoom(x, y, 1, length, 0f) < length)
+                else if (TileRoom(x, y, 1, length, 0f, 0f) < length)
                 {
                     continue;
                 }
@@ -183,15 +200,22 @@ namespace Atlas
             return best < float.MaxValue;
         }
 
-        // Water ahead of x along dir on the row through y, up to length and the gap beyond it:
-        // where land comes, the room ends the gap short of it.
-        private float TileRoom(float x, float y, int dir, float length, float gap)
+        // Water ahead of x along dir on the row through y, and band above and below it, up to
+        // length and the gap beyond it: where land comes, the room ends the gap short of it.
+        private float TileRoom(float x, float y, int dir, float length, float gap, float band)
         {
             float step = Math.Min(0.25f, m_grid.m_step * 0.5f);
             for (float s = 0f; s <= length + gap; s += step)
-                if (m_grid.IsLand(x + dir * s, y)) return Math.Max(0f, s - gap);
+            {
+                float at = x + dir * s;
+                if (m_grid.IsLand(at, y) || band > 0f && (m_grid.IsLand(at, y - band) || m_grid.IsLand(at, y + band))) return Math.Max(0f, s - gap);
+            }
             return length;
         }
+
+        // How far above and below its row a stroke off an islet keeps its water clear of land in
+        // close-ups, in sheet pixels: its crests' lift and a little paper.
+        private const float TileIsletBand = 1f;
 
         // The tile's river courses, from the sheet's river strokes, which its trees keep off: a
         // grid over the tile and its glyph reach at RiverCell sheet pixels a cell.

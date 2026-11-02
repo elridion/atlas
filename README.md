@@ -30,6 +30,8 @@ The build touches nothing outside the repo. To test in game, install the zip wit
 | `src/Ink/` | The ink drawing: world data from vanilla's minimap, the pen rasterizer, distance fields, glyphs, disk cache |
 | `assets/translations/` | Player-facing text, one JSON file per Valheim language |
 | `tools/make_icon.ps1` | Generates `package/icon.png` from game-icons.net |
+| `tools/preview/` | Offline preview of the drawing from a local world's minimap cache; a developer tool, not part of the mod or its package |
+| `screenshots/` | Sample renders from the preview (`tools/preview/samples.ps1 -Publish`) |
 | `package/` | Mod page README and icon shipped in the package |
 
 ## Releases

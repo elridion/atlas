@@ -23,6 +23,10 @@ namespace Atlas
         // foot (0 to 1), fading to nothing at the skirt's end.
         private const float PeakSkirt = 2f;
         private const float PeakBleed = 0.6f;
+        // How far (pen widths) a peak's scraped body reaches past its flanks, under their ink: the
+        // grown fan triangles it replaced reached 0.2 to 0.6, which close-ups show as a hairline
+        // of parchment between the outline and whatever stands behind.
+        private const float BodyGrow = 0.4f;
         private readonly List<Vector2> m_west = new List<Vector2>(8);
         private readonly List<Vector2> m_east = new List<Vector2>(8);
 
@@ -112,21 +116,11 @@ namespace Atlas
             m_points.AddRange(m_west);
             for (int i = 1; i < m_east.Count; i++) m_points.Add(m_east[i]);
             // The body is scraped to the outline itself, not its convex hull, so the fill matches
-            // the drawn contour (a hull spilled past every sag and notch). The
-            // outline is a mountain silhouette above its base, seen whole from a point low in its
-            // middle, so it is filled as a fan of convex triangles from there, each grown a
-            // little so no seam is left between them. Deep North peaks take its wash.
+            // the drawn contour (a hull spilled past every sag and notch), in one
+            // pass (ScrapeBody). Deep North peaks take its wash.
             BodyKind kind = !body ? BodyKind.None : IsNorthAt(x, y) ? BodyKind.North : BodyKind.Mountain;
             m_canvas.m_markBody = kind;
-            var hub = new Vector2(apex.x, y - height * 0.12f);
-            m_fan.Clear();
-            m_fan.AddRange(m_points);
-            for (int i = 0; i < m_fan.Count; i++)
-            {
-                Vector2 a = m_fan[i], b = m_fan[(i + 1) % m_fan.Count];
-                Poly(Grow(hub, hub, a, b), Grow(a, hub, a, b), Grow(b, hub, a, b));
-                m_canvas.Erase(m_points);
-            }
+            ScrapeBody(m_points);
             m_canvas.m_markBody = BodyKind.None;
             // A soft edge of PeakSkirt sheet pixels below the foot, where the peak's wash runs out
             // into the ground, so the base is not cut hard; the body stays fully the peak's (user,
@@ -204,17 +198,26 @@ namespace Atlas
         // placement uses it too, to set the foot so the apex lands on the summit.
         private static float PeakHeightOf(float width, int seed) => width * Mathf.Lerp(0.58f, 1.02f, Unit(seed, 10));
 
-        private readonly List<Vector2> m_fan = new List<Vector2>(16);
-
-        // A fan triangle's corner pushed 0.6 pen out from the triangle's centre, so neighbouring
-        // triangles overlap and their anti-aliased edges leave no faint seam inside the body.
-        private Vector2 Grow(Vector2 p, Vector2 a, Vector2 b, Vector2 c)
+        // Scrapes a peak's or pinnacle's outline (foot to foot, the base closing it) back to
+        // parchment in one pass, its flanks BodyGrow pen out under their ink. It was a fan of
+        // triangles from a hub low in the middle, each grown 0.6 pen from its centre; beside the
+        // apex they are thin, so they grew almost along their shared edges and barely overlapped,
+        // and the edge from the hub up to the apex showed as a faint line on some peaks: the body
+        // masks keep the larger of two half covers and the ink what both scrapes leave.
+        private void ScrapeBody(List<Vector2> outline)
         {
-            Vector2 centre = (a + b + c) / 3f;
-            Vector2 out_ = p - centre;
-            float length = out_.magnitude;
-            return length > 1e-4f ? p + out_ / length * 0.6f * m_pen : p;
+            float grow = BodyGrow * m_pen;
+            // The feet are raised by as much as the edge grows, so the base still ends on the
+            // foot line, where the skirt takes over, as the fan's did.
+            m_bodyOutline.Clear();
+            m_bodyOutline.AddRange(outline);
+            m_bodyOutline[0] += new Vector2(0f, -grow);
+            m_bodyOutline[m_bodyOutline.Count - 1] += new Vector2(0f, -grow);
+            m_canvas.EraseOutline(m_bodyOutline, grow);
         }
+
+        // A body outline: the peak's with its feet raised (ScrapeBody), or a floe's corners.
+        private readonly List<Vector2> m_bodyOutline = new List<Vector2>(16);
 
         private bool IsNorthAt(float x, float y)
         {
@@ -270,26 +273,50 @@ namespace Atlas
         private void Dome(float x, float y, float width, int seed, bool behind)
         {
             DomeShape shape = DomeOutline(m_points, x, y, width, seed, behind);
-            m_canvas.Erase(m_points);
-            float pen = Mathf.Lerp(1.1f, 1.3f, Unit(seed, 54));
-            int n = m_points.Count - 1;
-            int lift = Mathf.RoundToInt(Mathf.Lerp(0.35f, 0.7f, Unit(seed, 91)) * n);
-            var setDown = new Vector2(0f, Mathf.Lerp(-0.3f, 0.3f, Unit(seed, 92)));
-            for (int i = 1; i <= n; i++)
+            ScrapeDome(y);
+            for (int i = 1; i < m_points.Count; i++)
             {
-                Vector2 a = m_points[i - 1], b = m_points[i];
-                if (i == lift + 1) a += setDown;
-                if (i == lift) b += (b - a).normalized * 0.5f;
-                if (i == 1) a += new Vector2(-0.45f, 0.15f);
-                if (i == n) b += new Vector2(0.5f, 0.1f);
-                float swell = 0.8f + 0.32f * Mathf.Sin(Mathf.PI * (i - 0.5f) / n);
-                m_canvas.Stroke(a.x, a.y, b.x, b.y, Mathf.Max(Pen, pen * swell * Vary(seed, 130 + i, 0.07f)));
+                DomeSegment(m_points, seed, i, out Vector2 a, out Vector2 b, out float pen);
+                m_canvas.Stroke(a.x, a.y, b.x, b.y, pen);
             }
             for (int k = 0; k < shape.m_dashes; k++)
             {
-                if (!DomeDash(shape, x, y, width, seed, k, out Vector2 a, out Vector2 b)) continue;
+                if (!DomeDash(shape, m_points, x, y, width, seed, k, out Vector2 a, out Vector2 b)) continue;
                 m_canvas.Stroke(a.x, a.y, b.x, b.y, Pen);
             }
+        }
+
+        // Scrapes a dome's silhouette, the outline in m_points down to the foot line y, so the
+        // dome hides whatever stands behind it, other hills and its own domes behind alike. The
+        // outline is not convex (wobble, saddles, shoulders), and Erase fills convex polygons
+        // only: erased whole, only the intersection of its edges' half-planes went, which is next
+        // to nothing, and the line behind ran on through the dome. EraseOutline takes it in one
+        // pass, to the outline's centre line; the stroke inked after covers the rest of its width.
+        private void ScrapeDome(float y)
+        {
+            m_bodyOutline.Clear();
+            m_bodyOutline.AddRange(m_points);
+            Vector2 first = m_points[0], last = m_points[m_points.Count - 1];
+            m_bodyOutline.Add(new Vector2(last.x, Mathf.Max(y, last.y)));
+            m_bodyOutline.Add(new Vector2(first.x, Mathf.Max(y, first.y)));
+            m_canvas.EraseOutline(m_bodyOutline, 0f);
+        }
+
+        // The i-th inked segment of a dome's outline (1 to the point count less one), as Dome
+        // strokes it: the pen lift set down a hair off with its overshoot, the tails at the feet,
+        // and the line's swell. DomeDash starts the shade dashes on these very segments.
+        private static void DomeSegment(List<Vector2> points, int seed, int i, out Vector2 a, out Vector2 b, out float pen)
+        {
+            int n = points.Count - 1;
+            int lift = Mathf.RoundToInt(Mathf.Lerp(0.35f, 0.7f, Unit(seed, 91)) * n);
+            a = points[i - 1];
+            b = points[i];
+            if (i == lift + 1) a += new Vector2(0f, Mathf.Lerp(-0.3f, 0.3f, Unit(seed, 92)));
+            if (i == lift) b += (b - a).normalized * 0.5f;
+            if (i == 1) a += new Vector2(-0.45f, 0.15f);
+            if (i == n) b += new Vector2(0.5f, 0.1f);
+            float swell = 0.8f + 0.32f * Mathf.Sin(Mathf.PI * (i - 0.5f) / n);
+            pen = Mathf.Max(Pen, Mathf.Lerp(1.1f, 1.3f, Unit(seed, 54)) * swell * Vary(seed, 130 + i, 0.07f));
         }
 
         // A dome's drawn shape: its height, the crest whose east flank carries the hatching (as a
@@ -433,10 +460,14 @@ namespace Atlas
 
         private static float SoftMax(float a, float b, float k) => Mathf.Pow(Mathf.Pow(a, k) + Mathf.Pow(b, k), 1f / k);
 
-        // The k-th shade dash under a dome's eastern flank, from a to b, hung a gap below the
-        // outline and slanting back toward the crest; false when the flank there is too shallow
-        // for one. Shared by the drawing and the hill's water test.
-        private static bool DomeDash(DomeShape shape, float x, float y, float width, int seed, int k, out Vector2 a, out Vector2 b)
+        // The k-th shade dash under a dome's eastern flank, from a to b, slanting back toward the
+        // crest; false when the flank there is too shallow for one. Shared by the drawing and the
+        // hill's water test. The dash starts exactly on the inked outline (DomeSegment over the
+        // outline's points), with no paper gap and nothing poking above: its
+        // start sits on the stroke's centre line and its round end, no wider than the outline's
+        // pen, stays inside the stroke. Hung a gap below the ideal curve, as before, the faceted
+        // and wobbled line left gaps of varying size.
+        private static bool DomeDash(DomeShape shape, List<Vector2> outline, float x, float y, float width, int seed, int k, out Vector2 a, out Vector2 b)
         {
             float from = shape.m_shadeFrom + (1f - shape.m_shadeFrom) * 0.14f;
             float to = shape.m_shadeFrom + (1f - shape.m_shadeFrom) * 0.78f;
@@ -451,23 +482,99 @@ namespace Atlas
             a = new Vector2(top.x - width * 0.015f, top.y + gap);
             // Each dash at its own angle, as a hand never repeats one exactly.
             b = new Vector2(top.x - width * shape.m_dashSlant * Vary(seed, 95 + k, 0.35f), top.y + gap + length);
-            return length >= shape.m_height * 0.1f;
+            if (length < shape.m_height * 0.1f) return false;
+            // Slid back along its own line up to the outline, keeping its angle and length. The
+            // gap's point lies inside the dome, so the first crossing going up is the line above.
+            Vector2 dir = (b - a).normalized;
+            if (!OutlineAbove(outline, seed, a, -dir, out Vector2 hit)) return true;
+            a = hit;
+            b = hit + dir * length;
+            return true;
+        }
+
+        // Where a ray from inside a dome first crosses its inked outline (DomeSegment), as the
+        // nearest crossing along the ray; false when it crosses none.
+        private static bool OutlineAbove(List<Vector2> outline, int seed, Vector2 from, Vector2 ray, out Vector2 hit)
+        {
+            hit = from;
+            float best = float.MaxValue;
+            for (int i = 1; i < outline.Count; i++)
+            {
+                DomeSegment(outline, seed, i, out Vector2 p, out Vector2 q, out float _);
+                Vector2 e = q - p;
+                float den = ray.x * e.y - ray.y * e.x;
+                if (Mathf.Abs(den) < 1e-6f) continue;
+                Vector2 w = p - from;
+                float t = (w.x * e.y - w.y * e.x) / den;
+                float s = (w.x * ray.y - w.y * ray.x) / den;
+                if (t < 0f || s < 0f || s > 1f || t >= best) continue;
+                best = t;
+                hit = from + ray * t;
+            }
+            return best < float.MaxValue;
         }
 
         // A broadleaf tree: an egg-shaped crown on a short trunk. Packed densely, the crowns hide
         // the trunks behind them, so only the southern edge of a wood shows trunks.
         private void Broadleaf(float x, float y, float s, int seed)
         {
+            Crown c = BroadleafCrown(x, y, s, seed);
+            EraseCrown(c);
+            Shade(c.m_cx, c.m_cy, c.m_rx, c.m_ry, seed);
+            HandCrown(c.m_cx, c.m_cy, c.m_rx, c.m_ry, seed);
+            m_canvas.Stroke(x, c.m_cy + c.m_ry * 0.9f, x + (c.m_cx - x) * 0.3f, y, Pen);
+        }
+
+        // A round crown as drawn: its centre, radii and the seed and wobble of its hand-traced
+        // outline. Shared by the drawing and by HideCoveredCrowns, which must see the same shapes.
+        private struct Crown
+        {
+            public float m_cx, m_cy, m_rx, m_ry, m_wobble;
+            public int m_seed;
+        }
+
+        private static Crown BroadleafCrown(float x, float y, float s, int seed)
+        {
             float r = 2.6f * s * Vary(seed, 10, 0.25f);
             float ry = r * Mathf.Lerp(1.05f, 1.45f, Unit(seed, 12));
-            float cx = x + (Unit(seed, 11) - 0.5f) * 0.9f * s;
             float trunk = Mathf.Lerp(1f, 2.2f, Unit(seed, 13)) * s;
-            float cy = y - trunk - ry;
-            m_canvas.EraseEllipse(cx, cy, r * 1.12f + 0.7f * m_pen, ry * 1.12f + 0.7f * m_pen);
-            Shade(cx, cy, r, ry, seed);
-            HandCrown(cx, cy, r, ry, seed);
-            m_canvas.Stroke(x, cy + ry * 0.9f, x + (cx - x) * 0.3f, y, Pen);
+            return new Crown
+            {
+                m_cx = x + (Unit(seed, 11) - 0.5f) * 0.9f * s, m_cy = y - trunk - ry, m_rx = r, m_ry = ry,
+                m_wobble = 1f, m_seed = seed,
+            };
         }
+
+        private static Crown PlainsCrown(float x, float y, float s, int seed)
+        {
+            float r = 2.2f * s * Vary(seed, 10, 0.25f);
+            float ry = r * Mathf.Lerp(0.85f, 1.15f, Unit(seed, 12));
+            return new Crown
+            {
+                m_cx = x + (Unit(seed, 11) - 0.5f) * 0.7f * s, m_cy = y - Mathf.Lerp(1.4f, 2.8f, Unit(seed, 13)) * s - ry,
+                m_rx = r, m_ry = ry, m_wobble = 1f, m_seed = seed,
+            };
+        }
+
+        // The giant tree's canopy sits on its trunk's top (p3 in GiantTree).
+        private static Crown GiantCrown(float x, float y, float s, int seed)
+        {
+            float trunk = Mathf.Lerp(4.5f, 6f, Unit(seed, 10)) * s;
+            float rx = Mathf.Lerp(3.6f, 4.6f, Unit(seed, 17)) * s;
+            float ry = rx * Mathf.Lerp(0.55f, 0.7f, Unit(seed, 18));
+            return new Crown
+            {
+                m_cx = x + (Unit(seed, 13) - 0.5f) * 0.6f * s, m_cy = y - trunk - ry * 0.6f, m_rx = rx, m_ry = ry,
+                m_wobble = 1.15f, m_seed = seed + 2,
+            };
+        }
+
+        // The paper scraped round a crown: its ellipse grown a little, so the trees behind stop
+        // short of its outline.
+        private float CrownEraseX(Crown c) => c.m_rx * 1.12f + 0.7f * m_pen;
+        private float CrownEraseY(Crown c) => c.m_ry * 1.12f + 0.7f * m_pen;
+
+        private void EraseCrown(Crown c) => m_canvas.EraseEllipse(c.m_cx, c.m_cy, CrownEraseX(c), CrownEraseY(c));
 
         // A crown traced as a pen would: a closed loop whose radius wobbles a little all round, by
         // seed, and whose start and end overlap slightly, so no two crowns are the same shape. A
@@ -478,16 +585,22 @@ namespace Atlas
             m_points.Clear();
             const int steps = 14;
             float start = Unit(seed, 40) * Mathf.PI * 2f;
-            float wobble = Mathf.Lerp(0.04f, 0.11f, Unit(seed, 41)) * wobbleScale;
             for (int i = 0; i <= steps + 1; i++)
             {
                 float a = start + Mathf.PI * 2f * i / steps;
-                // Two lumps of different frequency make the outline uneven but not jagged.
-                float bump = 1f + wobble * (Mathf.Sin(a * 3f + Unit(seed, 42) * 6.28f) * 0.6f + Mathf.Sin(a * 5f + Unit(seed, 43) * 6.28f) * 0.4f);
+                float bump = CrownBump(seed, a, wobbleScale);
                 if (i > steps) bump *= 0.96f;
                 m_points.Add(new Vector2(cx + Mathf.Cos(a) * rx * bump, cy + Mathf.Sin(a) * ry * bump));
             }
             m_canvas.Polyline(m_points, Mathf.Lerp(1f, 1.25f, Unit(seed, 44)));
+        }
+
+        // The hand-traced crown's radius at angle a, as a share of the ellipse's: two lumps of
+        // different frequency make the outline uneven but not jagged.
+        private static float CrownBump(int seed, float a, float wobbleScale)
+        {
+            float wobble = Mathf.Lerp(0.04f, 0.11f, Unit(seed, 41)) * wobbleScale;
+            return 1f + wobble * (Mathf.Sin(a * 3f + Unit(seed, 42) * 6.28f) * 0.6f + Mathf.Sin(a * 5f + Unit(seed, 43) * 6.28f) * 0.4f);
         }
 
         // The shaded eastern side of a round crown, as the pines' filled eastern half: the part
@@ -534,14 +647,11 @@ namespace Atlas
         // A plains tree: a small round crown on a short trunk, standing alone.
         private void PlainsTree(float x, float y, float s, int seed)
         {
-            float r = 2.2f * s * Vary(seed, 10, 0.25f);
-            float ry = r * Mathf.Lerp(0.85f, 1.15f, Unit(seed, 12));
-            float cx = x + (Unit(seed, 11) - 0.5f) * 0.7f * s;
-            float cy = y - Mathf.Lerp(1.4f, 2.8f, Unit(seed, 13)) * s - ry;
-            m_canvas.EraseEllipse(cx, cy, r * 1.12f + 0.7f * m_pen, ry * 1.12f + 0.7f * m_pen);
-            Shade(cx, cy, r, ry, seed);
-            HandCrown(cx, cy, r, ry, seed);
-            m_canvas.Stroke(x, cy + ry * 0.9f, x + (cx - x) * 0.3f, y, Pen);
+            Crown c = PlainsCrown(x, y, s, seed);
+            EraseCrown(c);
+            Shade(c.m_cx, c.m_cy, c.m_rx, c.m_ry, seed);
+            HandCrown(c.m_cx, c.m_cy, c.m_rx, c.m_ry, seed);
+            m_canvas.Stroke(x, c.m_cy + c.m_ry * 0.9f, x + (c.m_cx - x) * 0.3f, y, Pen);
         }
 
         // A tuft of reeds standing on a marsh line: a small fan of three blades, the marsh sign
@@ -638,7 +748,7 @@ namespace Atlas
         private static float SpireHeightOf(float s, int seed) => Mathf.Lerp(8f, 12f, Unit(seed, 10)) * s;
 
         // One pinnacle: 0.45 to 0.62 of its height wide (narrower read as needles), leaning a little, jagged flanks with
-        // a ledge, some with a broken twin tip; the body scraped as a fan like a peak's but keeping
+        // a ledge, some with a broken twin tip; the body scraped as a peak's (ScrapeBody) but keeping
         // the Mistlands' wash; a solid wedge down most of the east face, as the rock is black, and
         // hatching below it.
         private void Pinnacle(float x, float y, float s, int seed)
@@ -668,15 +778,7 @@ namespace Atlas
             m_points.Clear();
             m_points.AddRange(m_west);
             for (int i = 1; i < m_east.Count; i++) m_points.Add(m_east[i]);
-            var hub = new Vector2(apex.x, y - height * 0.15f);
-            m_fan.Clear();
-            m_fan.AddRange(m_points);
-            for (int i = 0; i < m_fan.Count; i++)
-            {
-                Vector2 a = m_fan[i], b = m_fan[(i + 1) % m_fan.Count];
-                Poly(Grow(hub, hub, a, b), Grow(a, hub, a, b), Grow(b, hub, a, b));
-                m_canvas.Erase(m_points);
-            }
+            ScrapeBody(m_points);
 
             var foot = new Vector2(apex.x + width * 0.05f, y);
             Poly(apex, Along(m_east, SpireWedge), Vector2.Lerp(apex, foot, SpireWedge));
@@ -704,9 +806,9 @@ namespace Atlas
             var p1 = new Vector2(x + (Unit(seed, 11) - 0.5f) * 1.2f * s, y - trunk * 0.33f);
             var p2 = new Vector2(x + (Unit(seed, 12) - 0.5f) * 1.2f * s, y - trunk * 0.66f);
             var p3 = new Vector2(x + (Unit(seed, 13) - 0.5f) * 0.6f * s, y - trunk);
-            float rx = Mathf.Lerp(3.6f, 4.6f, Unit(seed, 17)) * s;
-            float ry = rx * Mathf.Lerp(0.55f, 0.7f, Unit(seed, 18));
-            float cx = p3.x, cy = p3.y - ry * 0.6f;
+            Crown crown = GiantCrown(x, y, s, seed);
+            float rx = crown.m_rx, ry = crown.m_ry;
+            float cx = crown.m_cx, cy = crown.m_cy;
 
             m_limbs.Clear();
             m_limbs.Add(new Limb(foot, p1, 1.4f));
@@ -723,14 +825,9 @@ namespace Atlas
 
             // One crown only: lobes behind or beside it showed as thin black crescents along its
             // edge at the map's scale (black artifacts outside the padding).
-            Canopy(cx, cy, rx, ry, seed + 2);
-
-            void Canopy(float ox, float oy, float ex, float ey, int crownSeed)
-            {
-                m_canvas.EraseEllipse(ox, oy, ex * 1.12f + 0.7f * m_pen, ey * 1.12f + 0.7f * m_pen);
-                Shade(ox, oy, ex, ey, crownSeed);
-                HandCrown(ox, oy, ex, ey, crownSeed, 1.15f);
-            }
+            EraseCrown(crown);
+            Shade(cx, cy, rx, ry, crown.m_seed);
+            HandCrown(cx, cy, rx, ry, crown.m_seed, crown.m_wobble);
         }
 
         // A volcano in the mountains' hand, at a mountain's scale: a broad cone with gently
@@ -797,32 +894,26 @@ namespace Atlas
         // An ice floe: a small irregular outline lying on the water. Its body (an ellipse just
         // around the outline) is scraped back to parchment first, so ripple lines stop at its edge,
         // and the outline is filled with the Deep North's wash, as ice, not the sea's (user,
-        //). The outline may sag inwards, so it is filled as a fan of convex triangles
-        // from its centre, as peak bodies are.
+        //). The outline may sag inwards, so it is filled in one pass as peak bodies are
+        // (InkCanvas.EraseOutline); a fan of triangles from its centre left faint seams.
         private void IceFloe(float x, float y, float s, int seed)
         {
             const int corners = 6;
             float size = Mathf.Lerp(2.5f, 5.5f, Unit(seed, 10)) * s;
-            m_fan.Clear();
+            m_bodyOutline.Clear();
             for (int k = 0; k < corners; k++)
             {
                 float a = (k + Unit(seed, 11 + k) * 0.6f) / corners * Mathf.PI * 2f;
                 float r = size * Mathf.Lerp(0.7f, 1f, Unit(seed, 20 + k));
-                m_fan.Add(new Vector2(x + Mathf.Cos(a) * r, y + Mathf.Sin(a) * r * 0.7f));
+                m_bodyOutline.Add(new Vector2(x + Mathf.Cos(a) * r, y + Mathf.Sin(a) * r * 0.7f));
             }
             m_canvas.EraseEllipse(x, y, size + 0.8f, size * 0.7f + 0.8f);
-            var hub = new Vector2(x, y);
             m_canvas.m_markBody = BodyKind.North;
-            for (int i = 0; i < corners; i++)
-            {
-                Vector2 a = m_fan[i], b = m_fan[(i + 1) % corners];
-                Poly(Grow(hub, hub, a, b), Grow(a, hub, a, b), Grow(b, hub, a, b));
-                m_canvas.Erase(m_points);
-            }
+            m_canvas.EraseOutline(m_bodyOutline, BodyGrow * m_pen);
             m_canvas.m_markBody = BodyKind.None;
             m_points.Clear();
-            m_points.AddRange(m_fan);
-            m_points.Add(m_fan[0]);
+            m_points.AddRange(m_bodyOutline);
+            m_points.Add(m_bodyOutline[0]);
             m_canvas.Polyline(m_points, Pen);
         }
 
@@ -840,6 +931,35 @@ namespace Atlas
         {
             m_canvas.Stroke(x - 1f * s, y, x - 1.6f * s, y - 2.6f * s, Pen);
             m_canvas.Stroke(x + 0.8f * s, y, x + 1.2f * s, y - 2.8f * s, Pen);
+        }
+
+        // A small scarp centred on (x, y), the survey sign for a rock face: a broken edge of four
+        // short facets along the contour, bowed a little, and four or five hachures hanging from it
+        // downhill, longest in the middle and tapering to the ends, each at its own slight angle.
+        private void Scarp(float x, float y, float s, int seed, Vector2 down)
+        {
+            var along = new Vector2(-down.y, down.x);
+            float length = ScarpLength(seed, s);
+            float bow = (Unit(seed, 59) - 0.5f) * 0.3f * s;
+            var centre = new Vector2(x, y) - down * 0.5f * s;
+            m_points.Clear();
+            for (int k = 0; k < 5; k++)
+            {
+                float t = k / 4f - 0.5f;
+                if (k > 0 && k < 4) t += (Unit(seed, 51 + k) - 0.5f) * 0.1f;
+                float jag = (Unit(seed, 55 + k) - 0.5f) * 0.3f * s - bow * (1f - 4f * t * t);
+                m_points.Add(centre + along * (t * length) + down * jag);
+            }
+            m_canvas.Polyline(m_points, Pen);
+            int ticks = 4 + (int)(Unit(seed, 60) * 1.99f);
+            for (int k = 0; k < ticks; k++)
+            {
+                float u = (k + 0.5f) / ticks;
+                Vector2 from = Along(m_points, Mathf.Lerp(0.06f, 0.94f, u));
+                float tick = Mathf.Lerp(0.65f, 1f, Mathf.Sin(Mathf.PI * u)) * ScarpTick * s * Vary(seed, 61 + k, 0.12f);
+                Vector2 dir = (down + along * ((Unit(seed, 68 + k) - 0.5f) * 0.12f)).normalized;
+                m_canvas.Stroke(from.x, from.y, from.x + dir.x * tick, from.y + dir.y * tick, Pen);
+            }
         }
     }
 }

@@ -20,7 +20,7 @@ namespace Atlas
         private static long s_playerId;
 
         private static Snapshot s_snapshot;
-        private static Task<byte[]> s_cacheTask;
+        private static Task<CachedSheet> s_cacheTask;
         private static bool s_cacheStarted;
         private static Task<WorldSource> s_decodeTask;
         private static Task<PaintResult> s_paintTask;
@@ -30,6 +30,12 @@ namespace Atlas
         private static CancellationTokenSource s_cancel = new CancellationTokenSource();
         private static bool s_inkFailed;
         private static Texture2D s_ink;
+        // The sea illustrations on the uploaded sheet, those the uploaded fog showed or hid whole,
+        // and those the fog being laid does. The atlas opens only once the first two agree, so a
+        // monster never shows cut by the fog's soft edge.
+        private static SeaMark[] s_seaMarks;
+        private static SeaMark[] s_fogMarks;
+        private static SeaMark[] s_fogTaskMarks;
 
         private static byte[] s_parchment;
         // The parchment, made once per world and shared by the fog and the wash: with its stains
@@ -116,7 +122,7 @@ namespace Atlas
                 player.Message(MessageHud.MessageType.Center, "$atlas_blank");
                 return;
             }
-            if (!s_ink || !s_paper || !s_fog)
+            if (!s_ink || !s_paper || !s_fog || s_fogMarks != s_seaMarks)
             {
                 player.Message(MessageHud.MessageType.Center, s_inkFailed ? "$atlas_failed" : "$atlas_drawing");
                 return;
@@ -155,20 +161,20 @@ namespace Atlas
                 int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
                 s_cacheTask = Task.Run(() =>
                 {
-                    byte[] ink = InkCache.Load(worldUid, seed);
-                    return ink == null ? null : Paper.InkWithMips(ink);
+                    byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks);
+                    return ink == null ? null : new CachedSheet { m_mips = Paper.InkWithMips(ink, marks), m_marks = marks };
                 });
             }
             if (s_cacheTask != null && s_cacheTask.IsCompleted)
             {
                 if (s_cacheTask.IsFaulted) Jotunn.Logger.LogWarning($"The cached atlas could not be loaded: {s_cacheTask.Exception?.GetBaseException()}");
-                else if (s_cacheTask.Result != null && !s_ink) UploadInk(s_cacheTask.Result);
+                else if (s_cacheTask.Result != null && !s_ink) UploadInk(s_cacheTask.Result.m_mips, s_cacheTask.Result.m_marks);
                 s_cacheTask = null;
             }
             if (s_mipsTask != null && s_mipsTask.IsCompleted)
             {
                 if (s_mipsTask.IsFaulted) Fail(s_mipsTask.Exception);
-                else if (!s_ink) UploadInk(s_mipsTask.Result);
+                else if (!s_ink) UploadInk(s_mipsTask.Result, s_record.m_seaMarks.ToArray());
                 s_mipsTask = null;
             }
 
@@ -208,7 +214,7 @@ namespace Atlas
                 {
                     var record = new InkRecord();
                     byte[] ink = InkPainter.Paint(source, cancel, record);
-                    InkCache.Save(worldUid, source.m_seed, ink);
+                    InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
                     return new PaintResult { m_ink = ink, m_record = record };
                 });
                 return;
@@ -226,8 +232,9 @@ namespace Atlas
             if (painted.Result == null) return;
             s_record = painted.Result.m_record;
             byte[] sheet = painted.Result.m_ink;
+            InkRecord record = painted.Result.m_record;
             s_paintTask = Task.FromResult<PaintResult>(null);
-            if (!s_ink && s_mipsTask == null) s_mipsTask = Task.Run(() => Paper.InkWithMips(sheet));
+            if (!s_ink && s_mipsTask == null) s_mipsTask = Task.Run(() => Paper.InkWithMips(sheet, record.m_seaMarks));
         }
 
         private sealed class PaintResult
@@ -236,14 +243,23 @@ namespace Atlas
             public InkRecord m_record;
         }
 
+        private sealed class CachedSheet
+        {
+            public byte[] m_mips;
+            public SeaMark[] m_marks;
+        }
+
         private static void Fail(AggregateException error)
         {
             s_inkFailed = true;
             Jotunn.Logger.LogError($"The atlas could not be drawn: {error?.GetBaseException()}");
         }
 
-        private static void UploadInk(byte[] data)
+        // The fog is laid again for the sheet's sea illustrations before the atlas opens.
+        private static void UploadInk(byte[] data, SeaMark[] marks)
         {
+            s_seaMarks = marks;
+            s_fogDirty = true;
             s_ink = new Texture2D(InkPainter.CanvasSize, InkPainter.CanvasSize, TextureFormat.RGBA32, mipChain: true)
             {
                 name = "Atlas ink",
@@ -269,6 +285,7 @@ namespace Atlas
                     return;
                 }
                 s_parchment = done.Result;
+                s_fogMarks = s_fogTaskMarks;
                 UploadFog();
             }
             if (!s_fogDirty) return;
@@ -279,13 +296,14 @@ namespace Atlas
             if (s_fogPixels == null) s_fogPixels = new byte[size * size * 4];
             byte[] pixels = s_fogPixels;
             byte[] parchment = s_parchment;
+            SeaMark[] marks = s_fogTaskMarks = s_seaMarks;
             Task<byte[]> parchmentTask = Parchment(seed);
             // The task hands the parchment back instead of storing it, so a task still running
             // when the world changes cannot leave its paper behind for the next world.
             s_fogTask = Task.Run(() =>
             {
                 byte[] paper = parchment ?? parchmentTask.Result;
-                Paper.Fog(pixels, paper, snapshot);
+                Paper.Fog(pixels, paper, snapshot, marks);
                 return paper;
             });
         }
@@ -371,6 +389,9 @@ namespace Atlas
             s_parchment = null;
             s_parchmentTask = null;
             s_fogPixels = null;
+            s_seaMarks = null;
+            s_fogMarks = null;
+            s_fogTaskMarks = null;
             if (s_ink) UnityEngine.Object.Destroy(s_ink);
             if (s_paper) UnityEngine.Object.Destroy(s_paper);
             if (s_fog) UnityEngine.Object.Destroy(s_fog);

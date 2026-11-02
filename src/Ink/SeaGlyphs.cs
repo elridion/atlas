@@ -5,17 +5,23 @@ using UnityEngine;
 namespace Atlas
 {
     /// <summary>
-    /// Prototype illustrations for the open sea (the blank open sea may get some
-    /// artistic filling), drawn with the atlas's own pen so they sit with its peaks and woods, in
-    /// the hand of the engraved sea monsters and ships on Olaus Magnus' Carta Marina and Ortelius'
-    /// Islandia: sober, small, no faces. Not wired into the painting yet: Catalogue lays every
-    /// candidate out for the user to choose from. Each glyph scrapes its silhouette back to
-    /// parchment before inking, as the land glyphs do, so whatever lies behind it is hidden. Sizes
-    /// are in sheet pixels at the opening zoom; every line is at least Pen wide and full black,
-    /// since thinner lines average to grey there.
+    /// Illustrations for the open sea (the blank open sea may get some artistic
+    /// filling), drawn with the atlas's own pen so they sit with its peaks and woods, in the hand
+    /// of the engraved sea monsters and ships on Olaus Magnus' Carta Marina and Ortelius'
+    /// Islandia: sober, small, no faces. InkPainter.DrawIllustrations places them; Catalogue lays
+    /// every one out for the offline preview. Each glyph scrapes its silhouette back to parchment
+    /// before inking, as the land glyphs do, so whatever lies behind it is hidden. Sizes are in
+    /// sheet pixels at the opening zoom; every line is at least Pen wide and full black, since
+    /// thinner lines average to grey there, so a copy drawn smaller or larger scales its shape and
+    /// scrapes but keeps its pens.
     /// </summary>
     internal static class SeaGlyphs
     {
+        public const int SeaSerpent = 0;
+        public const int SerpentCoil = 1;
+        public const int Leviathan = 2;
+        public const int BonemawSerpent = 3;
+
         // The finest line, and the outline weight, a shade heavier as the peaks' flanks are.
         private const float Pen = 1f;
         private const float Edge = 1.4f;
@@ -34,16 +40,67 @@ namespace Atlas
             "Sea serpent", "Serpent coil", "Leviathan", "Bonemaw serpent",
         };
 
-        // Draws candidate kind centred on (x, y), its waterline at y.
-        public static void Draw(InkCanvas c, int kind, float x, float y)
+        // Draws glyph kind centred on (x, y), its waterline at y, scale times its size, turned east
+        // for west when mirror is set. The leviathan is not turned: its east flank is hatched as
+        // in shade, as every glyph on the map is lit from the west, so it only lays its shell and
+        // barnacles the other way round.
+        public static void Draw(InkCanvas canvas, int kind, float x, float y, bool mirror = false, float scale = 1f)
         {
+            var c = new Hand(canvas, x, y, mirror && kind != Leviathan, scale);
             switch (kind)
             {
-                case 0: Serpent(c, x, y, false); break;
-                case 1: Coil(c, x, y); break;
-                case 2: Leviathan(c, x, y); break;
-                case 3: Bonemaw(c, x, y); break;
+                case SeaSerpent: Serpent(c, x, y, false); break;
+                case SerpentCoil: Coil(c, x, y); break;
+                case Leviathan: LeviathanShell(c, x, y, mirror); break;
+                case BonemawSerpent: Bonemaw(c, x, y); break;
             }
+        }
+
+        // The canvas as a glyph draws on it: every point turned east for west about the glyph's
+        // centre when mirrored and scaled about it, scrapes scaled with the shape, pens kept, so
+        // a smaller copy still draws no line under Pen. The transform lives here, not in a
+        // flipped bitmap, so the record keeps sheet points and close-ups replay them sharp.
+        private sealed class Hand
+        {
+            private readonly InkCanvas m_canvas;
+            private readonly float m_x, m_y, m_sx, m_scale;
+            private readonly List<Vector2> m_points = new List<Vector2>(64);
+
+            public Hand(InkCanvas canvas, float x, float y, bool mirror, float scale)
+            {
+                m_canvas = canvas;
+                m_x = x;
+                m_y = y;
+                m_scale = scale;
+                m_sx = mirror ? -scale : scale;
+            }
+
+            private Vector2 At(float x, float y) => new Vector2(m_x + (x - m_x) * m_sx, m_y + (y - m_y) * m_scale);
+
+            private List<Vector2> At(IList<Vector2> points)
+            {
+                m_points.Clear();
+                foreach (Vector2 p in points) m_points.Add(At(p.x, p.y));
+                return m_points;
+            }
+
+            public void Stroke(float x0, float y0, float x1, float y1, float width)
+            {
+                Vector2 a = At(x0, y0), b = At(x1, y1);
+                m_canvas.Stroke(a.x, a.y, b.x, b.y, width);
+            }
+
+            public void Scrape(float x0, float y0, float x1, float y1, float width)
+            {
+                Vector2 a = At(x0, y0), b = At(x1, y1);
+                m_canvas.Scrape(a.x, a.y, b.x, b.y, width * m_scale);
+            }
+
+            public void Polyline(IList<Vector2> points, float width) => m_canvas.Polyline(At(points), width);
+
+            public void Fill(IList<Vector2> polygon) => m_canvas.Fill(At(polygon));
+
+            public void Erase(IList<Vector2> polygon) => m_canvas.Erase(At(polygon));
         }
 
         // Catalogue: one cell per candidate, cell sheet pixels square, in columns.
@@ -71,7 +128,7 @@ namespace Atlas
         // the long snouted head at the top, all in plain outline a shade heavier than the land
         // glyphs' (the plain hand, fewer and bolder marks; a sawtooth crest,
         // throat plates, hatching and a frill of fins were all tried and dropped as too busy).
-        private static void Serpent(InkCanvas c, float x, float y, bool fin)
+        private static void Serpent(Hand c, float x, float y, bool fin)
         {
             // Laid out 56 wide and drawn at this scale, so three coils, the neck and the head
             // fit the 48 or so pixels a sea glyph may take.
@@ -119,7 +176,7 @@ namespace Atlas
         // from the neck's own lean (negative lifts it). fin adds one fin swept back off the
         // crown. As a skeleton (bone) the same silhouette is drawn in straight strokes, with a
         // hooked snout, a dark hollow for the eye, the jaw hanging open and a few teeth.
-        private static void Head(InkCanvas c, Vector2 e, Vector2 travel, float w, float tilt, float size, bool bone, bool fin)
+        private static void Head(Hand c, Vector2 e, Vector2 travel, float w, float tilt, float size, bool bone, bool fin)
         {
             travel.Normalize();
             // The head's frame: forward is across the neck toward its throat side, down runs
@@ -204,7 +261,7 @@ namespace Atlas
         // out of the loop to the east. The first coil read as a snail: a flat
         // spiral has no crossing, and a crossing is what makes a coil; with a crest all round the
         // ring it then read as a cog, so it is plain outline alone.
-        private static void Coil(InkCanvas c, float x, float y)
+        private static void Coil(Hand c, float x, float y)
         {
             const float s = 1.12f;
             // The tail's tip, tapering to a point as it rises.
@@ -268,8 +325,10 @@ namespace Atlas
         // top, the eastern flank hatched down its curve, a few abyssal barnacles standing as cones
         // on its back among tufts of growth and weed hanging down its flanks to the water. The
         // previous one was a bare dome with rings and ticks (messy); a beaked
-        // head at the west end read as a face and was removed.
-        private static void Leviathan(InkCanvas c, float x, float y)
+        // head at the west end read as a face and was removed. Mirrored, the
+        // shell's profile and the barnacles, tufts and ripples run the other way round, while the
+        // hatching, ledges and weed stay on the flanks the light gives them.
+        private static void LeviathanShell(Hand c, float x, float y, bool mirror)
         {
             float w = 40f, h = 10f;
             float west = x - w * 0.5f, east = x + w * 0.5f;
@@ -277,11 +336,14 @@ namespace Atlas
             // east of the middle, its curve roughened by two slow bumps so it reads as rock.
             var shell = Curve(t =>
             {
-                float u = Mathf.Pow(t, 1.1f);
+                float m = mirror ? 1f - t : t;
+                float u = Mathf.Pow(m, 1.1f);
                 float lift = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(u * Mathf.PI)), 0.5f);
-                float rough = 1f + 0.08f * Mathf.Sin(t * 15.7f + 0.8f) + 0.05f * Mathf.Sin(t * 27.3f + 2.1f);
+                float rough = 1f + 0.08f * Mathf.Sin(m * 15.7f + 0.8f) + 0.05f * Mathf.Sin(m * 27.3f + 2.1f);
                 return new Vector2(west + w * t, y - h * lift * rough);
             }, 40);
+            // A place along the shell from the west foot, or from the east one when mirrored.
+            Vector2 On(float t) => Along(shell, mirror ? 1f - t : t);
             FanErase(c, shell, new Vector2(x, y - 1f));
             // Contour hatching down the east flank: strokes from the outline inward and down,
             // bowed with the shell's curve, as the peaks' east faces are hatched.
@@ -300,25 +362,25 @@ namespace Atlas
             c.Stroke(x - 2f, y - 7.4f, x + 3f, y - 7.9f, Pen);
             // Abyssal barnacles: squat cones on the back with a notched crater and a shaded
             // east side; tufts of growth between them, and weed down the lit flank to the water.
-            Barnacle(c, Along(shell, 0.27f), 4.8f, 2.9f);
-            Barnacle(c, Along(shell, 0.5f), 6f, 3.9f);
-            Barnacle(c, Along(shell, 0.7f), 4.4f, 2.7f);
-            Tuft(c, Along(shell, 0.39f), 2.6f, 0);
-            Tuft(c, Along(shell, 0.6f), 2.3f, 1);
-            Tuft(c, Along(shell, 0.17f), 2f, 2);
+            Barnacle(c, On(0.27f), 4.8f, 2.9f);
+            Barnacle(c, On(0.5f), 6f, 3.9f);
+            Barnacle(c, On(0.7f), 4.4f, 2.7f);
+            Tuft(c, On(0.39f), 2.6f, 0);
+            Tuft(c, On(0.6f), 2.3f, 1);
+            Tuft(c, On(0.17f), 2f, 2);
             Weed(c, Along(shell, 0.12f) + new Vector2(1.2f, 0.4f), y, 0);
             c.Polyline(shell, Edge);
             // The water's edge along the shell, with foam at both feet.
             c.Stroke(west - 1f, y + 0.2f, east + 1f, y + 0.2f, 1.2f);
             Foam(c, new Vector2(west - 1f, y), -1);
             Foam(c, new Vector2(east + 1f, y), 1);
-            Ripple(c, x - 8f, y + 3.4f, 9f);
-            Ripple(c, x + 10f, y + 3f, 7f);
+            Ripple(c, mirror ? x - 1f : x - 8f, y + 3.4f, 9f);
+            Ripple(c, mirror ? x - 17f : x + 10f, y + 3f, 7f);
         }
 
         // A barnacle cone standing on the shell at foot: two flanks up to a crater notched
         // between two tips, and a solid wedge down its east side.
-        private static void Barnacle(InkCanvas c, Vector2 foot, float width, float height)
+        private static void Barnacle(Hand c, Vector2 foot, float width, float height)
         {
             var tipL = new Vector2(foot.x - width * 0.2f, foot.y - height);
             var notch = new Vector2(foot.x + width * 0.02f, foot.y - height * 0.78f);
@@ -331,7 +393,7 @@ namespace Atlas
         }
 
         // A tuft of growth: three or four short blades fanning up from a point.
-        private static void Tuft(InkCanvas c, Vector2 at, float height, int k)
+        private static void Tuft(Hand c, Vector2 at, float height, int k)
         {
             int blades = 3 + (k % 2);
             for (int i = 0; i < blades; i++)
@@ -343,7 +405,7 @@ namespace Atlas
         }
 
         // Weed hanging from the shell's flank to the water: a wavering strand and a shorter one.
-        private static void Weed(InkCanvas c, Vector2 from, float water, int k)
+        private static void Weed(Hand c, Vector2 from, float water, int k)
         {
             float drop = water - from.y - 0.4f;
             if (drop < 1.5f) return;
@@ -359,7 +421,7 @@ namespace Atlas
         // The Ashlands' bonemaw: the same three coils and raised neck as the sea serpent, but as a
         // bare backbone, the vertebrae ticked across it, ribs curving down from it on each coil,
         // and the angular skull with its hollow eye and open, toothed jaws.
-        private static void Bonemaw(InkCanvas c, float x, float y)
+        private static void Bonemaw(Hand c, float x, float y)
         {
             float[] radius = { 4f, 5.4f, 6.8f };
             float[] centre = { -19f, -8.5f, 4.5f };
@@ -382,7 +444,7 @@ namespace Atlas
         // A length of backbone above the water: scraped clear under it, inked, ticked across every
         // vertebra, and with ribs hanging from it (curving down and in toward the coil's hollow)
         // where the bone arches over the water.
-        private static void Backbone(InkCanvas c, List<Vector2> spine, float water, bool ribs, int k)
+        private static void Backbone(Hand c, List<Vector2> spine, float water, bool ribs, int k)
         {
             var above = Clip(spine, water);
             if (above.Count < 2) return;
@@ -437,7 +499,7 @@ namespace Atlas
         // edge where plates asks for them. Below water (y over water) nothing is drawn; where the
         // body meets the water its cut is inked level, with foam if asked. back and belly, when
         // given, receive the two edges (back to the left of travel) for crests and the like.
-        private static void Tube(InkCanvas c, List<Vector2> spine, Func<float, float> half, float water, float edge, Shade shade, Shade plates, float pitch, bool foam, List<Vector2> back, List<Vector2> belly)
+        private static void Tube(Hand c, List<Vector2> spine, Func<float, float> half, float water, float edge, Shade shade, Shade plates, float pitch, bool foam, List<Vector2> back, List<Vector2> belly)
         {
             int n = spine.Count;
             var a = new List<Vector2>(n);
@@ -511,7 +573,7 @@ namespace Atlas
         }
 
         // Inks both edges of a body's segment i, cut at the water.
-        private static void EdgeLines(InkCanvas c, List<Vector2> a, List<Vector2> b, int i, float water, bool cut, float edge)
+        private static void EdgeLines(Hand c, List<Vector2> a, List<Vector2> b, int i, float water, bool cut, float edge)
         {
             Vector2 a0 = Lid(a[i], water, cut), a1 = Lid(a[i + 1], water, cut), b0 = Lid(b[i], water, cut), b1 = Lid(b[i + 1], water, cut);
             c.Stroke(a0.x, a0.y, a1.x, a1.y, edge);
@@ -523,7 +585,7 @@ namespace Atlas
 
         // The level line across a body where it meets the water, between the points where its two
         // edges cross the waterline, searched from the start (dir 1) or the end (dir -1).
-        private static void WaterCut(InkCanvas c, List<Vector2> a, List<Vector2> b, float water, int dir, bool foam)
+        private static void WaterCut(Hand c, List<Vector2> a, List<Vector2> b, float water, int dir, bool foam)
         {
             float ax, bx;
             if (!CrossX(a, water, dir, out ax) || !CrossX(b, water, dir, out bx)) return;
@@ -553,14 +615,14 @@ namespace Atlas
 
         // A little foam where something breaks the water: two short ticks splayed up and outward
         // from the point, to dir (1 east, -1 west).
-        private static void Foam(InkCanvas c, Vector2 at, int dir)
+        private static void Foam(Hand c, Vector2 at, int dir)
         {
             c.Stroke(at.x + dir * 0.4f, at.y - 0.2f, at.x + dir * 2.2f, at.y - 1.6f, Pen);
             c.Stroke(at.x + dir * 0.8f, at.y + 0.3f, at.x + dir * 3f, at.y - 0.3f, Pen);
         }
 
         // A short level ripple of a few crests, the sea's own mark, length long from x.
-        private static void Ripple(InkCanvas c, float x, float y, float length)
+        private static void Ripple(Hand c, float x, float y, float length)
         {
             int crests = Math.Max(2, Mathf.RoundToInt(length / 2.8f));
             var points = Curve(t => new Vector2(x + length * t, y - 0.6f * Mathf.Sin(t * crests * Mathf.PI * 2f) * Mathf.Clamp01(Mathf.Sin(Mathf.PI * t) * 1.6f)), crests * 8);
@@ -588,7 +650,7 @@ namespace Atlas
 
         // Erases a star-shaped outline as a fan of triangles from a hub inside it, each grown a
         // little so no seam is left between them (as the peaks' bodies are scraped).
-        private static void FanErase(InkCanvas c, List<Vector2> outline, Vector2 hub)
+        private static void FanErase(Hand c, List<Vector2> outline, Vector2 hub)
         {
             for (int i = 1; i < outline.Count; i++)
                 c.Erase(Grown(new List<Vector2> { hub, outline[i - 1], outline[i] }, 0.6f));
@@ -612,14 +674,14 @@ namespace Atlas
         }
 
         // Erases a possibly concave band polygon (an outline there and back) as strips of quads.
-        private static void ErasePieces(InkCanvas c, List<Vector2> band)
+        private static void ErasePieces(Hand c, List<Vector2> band)
         {
             int n = band.Count / 2;
             for (int i = 0; i < n - 1; i++)
                 c.Erase(new List<Vector2> { band[i], band[i + 1], band[band.Count - 2 - i], band[band.Count - 1 - i] });
         }
 
-        private static void Closed(InkCanvas c, List<Vector2> points, float width)
+        private static void Closed(Hand c, List<Vector2> points, float width)
         {
             c.Polyline(points, width);
             c.Stroke(points[points.Count - 1].x, points[points.Count - 1].y, points[0].x, points[0].y, width);

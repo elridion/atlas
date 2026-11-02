@@ -26,6 +26,12 @@
     <Reference Update="@(Reference)" Private="false" />
   </ItemGroup>
 
+  <!-- tools/preview is its own project (the offline preview), not part of the mod. -->
+  <ItemGroup>
+    <Compile Remove="tools\**" />
+    <None Remove="tools\**" />
+  </ItemGroup>
+
   <!-- Player-facing text, one Jotunn JSON file per Valheim language, loaded by
        AtlasPlugin.AddLocalizations as Atlas.translations.<Language>.json. -->
   <ItemGroup>

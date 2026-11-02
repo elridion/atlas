@@ -17,6 +17,20 @@ namespace Atlas
         Floe,
         Frame,
         Lava,
+        // The sea's illustrations (SeaGlyphs), one group each.
+        Illustration,
+    }
+
+    // Where a sea illustration stands, in world metres: the box round its ink. The fog shows or
+    // hides the whole box at once (Paper.Fog), so no half-explored monster is shown cut in two.
+    // The glyph itself (SeaGlyphs kind, the sheet point it was drawn at, mirroring and scale) is
+    // kept too, so its wash (SeaWash) can be laid again from the cached sheet.
+    internal struct SeaMark
+    {
+        public float m_west, m_east, m_south, m_north;
+        public int m_kind;
+        public float m_x, m_y, m_scale;
+        public bool m_mirror;
     }
 
     /// <summary>
@@ -43,6 +57,7 @@ namespace Atlas
             Fill,
             Erase,
             Tint,
+            EraseOutline,
         }
 
         // One call: for strokes a..d are the ends, e the width; for ellipses and rings a, b the
@@ -109,6 +124,13 @@ namespace Atlas
             for (int i = 0; i < polygon.Count; i++) m_points.Add(polygon[i]);
         }
 
+        // An outline scraped in one pass (InkCanvas.EraseOutline): how far its edge is pushed out in c.
+        public void Outline(InkLayer layer, IList<Vector2> outline, float grow, BodyKind body)
+        {
+            m_calls.Add(new Call { m_op = Op.EraseOutline, m_layer = layer, m_group = m_group, m_body = body, m_a = m_points.Count, m_b = outline.Count, m_c = grow });
+            for (int i = 0; i < outline.Count; i++) m_points.Add(outline[i]);
+        }
+
         // Calls visit with the ends and width of every stroke of a layer touching the sheet
         // rectangle (each once). Scrapes are left out.
         public void Strokes(InkLayer layer, float left, float top, float right, float bottom, Action<Vector2, Vector2, float> visit)
@@ -131,19 +153,17 @@ namespace Atlas
             }
         }
 
-        // One wave of the sheet: a stroke from (x, y), length long, with its crests, their lift
-        // (a lake's lie lower than the sea's) and phase, level unless dir is set (an islet
-        // cluster's strokes run along the cluster). anchor is +1 when its left end starts at a
-        // coast west of it, -1 when its right end does, 0 when it floats, 2 when it lies under
-        // islets and is cut where it crosses land. Close-ups draw the waves again from these,
-        // moving each anchored one to their own finer coast, since a replayed stroke stood off
-        // it, and cutting the islets' against their own finer islets.
+        // One level wave of the sheet: a stroke from (x, y), length long, with its crests, their
+        // lift (a lake's lie lower than the sea's) and phase. anchor is +1 when its left end
+        // starts at a coast west of it, -1 when its right end does, 0 when it floats, and +2 or
+        // -2 for the same off an islet's shore (InkPainter.IsletAnchor). Close-ups draw the waves
+        // again from these, moving each anchored one to their own finer coast, since a replayed
+        // stroke stood off it.
         public struct Wave
         {
             public float m_x, m_y, m_length, m_phase, m_lift;
             public int m_crests;
             public int m_anchor;
-            public Vector2 m_dir;
         }
 
         private readonly List<Wave> m_waves = new List<Wave>();
@@ -155,9 +175,7 @@ namespace Atlas
         {
             foreach (Wave wave in m_waves)
             {
-                float endY = wave.m_y + wave.m_dir.y * wave.m_length;
-                float endX = wave.m_dir == Vector2.zero ? wave.m_x + wave.m_length : wave.m_x + wave.m_dir.x * wave.m_length;
-                if (Math.Max(wave.m_y, endY) >= top && Math.Min(wave.m_y, endY) <= bottom && Math.Min(wave.m_x, endX) <= right && Math.Max(wave.m_x, endX) >= left)
+                if (wave.m_y >= top && wave.m_y <= bottom && wave.m_x <= right && wave.m_x + wave.m_length >= left)
                     into.Add(wave);
             }
         }
@@ -168,11 +186,51 @@ namespace Atlas
 
         public void AddPeak(float x, float y, float width) => m_peaks.Add(new Vector3(x, y, width));
 
+        // The sheet's sea illustrations, kept with the sheet in the disk cache for the fog.
+        public readonly List<SeaMark> m_seaMarks = new List<SeaMark>();
+        // Their washes, in the same order, which close-ups sample.
+        public readonly List<SeaWash> m_seaWashes = new List<SeaWash>();
+
+        // The sea washes that overlap the sheet rectangle.
+        public void SeaWashes(float left, float top, float right, float bottom, List<SeaWash> into)
+        {
+            foreach (SeaWash wash in m_seaWashes)
+                if (wash.Overlaps(left, top, right, bottom)) into.Add(wash);
+        }
+
         // The peaks whose foot lies in the sheet rectangle.
         public void Peaks(float left, float top, float right, float bottom, List<Vector3> into)
         {
             foreach (Vector3 peak in m_peaks)
                 if (peak.x >= left && peak.x <= right && peak.y >= top && peak.y <= bottom) into.Add(peak);
+        }
+
+        // Every Mistlands mist bank of the sheet: its middle line's centre (x, y) and half length
+        // (z), so close-ups keep their scarps off the banks as the sheet does
+        // (InkPainter.ClearOfMist).
+        private readonly List<Vector3> m_mistBanks = new List<Vector3>();
+
+        public void AddMist(float x, float y, float halfLength) => m_mistBanks.Add(new Vector3(x, y, halfLength));
+
+        // The mist banks whose centre lies in the sheet rectangle.
+        public void MistBanks(float left, float top, float right, float bottom, List<Vector3> into)
+        {
+            foreach (Vector3 bank in m_mistBanks)
+                if (bank.x >= left && bank.x <= right && bank.y >= top && bank.y <= bottom) into.Add(bank);
+        }
+
+        // The drawn footprint (left, top, right, bottom) of every glyph of the sheet but its trees
+        // and mist, so close-ups keep their scarps off the sheet's spires and peaks as the sheet
+        // does (InkPainter.ClearOfGlyphs).
+        private readonly List<Vector4> m_glyphBoxes = new List<Vector4>();
+
+        public void AddGlyphBox(Vector4 box) => m_glyphBoxes.Add(box);
+
+        // The footprints that overlap the sheet rectangle.
+        public void GlyphBoxes(float left, float top, float right, float bottom, List<Vector4> into)
+        {
+            foreach (Vector4 box in m_glyphBoxes)
+                if (box.x <= right && box.z >= left && box.y <= bottom && box.w >= top) into.Add(box);
         }
 
         // Builds the spatial index once painting is done.
@@ -301,6 +359,13 @@ namespace Atlas
                     for (int k = 0; k < (int)c.m_b; k++) polygon.Add(m_points[(int)c.m_a + k]);
                     canvas.Tint(polygon, c.m_body, c.m_c, c.m_d, c.m_f);
                     break;
+                case Op.EraseOutline:
+                    polygon.Clear();
+                    for (int k = 0; k < (int)c.m_b; k++) polygon.Add(m_points[(int)c.m_a + k]);
+                    canvas.m_markBody = c.m_body;
+                    canvas.EraseOutline(polygon, c.m_c);
+                    canvas.m_markBody = BodyKind.None;
+                    break;
             }
         }
 
@@ -324,6 +389,7 @@ namespace Atlas
                 case Op.Fill:
                 case Op.Erase:
                 case Op.Tint:
+                case Op.EraseOutline:
                 {
                     minX = minY = float.MaxValue;
                     maxX = maxY = float.MinValue;
@@ -335,10 +401,11 @@ namespace Atlas
                         minY = Math.Min(minY, p.y);
                         maxY = Math.Max(maxY, p.y);
                     }
-                    minX -= 1f;
-                    minY -= 1f;
-                    maxX += 1f;
-                    maxY += 1f;
+                    float margin = 1f + (c.m_op == Op.EraseOutline ? Math.Max(c.m_c, 0f) : 0f);
+                    minX -= margin;
+                    minY -= margin;
+                    maxX += margin;
+                    maxY += margin;
                     return;
                 }
                 default:

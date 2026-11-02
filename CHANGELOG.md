@@ -16,7 +16,7 @@
   round crowns in the Meadows, stones and dark pine woods in the Black Forest, patches of marsh lines with reeds
   and tall ancient dead trees in the Swamp, a dry stipple and copses on the Plains, rolling hills on the real hilltops of the
   Meadows and Plains, each drawn a little differently (low or round, a long ridge, a double crest or a shoulder), veils of mist over gnarled trees
-  and black crags in the Mistlands (its many tiny pools drawn as ground, so only its real lakes show), a cinder stipple, rocky peaks, hatched vermilion lava fields and volcano cones in the Ashlands, and a
+  and black crags in the Mistlands, with small hatched scarps marking the open steep rock between them (its many tiny pools drawn as ground, so only its real lakes show), a cinder stipple, rocky peaks, hatched vermilion lava fields and volcano cones in the Ashlands, and a
   near-blank snowfield with ice ridges in the Deep North, kept clear of the shore, the peaks and each other.
 - The Deep North's snowy forests are drawn as woods of dense dark pines, as in the Black Forest,
   wherever the game grows its firs and pines there; its ice ridges keep to the open snow.
@@ -26,14 +26,22 @@
 - Coastlines are drawn with a fine pen. Groups of up to seven level wave strokes mark the
   bays and headlands, and now and then a long straight coast: each starts right at the shore and
   runs out to sea, long and short strokes in turn, and a headland pointing north or south may
-  have a stroke or two off its tip. Islets outside the Mistlands are gathered into clusters, and
-  each cluster gets one group of smaller level strokes centred on it, long and short in turn,
-  its rows shifted to follow a slanting chain, with the islets lying on top of it; the Mistlands'
-  islet fields, the tiniest specks on their own and the open sea stay blank. Lakes get straight
+  have a stroke or two off its tip. Islets outside the Mistlands that lie clear of the coast are
+  gathered into clusters, and each cluster gets a small group of level strokes sized to it, long
+  and short in turn, each starting at an islet's shore or lying in the open water beside it,
+  never crossing land; larger islands get the coast's waves instead. The Mistlands' islet fields,
+  the tiniest specks on their own and the open sea get no waves. Lakes get straight
   lines instead, stacked on consecutive rows from one shore, each touching the shore and running
   into the lake, at the lake's bends and along its straight shores, never across it, so still
   water reads apart from the sea; ponds stay bare. Ice floes in the northern sea are white as the northern snow; rivers and
   streams are drawn as ink lines.
+- A few sea monsters are inked far out in the widest stretches of open water, as on old maps:
+  sea serpents and serpent coils where the game's Serpents swim, the odd leviathan, and the
+  bonemaw's bare bones in the Ashlands' boiling sea; the northern sea stays empty. Each appears
+  at most three times, spread over the map, some facing the other way and a little larger or
+  smaller, its body laid in a slightly darker wash of the sea's blue so it stands out a little
+  from the water round it. A monster shows only once its stretch of sea is mostly explored, and then whole,
+  never cut in half by the edge of the unexplored parchment.
 - "Read map" at a cartography table opens the game's own interactive map, where you can place and
   edit pins. Your pins appear on the atlas the next time you record your discoveries, inked black
   on a thin parchment outline, their names set beside them as on a printed map and giving way where pins crowd, so they stand clear of the map.

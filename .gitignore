@@ -1,6 +1,8 @@
 bin/
 obj/
 dist/
+tools/preview/out/
+tools/preview/img/
 .vs/
 .idea/
 *.user

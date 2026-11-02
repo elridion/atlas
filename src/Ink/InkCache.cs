@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using BepInEx;
@@ -8,19 +9,25 @@ namespace Atlas
     /// <summary>
     /// Keeps each world's inked canvas on disk (BepInEx/cache/elridion.atlas), so a world is only
     /// drawn once. Files are named by world id and checked against the world seed and the drawing
-    /// version; bump Version whenever the drawing changes, so old sheets are drawn again.
+    /// version; bump Version whenever the drawing changes, so old sheets are drawn again. The sea's
+    /// illustrations (their boxes, for the fog, and the glyph drawn, for its wash) are kept in the
+    /// header, ahead of the sheet.
     /// </summary>
     internal static class InkCache
     {
         private const int Magic = 0x534C5441; // "ATLS"
         private const int Version = 23;
+        // A file never holds more sea illustrations than this; more means it is damaged.
+        private const int MostSeaMarks = 256;
 
         private static string FilePath(long worldUid) =>
             Path.Combine(Paths.CachePath, AtlasPlugin.PluginGuid, $"{worldUid}.ink");
 
-        // Worker thread. Returns null when there is no matching sheet.
-        public static byte[] Load(long worldUid, int seed)
+        // Worker thread. Returns null when there is no matching sheet; marks gets the sheet's sea
+        // illustrations (InkRecord.m_seaMarks), which the fog needs before the world is painted.
+        public static byte[] Load(long worldUid, int seed, out SeaMark[] marks)
         {
+            marks = null;
             string path = FilePath(worldUid);
             if (!File.Exists(path)) return null;
             try
@@ -30,18 +37,32 @@ namespace Atlas
                 {
                     if (reader.ReadInt32() != Magic || reader.ReadInt32() != Version) return null;
                     if (reader.ReadInt32() != seed || reader.ReadInt32() != InkPainter.CanvasSize) return null;
+                    int count = reader.ReadInt32();
+                    if (count < 0 || count > MostSeaMarks) return null;
+                    var read = new SeaMark[count];
+                    for (int i = 0; i < count; i++)
+                    {
+                        read[i] = new SeaMark
+                        {
+                            m_west = reader.ReadSingle(), m_east = reader.ReadSingle(), m_south = reader.ReadSingle(), m_north = reader.ReadSingle(),
+                            m_kind = reader.ReadInt32(), m_x = reader.ReadSingle(), m_y = reader.ReadSingle(), m_scale = reader.ReadSingle(),
+                            m_mirror = reader.ReadBoolean(),
+                        };
+                        if (read[i].m_kind < 0 || read[i].m_kind >= SeaGlyphs.Names.Length) return null;
+                    }
                     // Ink coverage, then the peaks' two body masks.
                     var ink = new byte[InkPainter.CanvasSize * InkPainter.CanvasSize * 3];
                     using (var zip = new GZipStream(file, CompressionMode.Decompress))
                     {
-                        int read = 0;
-                        while (read < ink.Length)
+                        int done = 0;
+                        while (done < ink.Length)
                         {
-                            int got = zip.Read(ink, read, ink.Length - read);
+                            int got = zip.Read(ink, done, ink.Length - done);
                             if (got <= 0) return null;
-                            read += got;
+                            done += got;
                         }
                     }
+                    marks = read;
                     return ink;
                 }
             }
@@ -53,7 +74,7 @@ namespace Atlas
         }
 
         // Worker thread.
-        public static void Save(long worldUid, int seed, byte[] ink)
+        public static void Save(long worldUid, int seed, byte[] ink, IList<SeaMark> marks)
         {
             string path = FilePath(worldUid);
             try
@@ -68,6 +89,19 @@ namespace Atlas
                         writer.Write(Version);
                         writer.Write(seed);
                         writer.Write(InkPainter.CanvasSize);
+                        writer.Write(marks.Count);
+                        foreach (SeaMark mark in marks)
+                        {
+                            writer.Write(mark.m_west);
+                            writer.Write(mark.m_east);
+                            writer.Write(mark.m_south);
+                            writer.Write(mark.m_north);
+                            writer.Write(mark.m_kind);
+                            writer.Write(mark.m_x);
+                            writer.Write(mark.m_y);
+                            writer.Write(mark.m_scale);
+                            writer.Write(mark.m_mirror);
+                        }
                     }
                     using (var zip = new GZipStream(file, CompressionLevel.Fastest))
                         zip.Write(ink, 0, ink.Length);

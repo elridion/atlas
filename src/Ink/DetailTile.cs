@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using UnityEngine;
 
@@ -38,6 +39,8 @@ namespace Atlas
             // The frame's radius in sheet pixels: beyond it is the sheet's bare margin, not water.
             float frame = InkPainter.EdgeRadius / InkPainter.MetresPerPixel;
             var rgba = new byte[w * h * 4];
+            var seaWashes = new List<SeaWash>();
+            record.SeaWashes(left, top, left + width, top + height, seaWashes);
             for (int ty = 0; ty < h; ty++)
             {
                 // Parchment rows run from the south, the sheet's from the north.
@@ -80,6 +83,12 @@ namespace Atlas
                         lr += (br - lr) * body;
                         lg += (bg - lg) * body;
                         lb += (bb - lb) * body;
+                    }
+                    // A sea illustration's darker wash, sampled from the same mask the sheet lays.
+                    foreach (SeaWash sea in seaWashes)
+                    {
+                        float amount = sea.At(sx, sy);
+                        if (amount > 0f) Paper.SeaGlaze(lr, lg, lb, amount, out lr, out lg, out lb);
                     }
                     rgba[o] = (byte)(lr + (ink.r - lr) * a + 0.5f);
                     rgba[o + 1] = (byte)(lg + (ink.g - lg) * a + 0.5f);

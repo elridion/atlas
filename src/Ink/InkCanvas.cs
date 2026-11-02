@@ -34,6 +34,9 @@ namespace Atlas
         // While not None, Erase marks the scraped polygon as that kind of body (and clears the
         // other); any other erase clears both, so the glyph in front decides.
         public BodyKind m_markBody;
+        // When set, every erase also keeps its coverage here (the most of any erase), so a glyph's
+        // scraped silhouette can be read back: a sea illustration's wash follows it (SeaWash).
+        public byte[] m_scraped;
         // While Tint runs: the mask it raises, and its fade (sheet y where it starts, its length).
         private BodyKind m_tintKind;
         private float m_tintTop, m_tintFade, m_tintStrength;
@@ -127,6 +130,69 @@ namespace Atlas
         {
             m_record?.Polygon(m_layer, polygon, 1f, erase: true, body: m_markBody);
             Polygon(polygon, 1f, erase: true);
+        }
+
+        // Scrapes a simple polygon, concave or not, back to bare parchment in one pass, its edge
+        // pushed out by grow sheet pixels; marks body as Erase does. A concave outline scraped as
+        // a fan of convex triangles left a faint line along every shared edge: each triangle
+        // covers a pixel on it only partly, and the masks keep the larger share while the ink
+        // keeps the product of what is left, so neither comes out whole.
+        public void EraseOutline(IList<Vector2> outline, float grow)
+        {
+            m_record?.Outline(m_layer, outline, grow, m_markBody);
+            m_erasingPolygon = true;
+            try
+            {
+                OutlinePixels(outline, grow * m_scale);
+            }
+            finally
+            {
+                m_erasingPolygon = false;
+            }
+        }
+
+        // Coverage from the signed distance to the nearest edge segment, inside by the even-odd
+        // rule, so it is exact for concave outlines too.
+        private void OutlinePixels(IList<Vector2> sheetPolygon, float grow)
+        {
+            int count = sheetPolygon.Count;
+            if (count < 3) return;
+            m_transformed.Clear();
+            foreach (Vector2 p in sheetPolygon) m_transformed.Add(new Vector2(X(p.x), Y(p.y)));
+            List<Vector2> polygon = m_transformed;
+            float minXf = float.MaxValue, maxXf = float.MinValue, minYf = float.MaxValue, maxYf = float.MinValue;
+            foreach (Vector2 p in polygon)
+            {
+                minXf = Math.Min(minXf, p.x);
+                maxXf = Math.Max(maxXf, p.x);
+                minYf = Math.Min(minYf, p.y);
+                maxYf = Math.Max(maxYf, p.y);
+            }
+            float reach = Math.Max(grow, 0f) + 1f;
+            int minX = Math.Max(0, (int)(minXf - reach)), maxX = Math.Min(m_width - 1, (int)(maxXf + reach));
+            int minY = Math.Max(0, (int)(minYf - reach)), maxY = Math.Min(m_height - 1, (int)(maxYf + reach));
+            for (int y = minY; y <= maxY; y++)
+            {
+                float py = y + 0.5f;
+                for (int x = minX; x <= maxX; x++)
+                {
+                    float px = x + 0.5f;
+                    bool inside = false;
+                    float nearest = float.MaxValue;
+                    for (int i = 0; i < count; i++)
+                    {
+                        Vector2 a = polygon[i], b = polygon[(i + 1) % count];
+                        if ((a.y > py) != (b.y > py) && px < a.x + (py - a.y) * (b.x - a.x) / (b.y - a.y)) inside = !inside;
+                        float ex = b.x - a.x, ey = b.y - a.y;
+                        float lengthSqr = ex * ex + ey * ey;
+                        float t = lengthSqr > 0f ? Mathf.Clamp01(((px - a.x) * ex + (py - a.y) * ey) / lengthSqr) : 0f;
+                        float dx = px - (a.x + t * ex), dy = py - (a.y + t * ey);
+                        nearest = Math.Min(nearest, dx * dx + dy * dy);
+                    }
+                    float distance = Mathf.Sqrt(nearest);
+                    Lighten(y * m_width + x, (inside ? distance : -distance) + grow + 0.5f);
+                }
+            }
         }
 
         // Raises a body mask over a convex polygon without touching the ink, at strength by sheet
@@ -293,6 +359,11 @@ namespace Atlas
         {
             if (coverage <= 0f) return;
             float keep = 1f - Math.Min(coverage, 1f);
+            if (m_scraped != null)
+            {
+                int scraped = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
+                if (scraped > m_scraped[index]) m_scraped[index] = (byte)scraped;
+            }
             if (m_markBody != BodyKind.None && m_erasingPolygon)
             {
                 int value = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);

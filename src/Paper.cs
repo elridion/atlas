@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Atlas
@@ -25,6 +26,14 @@ namespace Atlas
         private const float PaperScale = FogSize / 1024f;
         // Fog is lifted inside this band at the world edge, so the frame always shows.
         private const float FrameBand = 120f;
+        // A sea illustration is shown or hidden whole (SeaMarkFog): the fog is lifted over its box
+        // when at least SeaMarkShown of the box is explored and laid over it when less is, out to
+        // SeaMarkMargin metres round it, past the soft edge the blur gives the fog (two 3x3
+        // passes, about 21 m), so that edge never crosses the glyph. The box is sampled every
+        // SeaMarkStep metres, finer than vanilla's 12 m exploration grid.
+        private const float SeaMarkShown = 0.5f;
+        private const float SeaMarkMargin = 40f;
+        private const float SeaMarkStep = 6f;
 
         // The biome wash: per biome (in Land order) a tint and how far the paper is moved towards
         // it, the extra share in the woods, and the blur passes (each about 10 m) that soften it.
@@ -59,6 +68,9 @@ namespace Atlas
         // the shallows deepening offshore was dropped: it drew the sea floor more exactly than a
         // hand-tinted map would.
         private static readonly Tint s_water = new Tint(100, 135, 190, 0.42f);
+        // The sea illustrations' wash (SeaWash): a second glaze of a deeper indigo laid over the
+        // water in their bodies, so they stand a little darker and bluer than the sea round them.
+        private static readonly Tint s_seaWash = new Tint(72, 100, 160, 0.22f);
         // The water's edge is anti-aliased over one pixel by the local slope of the ground, so the
         // blue ends exactly at the water line; softening it by a fixed height spilled it tens of
         // metres inland over flat beaches. This is the least slope assumed (metres a pixel).
@@ -540,8 +552,9 @@ namespace Atlas
                 ToByte(PaperColor.b * (1f - s + s * Filter(t.m_color.b, PaperColor.b))), 255);
         }
 
-        // The same for a painted sheet: ink coverage followed by the body mask (InkPainter.Paint).
-        public static byte[] InkWithMips(byte[] sheet)
+        // The same for a painted sheet: ink coverage followed by the body mask (InkPainter.Paint),
+        // with the wash of its sea illustrations (marks, or null for none).
+        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks)
         {
             int n = InkPainter.CanvasSize * InkPainter.CanvasSize;
             var ink = new byte[n];
@@ -550,7 +563,38 @@ namespace Atlas
             Buffer.BlockCopy(sheet, 0, ink, 0, n);
             if (sheet.Length >= 2 * n) Buffer.BlockCopy(sheet, n, body, 0, n);
             if (sheet.Length >= 3 * n) Buffer.BlockCopy(sheet, 2 * n, north, 0, n);
-            return InkWithMips(ink, body, north);
+            return InkWithMips(ink, body, north, marks);
+        }
+
+        // The sea wash glazed over a colour, amount (0 to 1, SeaWash.At) of its strength.
+        public static void SeaGlaze(float r, float g, float b, float amount, out float sr, out float sg, out float sb)
+        {
+            float s = s_seaWash.m_strength * amount;
+            sr = r * (1f - s + s * Filter(s_seaWash.m_color.r, PaperColor.r));
+            sg = g * (1f - s + s * Filter(s_seaWash.m_color.g, PaperColor.g));
+            sb = b * (1f - s + s * Filter(s_seaWash.m_color.b, PaperColor.b));
+        }
+
+        // The sheet's ink texture lies over the paper by alpha, so it cannot glaze. The sea wash is
+        // laid in it as the colour and opacity that, at full wash over clean water, give exactly
+        // the glaze close-ups lay (SeaGlaze): the opacity is the largest channel's loss, so that
+        // channel is
+        // a pure glaze and stains under the wash still show through; the others come within a
+        // level or two of it on stained paper.
+        private static void SeaInk(out float alpha, out float r, out float g, out float b)
+        {
+            Color32 p = PaperColor;
+            WaterColor(p.r, p.g, p.b, out float wr, out float wg, out float wb);
+            SeaGlaze(wr, wg, wb, 1f, out float sr, out float sg, out float sb);
+            alpha = Math.Max(1f - sr / wr, Math.Max(1f - sg / wg, 1f - sb / wb));
+            if (alpha <= 0f)
+            {
+                r = g = b = 0f;
+                return;
+            }
+            r = wr - (wr - sr) / alpha;
+            g = wg - (wg - sg) / alpha;
+            b = wb - (wb - sb) / alpha;
         }
 
         // The mountains' wash glazed over a parchment colour, for peak bodies in close-ups.
@@ -565,13 +609,14 @@ namespace Atlas
 
         // RGBA ink for every mip level, as LoadRawTextureData expects it: the ink over peak bodies
         // filled with PeakColor. Levels are averaged premultiplied, so ink and body mix rightly.
-        public static byte[] InkWithMips(byte[] ink, byte[] body, byte[] north)
+        public static byte[] InkWithMips(byte[] ink, byte[] body, byte[] north, IList<SeaMark> marks)
         {
             int n = InkPainter.CanvasSize;
             int total = 0;
             for (int size = n; size >= 1; size /= 2) total += size * size;
             var data = new byte[total * 4];
             Color32 peak = PeakColor, northPeak = Glazed(Land.DeepNorth);
+            SeaInk(out float seaAlpha, out float seaR, out float seaG, out float seaB);
             // Premultiplied RGBA of the current level, rows from the south.
             var level = new byte[n * n * 4];
             for (int y = 0; y < n; y++)
@@ -587,6 +632,33 @@ namespace Atlas
                     level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + InkColor.g * a);
                     level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + InkColor.b * a);
                     level[o + 3] = ToByte(Math.Min(1f, mu + qu + a) * 255f);
+                }
+            }
+            // The sea illustrations' wash under their ink. They stand in open water far from any
+            // peak, so only the ink lies over it.
+            if (marks != null && seaAlpha > 0f)
+            {
+                foreach (SeaMark mark in marks)
+                {
+                    SeaWash wash = SeaWash.Build(mark);
+                    int x0 = Math.Max(0, (int)wash.Left), x1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Right));
+                    int y0 = Math.Max(0, (int)wash.Top), y1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Bottom));
+                    for (int sy = y0; sy <= y1; sy++)
+                    {
+                        int from = sy * n, y = n - 1 - sy;
+                        for (int x = x0; x <= x1; x++)
+                        {
+                            float su = wash.At(x + 0.5f, sy + 0.5f) * seaAlpha;
+                            if (su <= 0f) continue;
+                            float a = ink[from + x] / 255f;
+                            su *= 1f - a;
+                            int o = (y * n + x) * 4;
+                            level[o] = ToByte(seaR * su + InkColor.r * a);
+                            level[o + 1] = ToByte(seaG * su + InkColor.g * a);
+                            level[o + 2] = ToByte(seaB * su + InkColor.b * a);
+                            level[o + 3] = ToByte(Math.Min(1f, su + a) * 255f);
+                        }
+                    }
                 }
             }
             int offset = 0;
@@ -622,8 +694,9 @@ namespace Atlas
         }
 
         // Fills the alpha of an RGBA fog buffer whose colours are the parchment: opaque where the
-        // snapshot shows nothing explored, clear where it does, with a soft edge between.
-        public static void Fog(byte[] rgba, byte[] parchment, Snapshot snapshot)
+        // snapshot shows nothing explored, clear where it does, with a soft edge between. marks
+        // are the sheet's sea illustrations, each shown or hidden whole (null when not known).
+        public static void Fog(byte[] rgba, byte[] parchment, Snapshot snapshot, IList<SeaMark> marks)
         {
             int n = FogSize;
             float metres = 2f * InkPainter.HalfExtent / n;
@@ -643,6 +716,8 @@ namespace Atlas
                     cover[y * n + x] = 1f - seen / 9f;
                 }
             }
+            if (snapshot != null && marks != null)
+                foreach (SeaMark mark in marks) SeaMarkFog(cover, n, metres, snapshot, mark);
             Blur(cover, n);
             Blur(cover, n);
             for (int i = 0; i < n * n; i++)
@@ -653,6 +728,40 @@ namespace Atlas
                 rgba[o + 2] = parchment[p + 2];
                 float c = cover[i];
                 rgba[o + 3] = ToByte(c * c * (3f - 2f * c) * 255f);
+            }
+        }
+
+        // Shows or hides one sea illustration whole, before the fog is blurred: the fog's own soft
+        // edge across a monster read as half a monster. Its box lies far out in open water, so
+        // lifting the fog off a little unexplored sea, or laying it over a little explored sea,
+        // shows or hides nothing but water.
+        private static void SeaMarkFog(float[] cover, int n, float metres, Snapshot snapshot, SeaMark mark)
+        {
+            int seen = 0, total = 0;
+            for (float wz = mark.m_south + SeaMarkStep * 0.5f; wz < mark.m_north; wz += SeaMarkStep)
+            {
+                for (float wx = mark.m_west + SeaMarkStep * 0.5f; wx < mark.m_east; wx += SeaMarkStep)
+                {
+                    total++;
+                    if (snapshot.IsExplored(wx, wz)) seen++;
+                }
+            }
+            if (total == 0) return;
+            float value = seen >= SeaMarkShown * total ? 0f : 1f;
+            int x0 = Mathf.Max(0, Mathf.FloorToInt((mark.m_west - SeaMarkMargin + InkPainter.HalfExtent) / metres));
+            int x1 = Mathf.Min(n - 1, Mathf.CeilToInt((mark.m_east + SeaMarkMargin + InkPainter.HalfExtent) / metres));
+            int y0 = Mathf.Max(0, Mathf.FloorToInt((mark.m_south - SeaMarkMargin + InkPainter.HalfExtent) / metres));
+            int y1 = Mathf.Min(n - 1, Mathf.CeilToInt((mark.m_north + SeaMarkMargin + InkPainter.HalfExtent) / metres));
+            for (int y = y0; y <= y1; y++)
+            {
+                float wz = (y + 0.5f) * metres - InkPainter.HalfExtent;
+                float dz = Math.Max(0f, Math.Max(mark.m_south - wz, wz - mark.m_north));
+                for (int x = x0; x <= x1; x++)
+                {
+                    float wx = (x + 0.5f) * metres - InkPainter.HalfExtent;
+                    float dx = Math.Max(0f, Math.Max(mark.m_west - wx, wx - mark.m_east));
+                    if (dx * dx + dz * dz <= SeaMarkMargin * SeaMarkMargin) cover[y * n + x] = value;
+                }
             }
         }
 

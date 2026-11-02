@@ -26,6 +26,14 @@ namespace Atlas
         // Trees use a smaller unit than other glyphs, packed as densely in their own unit, so woods
         // keep their texture while each tree reads as a tree at the closer zoom.
         private const float T = 0.75f * G;
+        // Crowns hidden by the crowns in front (HideCoveredCrowns): a crown stays when an unbroken
+        // CrownShown share of its outline stands CrownSliver pens clear of them, tested at
+        // CrownSamples points. Crowns are looked up on cells of CrownCell T, more than the widest
+        // scraped crown (the giant trees', 5.2 T) and the sliver.
+        private const float CrownShown = 0.2f;
+        private const float CrownSliver = 1.6f;
+        private const int CrownSamples = 32;
+        private const float CrownCell = 8f;
 
         // The coast's pen, in canvas pixels: barely heavier than the waves beside it, as on the
         // classic map (it was 2.1, the map's heaviest line).
@@ -127,33 +135,63 @@ namespace Atlas
         private const int SmallLakeLongDashes = 5;
         private const int SmallLakeShortDashes = 3;
         private const float IsletCrest = 2.4f;
-        private const int IsletLongCrests = 4;
-        private const int IsletShortCrests = 3;
-        private const float IsletSpacing = 60f;
+        // A cluster's group keeps this far from the coast's groups, as they keep from each other
+        // (AccentSpacing). At 60, with groups sized to their islets, half the clusters on Velen
+        // (26 of 53) stood bare beside a coast group.
+        private const float IsletSpacing = 40f;
         // Islets are grouped into clusters ("group islands, find their group
-        // center ... and then render the islands on top"): single linkage on their bounds with
-        // IsletLink sheet pixels between. Each cluster gets one group on IsletRowsMax rows at
-        // most, centred on its centroid, its middle stroke the cluster's length plus IsletLongPad
-        // crests either side, IsletMaxCrests at most, short rows IsletShortDrop crests shorter;
-        // the islets cut it (CutAnchor). Strokes stay level; on a cluster whose cells spread
-        // IsletElongation times as far one way as across, each row is shifted left or right to
-        // follow the chain (rows move independently to follow the island
-        // group's direction, the lines themselves stay horizontal).
+        // center"): single linkage on their bounds with IsletLink sheet pixels between. Each
+        // cluster gets one group round its centroid (PlaceClusterGroup), its strokes level; on a
+        // cluster whose cells spread IsletElongation times as far one way as across, its open
+        // rows are shifted left or right to follow the chain (rows move to
+        // follow the island group's direction, the lines themselves stay horizontal).
         private const float IsletLink = 16f;
-        private const int IsletRowsMax = 7;
-        private const int IsletLongPad = 2;
-        private const int IsletShortDrop = 3;
-        private const int IsletMaxCrests = 12;
         private const float IsletClusterSpan = 48f;
         private const float IsletLinkMin = 3f;
         private const float IsletElongation = 1.5f;
         // How far a row may shift along a slanting chain per pixel it lies above or below the
         // centre: a chain near level would otherwise send its rows far apart.
         private const float IsletLean = 2.5f;
-        // InkRecord.Wave.m_anchor of a stroke laid under islets: sheet and close-ups cut it where
-        // it crosses their own land.
-        private const int CutAnchor = 2;
-        private const int MajorLandCells = 400;
+        // The sine of 25 degrees: a chain flatter than that gets no lean.
+        private const float IsletLevelChain = 0.42f;
+        // A group is sized to its cluster (a 134-cell islet with four long
+        // strokes had "far too many waves"). Its size is the side of a square of its cells, in
+        // sheet pixels (8 for WavedIsletCells, 26 for 134 cells, 36 just under MajorLandCells):
+        // GroupFloor strokes up to IsletSizeBase, one more every IsletSizeStep, IsletStrokesMax
+        // at most; a long row IsletShortCrests and one more every IsletSizeLong, between one more
+        // than that and IsletLongCrests, a short row two crests shorter, never under
+        // IsletShortCrests (two-crest strokes read as stubs).
+        private const float IsletSizeBase = 12f;
+        private const float IsletSizeStep = 10f;
+        private const int IsletStrokesMax = 5;
+        private const float IsletSizeLong = 12f;
+        private const int IsletLongCrests = 6;
+        private const int IsletShortCrests = 3;
+        // Each row's centre sits left and right of the group's centre in turn, IsletSway crests
+        // (0.5 to 1.3 of it by seed) on an open row, a crest moved from one side's stroke to the
+        // other's on a row through the land, so the stack reads as hand-drawn round one centre
+        // instead of ruled on one vertical line.
+        private const float IsletSway = 0.9f;
+        // Land masses from MajorLandCells (about 36,000 m², some 190 m across) are coast: they get
+        // the coast's groups at their bends. At 400, masses of 250-400 cells lying in channels
+        // off the main coast got islet groups that read as part of the coast;
+        // on Velen 11 of the 71 masses of 40-400 cells are over 250, and the user's "small
+        // island" is 134. An islet whose bounds come within IsletCoastGap (about 63 m, the reach
+        // of a coast stroke) of such land is no islet either: it lies in the coast's own waves
+        // and gets no group of its own.
+        private const int MajorLandCells = 250;
+        private const float IsletCoastGap = 12f;
+        // A stroke off an islet stops this far (about 53 m, four crests) short of other land, so
+        // channels between islets stay open water and their strokes run out to the open sea
+        // (IsletRoom); at 5 px strokes still filled the channel between two islets 13 px apart.
+        private const float IsletChannelGap = 10f;
+        // A row crossing less land than this (sheet pixels) only grazes a tip and takes no stroke.
+        private const int IsletTipWidth = 3;
+        // InkRecord.Wave.m_anchor of a stroke off an islet's shore, times its direction: close-ups
+        // move it to their own shore as a coast stroke, and keep its water clear of land
+        // TileIsletBand above and below its row too, since an islet's shore curves close round
+        // the stroke.
+        private const int IsletAnchor = 2;
         // Islets of fewer map cells than this (1,700 m², about 40 m across) get no waves: the
         // start's outer islets are 13 to 22 cells, the specks round them 2 to 6.
         private const int WavedIsletCells = 12;
@@ -243,6 +281,24 @@ namespace Atlas
         private const float SpireSlope = 0.45f;
         private const int SpireCells = 5;
         private const float SpireProminence = 25f;
+        // Scarps: the Mistlands' broken rock, where trees keep off, as small cliff edges along the
+        // contour with hachures falling downhill. On ground of SpireSlope and steeper, on a grid
+        // of ScarpStep G with ScarpOdds of its cells drawn, ScarpShore (canvas pixels) off the
+        // water so the coast's islets and waves stay clear, clear of the mist banks' lines; a
+        // mark gives way to a neighbour of higher priority within ScarpGap of its length.
+        // ScarpTick is the longest hachure (G). ScarpClear (G) is the paper kept between a scarp and
+        // every placed glyph's footprint (GlyphBox), trees, spires and peaks alike.
+        private const float ScarpStep = 6f;
+        private const float ScarpOdds = 0.85f;
+        private const float ScarpShore = 4f;
+        private const float ScarpGap = 0.75f;
+        private const float ScarpTick = 1.2f;
+        private const float ScarpJitter = 0.6f;
+        private const float ScarpClear = 1f;
+        // A giant tree's crown ends at least this far above its foot, and its trunk and roots stand
+        // within this half width (both in the tree's size).
+        private const float GiantCrownFoot = 2.9f;
+        private const float GiantTrunkHalf = 1.5f;
         private const float VolcanoHeight = 22f;
         // Volcanoes are drawn larger than other land glyphs, closer to the size of a peak.
         private const float VolcanoScale = 2.2f;
@@ -312,6 +368,8 @@ namespace Atlas
         }
 
         private readonly List<Islet> m_islets = new List<Islet>();
+        // Per map cell, the index in m_islets plus one of the islet it belongs to, 0 elsewhere.
+        private int[] m_isletCell;
         private byte[] m_landDistance;
         // Canvas pixels inside a wood, and each pixel's distance to the nearest of them.
         private byte[] m_wood;
@@ -412,6 +470,7 @@ namespace Atlas
             m_cancel.ThrowIfCancellationRequested();
             BuildFields();
             m_cancel.ThrowIfCancellationRequested();
+            FindMist();
             m_canvas.m_layer = InkLayer.Background;
             DrawBackground();
             m_canvas.m_layer = InkLayer.Lava;
@@ -426,6 +485,15 @@ namespace Atlas
             m_cancel.ThrowIfCancellationRequested();
             PlaceGlyphs();
             m_cancel.ThrowIfCancellationRequested();
+            foreach (Glyph glyph in m_glyphs)
+            {
+                if (glyph.m_kind == Kind.Mist) continue;
+                AddFootprint(glyph);
+                // Close-ups draw their own trees, so only the other glyphs' footprints are kept.
+                if (!IsTree(glyph.m_kind)) m_record?.AddGlyphBox(GlyphBox(glyph));
+            }
+            m_canvas.m_layer = InkLayer.Background;
+            DrawScarps();
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             foreach (Glyph glyph in m_glyphs)
             {
@@ -443,6 +511,9 @@ namespace Atlas
             DrawWaves(waterLines);
             m_canvas.m_layer = InkLayer.Floe;
             foreach (Glyph floe in m_floes) DrawGlyph(floe);
+            // Last before the frame, so they can keep clear of every mark already inked.
+            DrawIllustrations();
+            m_cancel.ThrowIfCancellationRequested();
             m_canvas.m_layer = InkLayer.Frame;
             DrawFrame();
         }
@@ -595,6 +666,7 @@ namespace Atlas
         private bool[] MajorLand(float water, int size)
         {
             var major = new bool[size * size];
+            m_isletCell = new int[size * size];
             var seen = new bool[size * size];
             var queue = new int[size * size];
             for (int start = 0; start < seen.Length; start++)
@@ -628,6 +700,7 @@ namespace Atlas
                         sumZ += z;
                     }
                     if (mist * 2 >= tail) continue;
+                    for (int k = 0; k < tail; k++) m_isletCell[queue[k]] = m_islets.Count + 1;
                     // Cell edges in world metres, then on the sheet (y runs south).
                     float ps = m_world.m_pixelSize, half = size / 2;
                     float wx = (sumX / tail + 0.5f - half) * ps, wz = (sumZ / tail + 0.5f - half) * ps;
@@ -1023,6 +1096,179 @@ namespace Atlas
             });
         }
 
+        // Mistlands: the steep broken rock the spires stand on, where neither trees nor mist lie,
+        // was left as bare paper ("some areas are very blank"). Small scarps
+        // follow the ground: each edge runs along the contour, its hachures point downhill, so
+        // the marks read as the terrain's own cliffs rather than a texture. Only on the open rock
+        // between the glyphs (not close to trees or mountains, so they do not
+        // overpopulate the map), so this runs once every glyph is placed, on the background
+        // layer, before any glyph is inked.
+        private void DrawScarps()
+        {
+            float scarpStep = ScarpStep * m_g;
+            Scatter(scarpStep, scarpStep, ScarpJitter, 0.5f, 19, s =>
+            {
+                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < ScarpShore) return;
+                if (s.m_slope < SpireSlope || !(s.m_roll < ScarpOdds) || ScarpCrowded(s, scarpStep)) return;
+                Vector2 down = Downhill(s.m_x, s.m_y);
+                // The mark's half extent: half its edge along the contour, its hachures downhill.
+                float half = 0.5f * ScarpLength(s.m_seed, m_g), tick = ScarpTick * m_g;
+                float ex = Math.Abs(down.y) * half + Math.Abs(down.x) * tick;
+                float ey = Math.Abs(down.x) * half + Math.Abs(down.y) * tick;
+                if (!ClearOfMist(s.m_x, s.m_y, ex, ey)) return;
+                float clear = ScarpClear * m_g;
+                if (!ClearOfGlyphs(s.m_x, s.m_y, ex + clear, ey + clear)) return;
+                // Rivers are inked before the scarps now, so a scarp would cross the stream.
+                var along = new Vector2(-down.y, down.x) * half;
+                if (OnRiver(s.m_x, s.m_y) || OnRiver(s.m_x + along.x, s.m_y + along.y) || OnRiver(s.m_x - along.x, s.m_y - along.y)) return;
+                Scarp(s.m_x, s.m_y, m_g, s.m_seed, down);
+            });
+        }
+
+        // The drawn footprint of every placed glyph but the mist (left, top, right, bottom),
+        // filed in PeakCell squares, which the scarps keep ScarpClear off: on the sheet all of
+        // its glyphs, in a close-up its own trees and the sheet's other glyphs from the record.
+        private readonly Dictionary<int, List<Vector4>> m_glyphBoxes = new Dictionary<int, List<Vector4>>();
+
+        private void AddGlyphBox(Vector4 box)
+        {
+            int x0 = (int)Math.Floor(box.x / PeakCell), x1 = (int)Math.Floor(box.z / PeakCell);
+            int y0 = (int)Math.Floor(box.y / PeakCell), y1 = (int)Math.Floor(box.w / PeakCell);
+            for (int cy = y0; cy <= y1; cy++)
+            {
+                for (int cx = x0; cx <= x1; cx++)
+                {
+                    int key = PeakCellKey(cx, cy);
+                    if (!m_glyphBoxes.TryGetValue(key, out List<Vector4> cell)) m_glyphBoxes[key] = cell = new List<Vector4>(8);
+                    cell.Add(box);
+                }
+            }
+        }
+
+        // Whether the rectangle of the given half width and height round (x, y) misses every
+        // glyph's footprint.
+        private bool ClearOfGlyphs(float x, float y, float halfWidth, float halfHeight)
+        {
+            float left = x - halfWidth, right = x + halfWidth, top = y - halfHeight, bottom = y + halfHeight;
+            int x0 = (int)Math.Floor(left / PeakCell), x1 = (int)Math.Floor(right / PeakCell);
+            int y0 = (int)Math.Floor(top / PeakCell), y1 = (int)Math.Floor(bottom / PeakCell);
+            for (int cy = y0; cy <= y1; cy++)
+            {
+                for (int cx = x0; cx <= x1; cx++)
+                {
+                    if (!m_glyphBoxes.TryGetValue(PeakCellKey(cx, cy), out List<Vector4> cell)) continue;
+                    foreach (Vector4 box in cell)
+                        if (box.x < right && left < box.z && box.y < bottom && top < box.w) return false;
+                }
+            }
+            return true;
+        }
+
+        // A glyph's footprint, filed for the scarps. A giant tree's is its crown and the trunk
+        // under it apart: one box round both blanked the rock beside every trunk.
+        private void AddFootprint(Glyph g)
+        {
+            Vector4 box = GlyphBox(g);
+            if (g.m_kind == Kind.GiantTree)
+            {
+                float crown = g.m_y - GiantCrownFoot * g.m_size, trunk = GiantTrunkHalf * g.m_size;
+                AddGlyphBox(new Vector4(box.x, box.y, box.z, crown));
+                box = new Vector4(g.m_x - trunk, crown, g.m_x + trunk, box.w);
+            }
+            AddGlyphBox(box);
+        }
+
+        // A glyph's drawn footprint, a little generous: crowns, bodies, companions behind and
+        // the roots or skirt below the foot, from the same sizes and seeds the drawing uses.
+        private static Vector4 GlyphBox(Glyph g)
+        {
+            float s = g.m_size, half, height;
+            switch (g.m_kind)
+            {
+                case Kind.Peak:
+                    half = 0.56f * s;
+                    height = PeakHeightOf(s, g.m_seed);
+                    break;
+                case Kind.Hill:
+                    half = 0.75f * s;
+                    height = 0.5f * s;
+                    break;
+                case Kind.Spire:
+                    height = SpireHeightOf(s, g.m_seed);
+                    half = 0.42f * height;
+                    break;
+                case Kind.Volcano:
+                    half = 0.56f * 14f * s;
+                    height = 0.55f * 15.7f * s;
+                    break;
+                case Kind.Crag:
+                    half = 6.5f * s;
+                    height = 7f * s;
+                    break;
+                case Kind.GiantTree:
+                    half = 5.8f * s;
+                    height = 12f * s;
+                    break;
+                case Kind.Conifer:
+                    half = 3.6f * s;
+                    height = 14.5f * s;
+                    break;
+                case Kind.DeadTree:
+                    half = 5f * s;
+                    height = 14f * s;
+                    break;
+                default:
+                    // Broadleaf and plains trees.
+                    half = 3.6f * s;
+                    height = 12f * s;
+                    break;
+            }
+            return new Vector4(g.m_x - half, g.m_y - height, g.m_x + half, g.m_y + 0.5f * s + PeakSkirt);
+        }
+
+        // A scarp's length along its edge, from its seed.
+        private static float ScarpLength(int seed, float s) => Mathf.Lerp(4f, 6f, Unit(seed, 50)) * s;
+
+        // Whether a neighbouring cell of the scarp grid could put a scarp of higher priority too
+        // close to this one. From the grid's hashes alone, as the chevrons' test, so a neighbour
+        // on gentler ground can still make one give way, which only thins the rock's edges.
+        private bool ScarpCrowded(Spot s, float step)
+        {
+            float priority = Unit(s.m_seed, 30);
+            float length = ScarpLength(s.m_seed, m_g);
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (dx == 0 && dy == 0) continue;
+                    int gx = s.m_gx + dx, gy = s.m_gy + dy;
+                    int seed = HashInt(gx, gy, s.m_gridSeed);
+                    if (!(Unit(seed, 3) < ScarpOdds) || Unit(seed, 30) < priority) continue;
+                    float x = (gx + 0.5f + (gy % 2) * 0.5f + (Unit(seed, 1) - 0.5f) * ScarpJitter) * step - s.m_x;
+                    float y = (gy + 0.5f + (Unit(seed, 2) - 0.5f) * ScarpJitter) * step - s.m_y;
+                    float reach = ScarpGap * 0.5f * (length + ScarpLength(seed, m_g));
+                    if (x * x + y * y < reach * reach) return true;
+                }
+            }
+            return false;
+        }
+
+        // The downhill direction at a canvas point (y runs south), from the heights a map pixel
+        // either side: the world's on the sheet, the tile's own in a close-up, as the slope the
+        // rules test. Flat ground falls south, the map's own default.
+        private Vector2 Downhill(float x, float y)
+        {
+            float d = m_world.m_pixelSize / MetresPerPixel;
+            float east = GroundHeight(x + d, y) - GroundHeight(x - d, y);
+            float south = GroundHeight(x, y + d) - GroundHeight(x, y - d);
+            var fall = new Vector2(-east, -south);
+            return fall.sqrMagnitude > 1e-6f ? fall.normalized : new Vector2(0f, 1f);
+        }
+
+        private float GroundHeight(float x, float y) => m_grid != null
+            ? m_grid.Sample(m_grid.m_height, x, y)
+            : m_world.HeightAt(x * MetresPerPixel - HalfExtent, HalfExtent - y * MetresPerPixel);
+
         // Whether a point lies on a crest line of the pressure ridges' noise.
         private bool IsRidge(float x, float y) =>
             1f - Math.Abs(2f * Noise(x / RidgeScale, y / RidgeScale, m_world.m_seed + 9) - 1f) >= RidgeBand;
@@ -1356,7 +1602,7 @@ namespace Atlas
             for (int j = 0; j <= 6; j++) m_hillProbe.Add(new Vector2(x + (j / 6f - 0.5f) * width, y));
             for (int k = 0; k < shape.m_dashes; k++)
             {
-                if (!DomeDash(shape, x, y, width, seed, k, out Vector2 a, out Vector2 b)) continue;
+                if (!DomeDash(shape, m_domeProbe, x, y, width, seed, k, out Vector2 a, out Vector2 b)) continue;
                 m_hillProbe.Add(a);
                 m_hillProbe.Add((a + b) * 0.5f);
                 m_hillProbe.Add(b);
@@ -1492,6 +1738,7 @@ namespace Atlas
         // detail tile packs more, smaller trees.
         private void PlaceTrees()
         {
+            int first = m_glyphs.Count;
             // Meadows: egg-shaped broadleaf crowns.
             Scatter(5.2f * m_t, 23, s =>
             {
@@ -1523,6 +1770,110 @@ namespace Atlas
                 if (s.m_slope >= SpireSlope || !InWood(s, Land.Mistlands, 13f * m_t) || !(s.m_roll < 0.9f)) return;
                 Add(s, Kind.GiantTree, m_t);
             });
+            HideCoveredCrowns(first);
+        }
+
+        // Whether a glyph has a round crown (Glyphs: BroadleafCrown, PlainsCrown, GiantCrown).
+        private static bool RoundCrown(Glyph g, out Crown crown)
+        {
+            switch (g.m_kind)
+            {
+                case Kind.Broadleaf: crown = BroadleafCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
+                case Kind.PlainsTree: crown = PlainsCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
+                case Kind.GiantTree: crown = GiantCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
+                default: crown = default(Crown); return false;
+            }
+        }
+
+        // Leaves out a round crown that the crowns in front of it would all but hide. Trees are
+        // drawn north to south, each scraping its crown's ellipse back to paper, so a crown standing
+        // just behind a bigger one kept only a thin crescent hugging the front outline, or a few
+        // stray scraps of its loop: in the Meadows' dense woods that read as doubled lines and
+        // broken outlines rather than trees stacked behind each other. A crown is kept when an
+        // unbroken run of at least CrownShown of its outline stands clear of every crown in front
+        // by CrownSliver pens; one that shows less was almost entirely hidden anyway, so the wood
+        // keeps its density. Every candidate in front counts, dropped or not, so the decision
+        // rests on hashed neighbours alone and a tile decides as the sheet does (a tile scatters
+        // GlyphReach round itself, more than a visible crown and its covers reach).
+        private void HideCoveredCrowns(int first)
+        {
+            int count = m_glyphs.Count - first;
+            if (count <= 1) return;
+            var crowns = new Crown[count];
+            var round = new bool[count];
+            float cell = CrownCell * m_t;
+            var heads = new Dictionary<long, int>();
+            var next = new int[count];
+            for (int i = 0; i < count; i++)
+            {
+                next[i] = -1;
+                round[i] = RoundCrown(m_glyphs[first + i], out crowns[i]);
+                if (!round[i]) continue;
+                long key = CellKey(crowns[i].m_cx, crowns[i].m_cy, cell);
+                if (heads.TryGetValue(key, out int head)) next[i] = head;
+                heads[key] = i;
+            }
+
+            float sliver = CrownSliver * m_pen;
+            var clear = new bool[CrownSamples];
+            var keep = new bool[count];
+            for (int i = 0; i < count; i++)
+            {
+                keep[i] = true;
+                if (!round[i]) continue;
+                Crown a = crowns[i];
+                float footA = m_glyphs[first + i].m_y;
+                // Cells whose crowns' scraped ellipses can reach this one's outline.
+                float reachX = a.m_rx * 1.15f + CrownCell * m_t, reachY = a.m_ry * 1.15f + CrownCell * m_t;
+                int cx0 = Mathf.FloorToInt((a.m_cx - reachX) / cell), cx1 = Mathf.FloorToInt((a.m_cx + reachX) / cell);
+                int cy0 = Mathf.FloorToInt((a.m_cy - reachY) / cell), cy1 = Mathf.FloorToInt((a.m_cy + reachY) / cell);
+                float start = Unit(a.m_seed, 40) * Mathf.PI * 2f;
+                for (int k = 0; k < CrownSamples; k++) clear[k] = true;
+                for (int gy = cy0; gy <= cy1; gy++)
+                {
+                    for (int gx = cx0; gx <= cx1; gx++)
+                    {
+                        if (!heads.TryGetValue(((long)gy << 32) ^ (uint)gx, out int j)) continue;
+                        for (; j >= 0; j = next[j])
+                        {
+                            // Only crowns drawn later (further south) cover this one.
+                            if (j == i || m_glyphs[first + j].m_y <= footA) continue;
+                            Crown b = crowns[j];
+                            float ex = CrownEraseX(b) + sliver, ey = CrownEraseY(b) + sliver;
+                            for (int k = 0; k < CrownSamples; k++)
+                            {
+                                if (!clear[k]) continue;
+                                float angle = start + Mathf.PI * 2f * k / CrownSamples;
+                                float bump = CrownBump(a.m_seed, angle, a.m_wobble);
+                                float dx = (a.m_cx + Mathf.Cos(angle) * a.m_rx * bump - b.m_cx) / ex;
+                                float dy = (a.m_cy + Mathf.Sin(angle) * a.m_ry * bump - b.m_cy) / ey;
+                                if (dx * dx + dy * dy < 1f) clear[k] = false;
+                            }
+                        }
+                    }
+                }
+                keep[i] = LongestRun(clear) >= CrownShown * CrownSamples;
+            }
+
+            int write = first;
+            for (int i = 0; i < count; i++)
+                if (keep[i]) m_glyphs[write++] = m_glyphs[first + i];
+            m_glyphs.RemoveRange(write, m_glyphs.Count - write);
+        }
+
+        private static long CellKey(float x, float y, float cell) =>
+            ((long)Mathf.FloorToInt(y / cell) << 32) ^ (uint)Mathf.FloorToInt(x / cell);
+
+        // The longest unbroken run of true round a closed loop of flags.
+        private static int LongestRun(bool[] flags)
+        {
+            int n = flags.Length, best = 0, run = 0;
+            for (int k = 0; k < 2 * n; k++)
+            {
+                if (flags[k % n]) best = Math.Max(best, Math.Min(n, ++run));
+                else run = 0;
+            }
+            return best;
         }
 
         private void PlaceGlyphs()
@@ -1613,8 +1964,9 @@ namespace Atlas
                 m_crags.Add(new Vector2(moved.m_x, moved.m_y));
                 Add(moved, Kind.Crag, CragScale * G);
             }
-            // Sea: ice floes in the northern sea. The open sea is otherwise left blank, as on the
-            // classic map; wave marks far out read as birds.
+            // Sea: ice floes in the northern sea. The open sea is otherwise left blank but for a
+            // few illustrations (DrawIllustrations); wave marks far out read as birds (wave
+            // review).
             Scatter(15f * G, 33, s =>
             {
                 if (m_sea[s.m_pixel] == 0 || s.m_water < 4f * G || !(s.m_roll < 0.5f)) return;
@@ -1661,20 +2013,60 @@ namespace Atlas
         // lines, the middle one longest, with no parchment band scraped under them: the bands
         // read as heavy padding. Banks lie in the valleys and thin out with height, as the game's
         // mist clears on the heights, and keep off steep crag ground (Mistlands review).
-        private void PlaceMist()
+        // The banks are found before the ground fills (FindMist), so the scarps can keep off them,
+        // and join the glyphs here, where they always did.
+        private void PlaceMist() => m_glyphs.AddRange(m_mist);
+
+        private void FindMist()
         {
             Scatter(30f * G, 12f * G, 0.5f, 0.5f, 13, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 6f || s.m_slope >= SpireSlope * 1.3f) return;
                 if (!(s.m_roll < Mathf.Lerp(0.9f, 0.35f, Mathf.Clamp01(s.m_above / MistCeiling)))) return;
-                m_glyphs.Add(new Glyph { m_x = s.m_x, m_y = s.m_y + MistGap, m_size = G, m_kind = Kind.Mist, m_seed = s.m_seed });
+                m_mist.Add(new Glyph { m_x = s.m_x, m_y = s.m_y + MistGap, m_size = G, m_kind = Kind.Mist, m_seed = s.m_seed });
+                var bank = new Vector3(s.m_x, s.m_y, MistLength(s.m_seed) * 0.5f);
+                AddMistBank(bank);
+                m_record?.AddMist(bank.x, bank.y, bank.z);
             });
         }
+
+        private readonly List<Glyph> m_mist = new List<Glyph>();
+        // The mist banks' middle lines (centre x, y and half length z), filed in PeakCell squares:
+        // on the sheet the banks just found, in a close-up the sheet's from the record.
+        private readonly Dictionary<int, List<Vector3>> m_mistBanks = new Dictionary<int, List<Vector3>>();
+
+        private void AddMistBank(Vector3 bank)
+        {
+            int key = PeakCellKey((int)Math.Floor(bank.x / PeakCell), (int)Math.Floor(bank.y / PeakCell));
+            if (!m_mistBanks.TryGetValue(key, out List<Vector3> cell)) m_mistBanks[key] = cell = new List<Vector3>(8);
+            cell.Add(bank);
+        }
+
+        // Whether a mark of the given half width and height round (x, y) keeps clear of every mist
+        // bank's lines (the three lines, their wave and pen): ticks under a veil's lines read as
+        // scribble.
+        private bool ClearOfMist(float x, float y, float halfWidth, float halfHeight)
+        {
+            float across = MistGap + 0.6f * G + Pen + halfHeight, radius = halfWidth + Pen;
+            int cx = (int)Math.Floor(x / PeakCell), cy = (int)Math.Floor(y / PeakCell);
+            for (int dy = -1; dy <= 1; dy++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (!m_mistBanks.TryGetValue(PeakCellKey(cx + dx, cy + dy), out List<Vector3> cell)) continue;
+                    foreach (Vector3 bank in cell)
+                        if (Math.Abs(x - bank.x) < bank.z + radius && Math.Abs(y - bank.y) < across) return false;
+                }
+            }
+            return true;
+        }
+
+        private static float MistLength(int seed) => Mathf.Lerp(26f, 40f, Unit(seed, 5)) * G;
 
         // A bank centred on (x, y).
         private void MistBank(float x, float y, int seed)
         {
-            float length = Mathf.Lerp(26f, 40f, Unit(seed, 5)) * G;
+            float length = MistLength(seed);
             float tilt = (Unit(seed, 6) - 0.5f) * 0.06f;
             float phase = Unit(seed, 4) * 6.28f;
             float left = x - length * 0.5f;
@@ -1800,24 +2192,25 @@ namespace Atlas
             m_waveSpans = new Dictionary<int, List<Vector2>>();
             List<Accent> accents = FindAccents(lines, salt);
             m_cancel.ThrowIfCancellationRequested();
-            foreach (Accent accent in accents) DrawGroup(accent, salt);
+            // Only accents that drew a group keep the islets' groups away: one with no room left
+            // a bare islet beside a bare coast.
+            var drawn = new List<Accent>();
+            foreach (Accent accent in accents)
+                if (DrawGroup(accent, salt)) drawn.Add(accent);
             DrawLakeLines(lines, salt);
             // Islets last, kept off the coast's groups, so those stay as they were.
-            DrawIsletWaves(salt, accents);
+            DrawIsletWaves(salt, drawn);
         }
 
-        // The islets' waves ("try to group islands, find their group center and
-        // try to place lines centered on that and then render the islands on top"). Islets
-        // outside the Mistlands are clustered (ClusterIslets) and each cluster gets one group
-        // centred on its centroid, laid as if the islets were not there; the islets then hide
-        // the strokes under them. Larger clusters first, each IsletSpacing from the coast's
-        // groups and clear of the groups already drawn.
+        // The islets' waves ("try to group islands, find their group center").
+        // Islets outside the Mistlands are clustered (ClusterIslets) and each cluster gets one
+        // group round its centroid. Larger clusters first, each IsletSpacing from the coast's
+        // groups; strokes claim their rows, so later groups keep off earlier ones.
         private void DrawIsletWaves(int salt, List<Accent> coast)
         {
             m_hand = s_isletHand;
             var grid = new Dictionary<long, List<Vector2>>();
             foreach (Accent accent in coast) AddToGrid(grid, accent.m_at);
-            m_clusterInk = new HashSet<int>();
             float centre = CanvasSize * 0.5f, limit = EdgeRadius / MetresPerPixel * EdgeFraction;
             foreach (IsletCluster cluster in ClusterIslets())
             {
@@ -1826,22 +2219,10 @@ namespace Atlas
                 if (dx * dx + dy * dy > limit * limit) continue;
                 BeginGroup();
                 PlaceClusterGroup(cluster, salt);
-                // Later clusters keep WaveSlotGap off this group's strokes, if it is drawn.
-                if (m_group.Count >= m_hand.m_floor)
-                {
-                    foreach (GroupStroke s in m_group)
-                    {
-                        var from = new Vector2(s.m_x0, s.m_y);
-                        Footprint(m_clusterInk, CanvasSize, from, from + s.m_dir * (s.m_x1 - s.m_x0), WaveSlotGap, true);
-                    }
-                }
                 EndGroup(salt);
             }
             m_hand = s_seaHand;
         }
-
-        // Pixels near the islet clusters' strokes drawn so far.
-        private HashSet<int> m_clusterInk;
 
         // A cluster of islets: their cells' centroid, the direction its strokes run (its long
         // axis, or level) and its extent along that direction (u) and across it (v) from the
@@ -1861,11 +2242,16 @@ namespace Atlas
         private List<IsletCluster> ClusterIslets()
         {
             int count = m_islets.Count;
+            // Islets within IsletCoastGap of the coast lie in its waves: they are left out, so
+            // they neither get a group nor join one.
+            var near = new bool[count];
+            for (int i = 0; i < count; i++) near[i] = NearCoast(i);
             var parent = new int[count];
             for (int i = 0; i < count; i++) parent[i] = i;
             var cells = new Dictionary<long, List<int>>();
             for (int i = 0; i < count; i++)
             {
+                if (near[i]) continue;
                 Islet a = m_islets[i];
                 int x0 = Mathf.FloorToInt((a.m_left - IsletLink) / AccentCell), x1 = Mathf.FloorToInt((a.m_right + IsletLink) / AccentCell);
                 int y0 = Mathf.FloorToInt((a.m_top - IsletLink) / AccentCell), y1 = Mathf.FloorToInt((a.m_bottom + IsletLink) / AccentCell);
@@ -1883,6 +2269,7 @@ namespace Atlas
             var linked = new List<List<int>>();
             for (int i = 0; i < count; i++)
             {
+                if (near[i]) continue;
                 int root = Find(i);
                 if (!byRoot.TryGetValue(root, out int c))
                 {
@@ -2015,6 +2402,28 @@ namespace Atlas
             }
         }
 
+        // Whether land of MajorLandCells comes within IsletCoastGap of islet i: of the sheet
+        // pixels on its own map cells (m_isletCell), since its bounds may take in the edge of a
+        // headland beside it.
+        private bool NearCoast(int i)
+        {
+            Islet a = m_islets[i];
+            int n = CanvasSize;
+            int x0 = Mathf.Max(0, Mathf.FloorToInt(a.m_left)), x1 = Mathf.Min(n - 1, Mathf.CeilToInt(a.m_right));
+            int y0 = Mathf.Max(0, Mathf.FloorToInt(a.m_top)), y1 = Mathf.Min(n - 1, Mathf.CeilToInt(a.m_bottom));
+            for (int y = y0; y <= y1; y++)
+            {
+                float wz = HalfExtent - (y + 0.5f) * MetresPerPixel;
+                for (int x = x0; x <= x1; x++)
+                {
+                    float wx = (x + 0.5f) * MetresPerPixel - HalfExtent;
+                    if (m_isletCell[m_world.Index(wx, wz)] != i + 1) continue;
+                    if (m_majorDistance[y * n + x] / DistanceScale < IsletCoastGap) return true;
+                }
+            }
+            return false;
+        }
+
         // The gap between two islets' bounds, 0 where they overlap.
         private static float BoundsGap(Islet a, Islet b)
         {
@@ -2023,165 +2432,152 @@ namespace Atlas
             return Mathf.Sqrt(dx * dx + dy * dy);
         }
 
-        // One group for a cluster: strokes along its axis on rows WaveRowPitch apart across it,
-        // centred on its centroid, enough rows to cover it and one more (IsletRowsMax at most).
-        // A row over land reaches IsletLongPad crests past the farthest land it crosses either
-        // side; a row clear of the islets spans the cluster plus the pads, a crest shorter each
-        // row out, so the group thins to its edges as a hand-drawn patch of sea does, and short
-        // rows (every other) IsletShortDrop crests shorter still. Each row's length, centre along
-        // the axis and spacing vary a little by seed (the islet lines "need
-        // some variation"). Rows go out from the middle, below and above in turn; a row with no
-        // room ends its side.
+        // One group for a cluster, sized to it (a small islet gets a small
+        // group). Its strokes never cross or touch land: a row through the cluster gets one
+        // stroke, off its east and west shore in turn, starting WaveShoreGap off it and running
+        // out to sea as the coast's do; a row clear of it gets one stroke in open water, centred
+        // on the cluster (shifted along a slanting chain, IsletLean) and swayed a crest or so east
+        // and west in turn (IsletSway), so the stack reads as drawn by hand round one centre.
+        // Rows are long and short in turn. They go out from the centroid's row, below and above
+        // in turn, until the cluster's stroke budget is spent; a row that takes no stroke is
+        // skipped. Drawing the strokes through the islets and the islets on top was tried and
+        // dropped: the strokes showed through the land.
         private void PlaceClusterGroup(IsletCluster cluster, int salt)
         {
-            float across = cluster.m_acrossMax - cluster.m_acrossMin;
-            int rows = Mathf.Clamp(Mathf.CeilToInt(across / WaveRowPitch) + 1, m_hand.m_min, IsletRowsMax);
-            if (!ClusterRow(0, cluster, salt)) return;
-            bool below = true, above = true;
-            int laid = 1;
-            for (int k = 1; laid < rows && (below || above); k++)
+            float size = Mathf.Sqrt(cluster.m_cells) * m_world.m_pixelSize / MetresPerPixel;
+            int budget = Mathf.Clamp(GroupFloor + Mathf.FloorToInt((size - IsletSizeBase) / IsletSizeStep), GroupFloor, IsletStrokesMax);
+            int longCrests = Mathf.Clamp(IsletShortCrests + Mathf.RoundToInt(size / IsletSizeLong), IsletShortCrests + 1, IsletLongCrests);
+            int shortCrests = Math.Max(IsletShortCrests, longCrests - 2);
+            int groupSeed = HashInt(Mathf.RoundToInt(cluster.m_at.x), Mathf.RoundToInt(cluster.m_at.y), salt + 12);
+            int r0 = Mathf.FloorToInt(cluster.m_at.y / WaveRowPitch);
+            // Rows from the cluster's top to its bottom, and one more either way.
+            int first = Mathf.FloorToInt((cluster.m_at.y - cluster.m_acrossMax) / WaveRowPitch) - 1;
+            int last = Mathf.FloorToInt((cluster.m_at.y - cluster.m_acrossMin) / WaveRowPitch) + 1;
+            int spent = 0;
+            for (int k = 0; spent < budget && (r0 + k <= last || r0 - k >= first); k++)
             {
-                if (below && laid < rows)
+                for (int side = 0; side < 2 && spent < budget; side++)
                 {
-                    if (ClusterRow(k, cluster, salt)) laid++;
-                    else below = false;
-                }
-                if (above && laid < rows)
-                {
-                    if (ClusterRow(-k, cluster, salt)) laid++;
-                    else above = false;
+                    if (k == 0 && side == 1) continue;
+                    int r = side == 0 ? r0 + k : r0 - k;
+                    if (r < first || r > last) continue;
+                    // Long and short in turn, and the sway's side in turn, by the row's place in
+                    // the group; the group's first side by seed.
+                    bool longRow = (k & 1) == 0;
+                    int sway = ((r - r0) & 1) == (groupSeed & 1) ? 1 : -1;
+                    spent += IsletRow(r, cluster, longRow ? longCrests : shortCrests, sway, salt);
                 }
             }
         }
 
-        // The stroke on row k of a cluster's group, shortened two crests at a time while it comes
-        // within WaveFloatClear of major land, a floe, the frame or another stroke, down to the
-        // hand's short row; false when even that does not fit.
-        private bool ClusterRow(int k, IsletCluster cluster, int salt)
-        {
-            int seed = HashInt(Mathf.RoundToInt(cluster.m_at.x) * 31 + k, Mathf.RoundToInt(cluster.m_at.y), salt + 11);
-            float crest = m_hand.m_unit * Vary(seed, 3, 0.1f);
-            // Strokes are level, as every sea stroke is; a chain's direction is
-            // followed by shifting each row along it, so a slanting chain gets a staggered group.
-            Vector2 axis = Vector2.right, across = new Vector2(0f, -1f);
-            bool longRow = (k & 1) == 0;
-            float offset = k * WaveRowPitch + (Unit(seed, 6) - 0.5f) * 0.25f * WaveRowPitch;
-            float shift = (Unit(seed, 7) - 0.5f) * 1.5f * crest;
-            Vector2 chain = cluster.m_axis;
-            float lean = Math.Abs(chain.y) > 1e-3f ? Mathf.Clamp(chain.x / chain.y, -IsletLean, IsletLean) : 0f;
-            float half = (cluster.m_alongMax - cluster.m_alongMin) * 0.5f;
-            float stagger = Mathf.Clamp(-offset * lean, -half, half);
-            Vector2 mid = cluster.m_at + across * offset + axis * (shift + stagger);
-            // The row reaches past the land it crosses, or on a row clear of the islets past
-            // the cluster's length, either way from the centre.
-            float reach = 0f;
-            bool crossed = false;
-            for (float u = cluster.m_alongMin - stagger - shift; u <= cluster.m_alongMax - stagger - shift; u += 0.5f)
-            {
-                Vector2 p = mid + axis * u;
-                if (m_land[PixelAt(p.x, p.y)] == 0) continue;
-                reach = Math.Max(reach, Math.Abs(u));
-                crossed = true;
-            }
-            // A row over land keeps its pads, or the parts beside the islets fall under two
-            // crests; a row clear of them thins a crest a row out, so the group tapers.
-            int crests;
-            // Lengths vary as the coast's do: long and short rows in turn, the
-            // short ones well shorter, and each row a crest or two either way by seed.
-            int jitter = Mathf.FloorToInt(Unit(seed, 4) * 4f) - 1;
-            if (crossed) crests = Mathf.CeilToInt(2f * reach / crest) + 2 * IsletLongPad + (longRow ? 1 : -IsletShortDrop) + jitter;
-            else crests = Mathf.CeilToInt(2f * half / crest) + 2 * IsletLongPad - Math.Abs(k) - (longRow ? 0 : IsletShortDrop) + jitter;
-            crests = Mathf.Clamp(crests, longRow ? m_hand.m_long : m_hand.m_short, IsletMaxCrests);
-            for (; crests >= m_hand.m_short; crests -= 2)
-            {
-                float length = crests * crest;
-                Vector2 from = mid - axis * (length * 0.5f);
-                if (!ClusterRoom(from, axis, length)) continue;
-                m_group.Add(new GroupStroke { m_row = int.MinValue, m_x0 = from.x, m_x1 = from.x + length, m_y = from.y, m_crests = crests, m_seed = seed, m_anchor = CutAnchor, m_dir = axis });
-                return true;
-            }
-            return false;
-        }
-
-        // Whether a stroke from along axis, length long, keeps WaveFloatClear from major land
-        // either side of it, off floes, inside the frame and WaveSlotGap off the other strokes.
-        private bool ClusterRoom(Vector2 from, Vector2 axis, float length)
+        // The stroke on row r of a cluster's group: off the shore where the row crosses the
+        // cluster's land, otherwise in open water. sway (1 or -1) moves the row's centre east or
+        // west: a crest or so on a clear row, the side the stroke runs out from on a row through
+        // the land. Returns how many were laid (0 or 1).
+        private int IsletRow(int r, IsletCluster cluster, int crests, int sway, int salt)
         {
             int n = CanvasSize;
-            float centre = n * 0.5f, limit = EdgeRadius / MetresPerPixel * EdgeFraction;
-            Vector2 across = new Vector2(axis.y, -axis.x);
-            for (float s = 0f; s <= length; s += 0.5f)
+            float y = RowY(r, salt);
+            int py = (int)y;
+            if (py < 2 || py >= n - 2) return 0;
+            int seed = HashInt(Mathf.RoundToInt(cluster.m_at.x) * 31 + r, Mathf.RoundToInt(cluster.m_at.y), salt + 11);
+            float crest = m_hand.m_unit * Vary(seed, 3, 0.1f);
+            int left = Mathf.Max(1, Mathf.FloorToInt(cluster.m_at.x + cluster.m_alongMin) - 1);
+            int right = Mathf.Min(n - 2, Mathf.CeilToInt(cluster.m_at.x + cluster.m_alongMax) + 1);
+            int west = -1, east = -1;
+            for (int x = left; x <= right; x++)
             {
-                for (int side = -1; side <= 1; side++)
+                if (m_land[py * n + x] == 0) continue;
+                if (west < 0) west = x;
+                east = x;
+            }
+            if (west < 0)
+            {
+                // Clear of the land: one stroke, a crest longer than a side's as it spans the
+                // cluster, centred on it and shifted along a slanting chain and by the sway.
+                Vector2 chain = cluster.m_axis;
+                // A chain within IsletLevelChain of level gives no lean: its rows above and below
+                // would be sent the full IsletLean along it by a slight tilt either way.
+                float lean = Math.Abs(chain.y) >= IsletLevelChain ? Mathf.Clamp(chain.x / chain.y, -IsletLean, IsletLean) : 0f;
+                float half = (cluster.m_alongMax - cluster.m_alongMin) * 0.5f;
+                float stagger = Mathf.Clamp((y - cluster.m_at.y) * lean, -half, half);
+                float centre = cluster.m_at.x + stagger + sway * IsletSway * crest * (0.5f + 0.8f * Unit(seed, 8));
+                for (int c = crests + 1; c >= m_hand.m_least; c--)
                 {
-                    Vector2 p = from + axis * s + across * side;
-                    int x = Mathf.FloorToInt(p.x), y = Mathf.FloorToInt(p.y);
-                    if (x < 0 || y < 0 || x >= n || y >= n) return false;
-                    float ox = p.x - centre, oy = p.y - centre;
-                    if (ox * ox + oy * oy > limit * limit) return false;
-                    int pixel = y * n + x;
-                    if (m_majorDistance[pixel] / DistanceScale < WaveFloatClear || m_floeSet.Contains(pixel) || m_clusterInk.Contains(pixel)) return false;
+                    float length = c * crest, x0 = centre - length * 0.5f;
+                    // Clear of land by WaveFloatClear, and with IsletChannelGap of open water
+                    // beyond either end, as the strokes off a shore.
+                    if (!OpenRow(py, x0, length, WaveFloatClear) || !OpenRow(py, x0 - IsletChannelGap, length + 2f * IsletChannelGap, WaveShoreGap)) continue;
+                    if (!Claim(r, x0, x0 + length)) return 0;
+                    AddStroke(r, x0, x0 + length, y, c, seed, salt, 0);
+                    return 1;
                 }
-                if (OnLevelStroke(from + axis * s)) return false;
+                return 0;
+            }
+            // A row that only grazes a tip of land takes none: a stroke from a point reads as
+            // drawn out of it.
+            if (east - west + 1 < IsletTipWidth) return 0;
+            // Through the land: one stroke, off the sway's side, or the other where that has no
+            // room. Strokes off both sides of a row read as one line drawn under the islet.
+            for (int s = 0; s < 2; s++)
+            {
+                int dir = s == 0 ? sway : -sway;
+                int c = crests;
+                // A spike of land the row runs along (no land a pixel above or below just inside
+                // the shore) takes no stroke: it would run straight out of its point.
+                int edge = dir > 0 ? east : west;
+                int inside = Mathf.Clamp(edge - 2 * dir, 0, n - 1);
+                if (m_land[(py - 1) * n + inside] == 0 && m_land[(py + 1) * n + inside] == 0) continue;
+                int w = edge + dir;
+                while (w > 0 && w < n - 1 && m_land[py * n + w] == 0 && m_waterDistance[py * n + w] / DistanceScale < WaveShoreGap) w += dir;
+                if (w <= 0 || w >= n - 1 || m_land[py * n + w] != 0) continue;
+                float start = dir > 0 ? w : w + 1;
+                float length = Fit(crest, IsletRoom(py, start, dir, (c + 1) * crest), m_hand.m_least, ref c);
+                if (length <= 0f) continue;
+                float x0 = dir > 0 ? start : start - length;
+                if (!Claim(r, x0, x0 + length)) continue;
+                AddStroke(r, x0, x0 + length, y, c, seed, salt, dir * IsletAnchor);
+                return 1;
+            }
+            return 0;
+        }
+
+        // Whether the stroke from x0, length long, on row py keeps clear from land (all of it,
+        // islets and specks too), floes and the frame.
+        private bool OpenRow(int py, float x0, float length, float clear)
+        {
+            int n = CanvasSize;
+            float centre = n * 0.5f, limit = EdgeRadius / MetresPerPixel * EdgeFraction, dy = py + 0.5f - centre;
+            int a = Mathf.FloorToInt(x0), b = Mathf.CeilToInt(x0 + length);
+            if (a < 0 || b >= n) return false;
+            for (int x = a; x <= b; x++)
+            {
+                int pixel = py * n + x;
+                float dx = x + 0.5f - centre;
+                if (m_land[pixel] != 0 || m_waterDistance[pixel] / DistanceScale < clear || m_floeSet.Contains(pixel) || dx * dx + dy * dy > limit * limit) return false;
             }
             return true;
         }
 
-        // Whether a point comes within WaveSlotGap of a level stroke already claimed on its row.
-        private bool OnLevelStroke(Vector2 p)
+        // Open water ahead of a stroke off an islet's shore, up to most: it ends IsletChannelGap
+        // before it comes within WaveShoreGap of any land, on its row or the rows beside it (the
+        // distance field is round), so a stroke into a channel between islets stays short or is
+        // dropped instead of filling it, and WaveSlotGap short of a floe or the frame.
+        private float IsletRoom(int py, float start, int dir, float most)
         {
-            int r0 = Mathf.FloorToInt(p.y / WaveRowPitch);
-            for (int r = r0 - 1; r <= r0 + 1; r++)
+            int n = CanvasSize, row = py * n;
+            float centre = n * 0.5f, limit = EdgeRadius / MetresPerPixel * EdgeFraction, dy = py + 0.5f - centre;
+            for (float s = 0f; s < most + IsletChannelGap; s += 0.5f)
             {
-                if (!m_waveSpans.TryGetValue(r, out List<Vector2> spans)) continue;
-                if (Math.Abs(p.y - (r + 0.5f) * WaveRowPitch) > WaveSlotGap) continue;
-                foreach (Vector2 span in spans)
-                    if (p.x > span.x - WaveSlotGap && p.x < span.y + WaveSlotGap) return true;
+                int x = Mathf.FloorToInt(start + dir * (s + 0.25f));
+                if (x < 0 || x >= n) return Math.Min(most, Math.Max(0f, s - WaveSlotGap));
+                int pixel = row + x;
+                float dx = x + 0.5f - centre;
+                if (m_land[pixel] != 0 || m_waterDistance[pixel] / DistanceScale < WaveShoreGap) return Math.Min(most, Math.Max(0f, s - IsletChannelGap));
+                if (m_floeSet.Contains(pixel) || dx * dx + dy * dy > limit * limit) return Math.Min(most, Math.Max(0f, s - WaveSlotGap));
             }
-            return false;
+            return most;
         }
-        // The parts of a stroke from a along dir, length long, that lie over water, as
-        // fractions of its length; parts under two crests long are dropped (one crest reads as a
-        // comma). Islets lie on top of their cluster's strokes and hide them, so the cut is at
-        // the shore itself, found by bisection between the stroke's points, with no paper gap.
-        private static void WaterParts(Vector2 a, Vector2 dir, float length, int crests, Func<float, float, bool> land, List<Vector2> parts)
-        {
-            parts.Clear();
-            int count = crests * 8;
-            float least = 2f / crests;
-            bool wet = false;
-            float from = 0f, previous = 0f;
-            for (int i = 0; i <= count; i++)
-            {
-                float u = i / (float)count;
-                Vector2 p = a + dir * (u * length);
-                bool water = !land(p.x, p.y);
-                if (i == 0)
-                {
-                    wet = water;
-                }
-                else if (water != wet)
-                {
-                    // The shore between the last point and this one.
-                    float lo = previous, hi = u;
-                    for (int k = 0; k < 6; k++)
-                    {
-                        float m = (lo + hi) * 0.5f;
-                        Vector2 q = a + dir * (m * length);
-                        if (!land(q.x, q.y) == wet) lo = m;
-                        else hi = m;
-                    }
-                    float edge = (lo + hi) * 0.5f;
-                    if (wet && edge - from >= least) parts.Add(new Vector2(from, edge));
-                    from = edge;
-                    wet = water;
-                }
-                previous = u;
-            }
-            if (wet && 1f - from >= least) parts.Add(new Vector2(from, 1f));
-        }
-
-        private readonly List<Vector2> m_parts = new List<Vector2>();
 
         private enum CoastBend : byte
         {
@@ -2291,7 +2687,7 @@ namespace Atlas
                 ReleaseGroup();
                 return false;
             }
-            foreach (GroupStroke s in m_group) DrawWave(s.m_x0, s.m_y, s.m_x1 - s.m_x0, s.m_crests, m_hand.m_lift, s.m_seed, salt, s.m_anchor, s.m_dir);
+            foreach (GroupStroke s in m_group) DrawWave(s.m_x0, s.m_y, s.m_x1 - s.m_x0, s.m_crests, m_hand.m_lift, s.m_seed, salt, s.m_anchor);
             m_group.Clear();
             return true;
         }
@@ -2311,8 +2707,6 @@ namespace Atlas
         {
             public int m_row, m_crests, m_seed, m_anchor;
             public float m_x0, m_x1, m_y;
-            // Along which the stroke runs from (m_x0, m_y), m_x1 - m_x0 long; zero for level.
-            public Vector2 m_dir;
         }
 
         private readonly List<GroupStroke> m_group = new List<GroupStroke>();
@@ -2499,25 +2893,15 @@ namespace Atlas
             return crests * crest <= room ? crests * crest : 0f;
         }
 
-        // A wave from x along the row, with a slow waver between strokes; level, but for an islet
-        // cluster's strokes, which run along dir (zero for level). anchor tells close-ups which
-        // end starts at the coast (InkRecord.Wave), lift how high its crests rise, since a lake's
-        // lie lower than the sea's. A stroke under islets (CutAnchor) is cut where it crosses land.
-        private void DrawWave(float x, float rowY, float length, int crests, float lift, int seed, int salt, int anchor, Vector2 dir)
+        // A level wave from x along the row, with a slow waver between strokes. anchor tells
+        // close-ups which end starts at the coast (InkRecord.Wave), lift how high its crests
+        // rise, since a lake's lie lower than the sea's.
+        private void DrawWave(float x, float rowY, float length, int crests, float lift, int seed, int salt, int anchor)
         {
             float y = rowY + (Noise(x / 48f, rowY / 48f, salt + 3) - 0.5f) * 0.4f;
             float phase = (Unit(seed, 5) - 0.5f) * 0.6f;
-            Vector2 along = dir == Vector2.zero ? Vector2.right : dir;
-            if (anchor == CutAnchor)
-            {
-                WaterParts(new Vector2(x, y), along, length, crests, (px, py) => m_land[PixelAt(px, py)] != 0, m_parts);
-                foreach (Vector2 part in m_parts) WaveStroke(new Vector2(x, y), along, length, crests, phase, lift, part.x, part.y);
-            }
-            else
-            {
-                WaveStroke(new Vector2(x, y), along, length, crests, phase, lift);
-            }
-            m_record?.AddWave(new InkRecord.Wave { m_x = x, m_y = y, m_length = length, m_crests = crests, m_phase = phase, m_lift = lift, m_anchor = anchor, m_dir = dir });
+            WaveStroke(new Vector2(x, y), Vector2.right, length, crests, phase, lift);
+            m_record?.AddWave(new InkRecord.Wave { m_x = x, m_y = y, m_length = length, m_crests = crests, m_phase = phase, m_lift = lift, m_anchor = anchor });
         }
 
         // The record the sheet is painted into, for the waves close-ups draw again.
@@ -2928,7 +3312,7 @@ namespace Atlas
 
         private static readonly WaveHand s_isletHand = new WaveHand
         {
-            m_min = StepGroupMin, m_max = StepGroupMax, m_floor = GroupFloor, m_least = 2, m_unit = IsletCrest, m_lift = WaveLift,
+            m_min = StepGroupMin, m_max = StepGroupMax, m_floor = GroupFloor, m_least = IsletShortCrests, m_unit = IsletCrest, m_lift = WaveLift,
             m_long = IsletLongCrests, m_short = IsletShortCrests,
         };
 
@@ -3069,21 +3453,12 @@ namespace Atlas
         // a lake), running out flat at both ends, eight points a crest so close-ups show a curve,
         // not a zigzag. The phase (radians) shifts the crests, so neighbouring strokes in a row do
         // not crest in step.
-        // A wave stroke, or the part of it from fraction from to fraction to of its length (an
-        // islet's cluster stroke cut at the shore), on the same points as the whole stroke.
-        private void WaveStroke(Vector2 a, Vector2 dir, float length, int crests, float phase, float lift, float from = 0f, float to = 1f)
+        private void WaveStroke(Vector2 a, Vector2 dir, float length, int crests, float phase, float lift)
         {
             var up = new Vector2(dir.y, -dir.x);
             m_points.Clear();
             int count = crests * 8;
-            if (from > 0f) m_points.Add(WavePoint(from));
-            for (int i = from > 0f ? Mathf.FloorToInt(from * count) + 1 : 0; i <= count; i++)
-            {
-                float u = i / (float)count;
-                if (to < 1f ? u >= to : u > to) break;
-                m_points.Add(WavePoint(u));
-            }
-            if (to < 1f) m_points.Add(WavePoint(to));
+            for (int i = 0; i <= count; i++) m_points.Add(WavePoint(i / (float)count));
             if (m_points.Count > 1) m_canvas.Polyline(m_points, Pen);
 
             Vector2 WavePoint(float u)

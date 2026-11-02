@@ -4,6 +4,21 @@ using UnityEngine;
 
 namespace Atlas
 {
+    // What a pen call drew. Detail tiles draw some layers afresh from the world (the ground
+    // fills, trees and coast) and replay only the others from the record.
+    internal enum InkLayer : byte
+    {
+        Background,
+        Tree,
+        Glyph,
+        Mist,
+        River,
+        Coast,
+        Ripple,
+        Floe,
+        Frame,
+    }
+
     /// <summary>
     /// Every pen call that drew the sheet, in order, with a coarse spatial index, so any part of the
     /// sheet can be inked again at a higher magnification (a detail tile) and come out sharp instead
@@ -35,6 +50,7 @@ namespace Atlas
         private struct Call
         {
             public Op m_op;
+            public InkLayer m_layer;
             public float m_a, m_b, m_c, m_d, m_e, m_f;
         }
 
@@ -43,22 +59,43 @@ namespace Atlas
         private List<int>[] m_cells;
         private readonly List<int> m_wide = new List<int>();
         private int m_cellsAcross;
+        // The sheet's sea pixels, one bit each: a detail tile tells the sea coast from a lake shore
+        // by them, since it cannot flood fill from the world's edge itself.
+        private uint[] m_sea;
+        private int m_seaSize;
 
         public int Count => m_calls.Count;
 
-        public void Stroke(float x0, float y0, float x1, float y1, float width, float strength, bool erase) =>
-            m_calls.Add(new Call { m_op = erase ? Op.Scrape : Op.Stroke, m_a = x0, m_b = y0, m_c = x1, m_d = y1, m_e = width, m_f = strength });
+        public void Stroke(InkLayer layer, float x0, float y0, float x1, float y1, float width, float strength, bool erase) =>
+            m_calls.Add(new Call { m_op = erase ? Op.Scrape : Op.Stroke, m_layer = layer, m_a = x0, m_b = y0, m_c = x1, m_d = y1, m_e = width, m_f = strength });
 
-        public void Ellipse(float cx, float cy, float rx, float ry, float strength, bool erase) =>
-            m_calls.Add(new Call { m_op = erase ? Op.EraseEllipse : Op.Ellipse, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_f = strength });
+        public void Ellipse(InkLayer layer, float cx, float cy, float rx, float ry, float strength, bool erase) =>
+            m_calls.Add(new Call { m_op = erase ? Op.EraseEllipse : Op.Ellipse, m_layer = layer, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_f = strength });
 
-        public void Ring(float cx, float cy, float rx, float ry, float width, float strength) =>
-            m_calls.Add(new Call { m_op = Op.Ring, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_e = width, m_f = strength });
+        public void Ring(InkLayer layer, float cx, float cy, float rx, float ry, float width, float strength) =>
+            m_calls.Add(new Call { m_op = Op.Ring, m_layer = layer, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_e = width, m_f = strength });
 
-        public void Polygon(IList<Vector2> polygon, float strength, bool erase)
+        public void Polygon(InkLayer layer, IList<Vector2> polygon, float strength, bool erase)
         {
-            m_calls.Add(new Call { m_op = erase ? Op.Erase : Op.Fill, m_a = m_points.Count, m_b = polygon.Count, m_f = strength });
+            m_calls.Add(new Call { m_op = erase ? Op.Erase : Op.Fill, m_layer = layer, m_a = m_points.Count, m_b = polygon.Count, m_f = strength });
             for (int i = 0; i < polygon.Count; i++) m_points.Add(polygon[i]);
+        }
+
+        public void KeepSea(byte[] sea, int size)
+        {
+            m_seaSize = size;
+            m_sea = new uint[(sea.Length + 31) / 32];
+            for (int i = 0; i < sea.Length; i++)
+                if (sea[i] != 0) m_sea[i >> 5] |= 1u << (i & 31);
+        }
+
+        // Whether the sheet pixel holding (x, y) is sea.
+        public bool IsSea(float x, float y)
+        {
+            if (m_sea == null) return true;
+            int px = Mathf.Clamp((int)x, 0, m_seaSize - 1), py = Mathf.Clamp((int)y, 0, m_seaSize - 1);
+            int i = py * m_seaSize + px;
+            return (m_sea[i >> 5] & (1u << (i & 31))) != 0;
         }
 
         // Builds the spatial index once painting is done.
@@ -88,7 +125,13 @@ namespace Atlas
         }
 
         // Draws every call touching the sheet rectangle into the canvas, in the original order.
-        public void Replay(InkCanvas canvas, float left, float top, float right, float bottom)
+        public void Replay(InkCanvas canvas, float left, float top, float right, float bottom) =>
+            Replay(canvas, left, top, right, bottom, ~0, null);
+
+        // As above, only the calls whose layer is in the mask (bit 1 << layer), and of strokes and
+        // scrapes only those keepStroke accepts by their ends, when it is given.
+        public void Replay(InkCanvas canvas, float left, float top, float right, float bottom, int layers,
+            Func<Vector2, Vector2, bool> keepStroke)
         {
             var picked = new List<int>(4096);
             int x0 = Cell(left), x1 = Cell(right), y0 = Cell(top), y1 = Cell(bottom);
@@ -115,6 +158,9 @@ namespace Atlas
                 if (i == previous) continue;
                 previous = i;
                 Call c = m_calls[i];
+                if ((layers & (1 << (int)c.m_layer)) == 0) continue;
+                if (keepStroke != null && (c.m_op == Op.Stroke || c.m_op == Op.Scrape)
+                    && !keepStroke(new Vector2(c.m_a, c.m_b), new Vector2(c.m_c, c.m_d))) continue;
                 switch (c.m_op)
                 {
                     case Op.Stroke: canvas.Stroke(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e, c.m_f); break;

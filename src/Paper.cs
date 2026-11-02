@@ -15,7 +15,7 @@ namespace Atlas
         public const int FogSize = 2048;
 
         // Parchment and sepia ink.
-        private static readonly Color32 s_paper = new Color32(232, 218, 182, 255);
+        public static readonly Color32 PaperColor = new Color32(232, 218, 182, 255);
         public static readonly Color32 InkColor = new Color32(46, 33, 24, 255);
 
         // How strongly the paper is mottled and darkened towards its corners.
@@ -56,15 +56,84 @@ namespace Atlas
         private const float WoodWash = 0.1f;
         private const int WashBlur = 3;
 
+        // Stains on the parchment, by kind: how many, their radius range (paper pixels, 10.5 m each),
+        // how much they darken inside, and how dark the tide line at their rim is.
+        private struct StainKind
+        {
+            public int m_count;
+            public float m_minRadius, m_maxRadius, m_inside, m_rim;
+
+            public StainKind(int count, float minRadius, float maxRadius, float inside, float rim)
+            {
+                m_count = count;
+                m_minRadius = minRadius;
+                m_maxRadius = maxRadius;
+                m_inside = inside;
+                m_rim = rim;
+            }
+        }
+
+        private static readonly StainKind[] s_stains =
+        {
+            // Counts are for the whole 21.6 km sheet; the view shows only the explored part, so
+            // there are enough that a few always fall in it.
+            new StainKind(12, 120f, 300f, 0.06f, 0.1f),  // old water stains with faint tide lines
+            new StainKind(45, 25f, 80f, 0.07f, 0.17f),   // spilt drops dried to rings
+            new StainKind(500, 1.5f, 5f, 0.2f, 0f),      // foxing: small brown spots of age
+        };
+        // The tide line's place (share of the radius) and width, and how ragged a stain's edge is.
+        private const float RimAt = 0.96f;
+        private const float RimWidth = 0.035f;
+        private const float Ragged = 0.45f;
+
+        // How much each paper pixel is darkened by stains.
+        private static float[] Stains(int seed)
+        {
+            int n = FogSize;
+            var stain = new float[n * n];
+            for (int kind = 0; kind < s_stains.Length; kind++)
+            {
+                StainKind k = s_stains[kind];
+                for (int s = 0; s < k.m_count; s++)
+                {
+                    int hash = Noise.HashInt(s, kind, seed + 31);
+                    float cx = Noise.Unit(hash, 1) * n, cy = Noise.Unit(hash, 2) * n;
+                    float r = Mathf.Lerp(k.m_minRadius, k.m_maxRadius, Noise.Unit(hash, 3));
+                    float strength = Mathf.Lerp(0.6f, 1f, Noise.Unit(hash, 4));
+                    float reach = r * (1f + Ragged);
+                    int x0 = Math.Max(0, (int)(cx - reach)), x1 = Math.Min(n - 1, (int)(cx + reach));
+                    int y0 = Math.Max(0, (int)(cy - reach)), y1 = Math.Min(n - 1, (int)(cy + reach));
+                    float grain = Math.Max(2f, r * 0.45f);
+                    for (int y = y0; y <= y1; y++)
+                    {
+                        for (int x = x0; x <= x1; x++)
+                        {
+                            float dx = x - cx, dy = y - cy;
+                            // A ragged edge: the distance is stretched by noise around the stain.
+                            float d = Mathf.Sqrt(dx * dx + dy * dy) / r;
+                            if (d > 1f + Ragged) continue;
+                            d *= 1f + (Noise.Value(x / grain, y / grain, hash) - 0.5f) * Ragged;
+                            float inside = 1f - Mathf.Clamp01((d - 0.85f) / 0.15f);
+                            float t = (d - RimAt) / RimWidth;
+                            float rim = k.m_rim > 0f ? Mathf.Exp(-t * t) : 0f;
+                            stain[y * n + x] += (k.m_inside * inside + k.m_rim * rim) * strength;
+                        }
+                    }
+                }
+            }
+            return stain;
+        }
+
         public static byte[] Parchment(int seed)
         {
             int n = FogSize;
             var rgb = new byte[n * n * 3];
+            float[] stains = Stains(seed);
             for (int y = 0; y < n; y++)
             {
                 for (int x = 0; x < n; x++)
                 {
-                    float shade = 1f
+                    float shade = 1f - Math.Min(stains[y * n + x], 0.35f)
                         + (Noise.Value(x / (90f * PaperScale), y / (90f * PaperScale), seed) - 0.5f) * Mottle * 2f
                         + (Noise.Value(x / (17f * PaperScale), y / (17f * PaperScale), seed + 1) - 0.5f) * Mottle
                         + (Noise.Value(x / (3f * PaperScale), y / (3f * PaperScale), seed + 2) - 0.5f) * Mottle * 0.5f;
@@ -73,9 +142,9 @@ namespace Atlas
                     shade *= 1f - Vignette * corner * corner;
                     int i = (y * n + x) * 3;
                     // Darker paper also turns browner, as old parchment does.
-                    rgb[i] = ToByte(s_paper.r * shade);
-                    rgb[i + 1] = ToByte(s_paper.g * Mathf.Pow(shade, 1.1f));
-                    rgb[i + 2] = ToByte(s_paper.b * Mathf.Pow(shade, 1.35f));
+                    rgb[i] = ToByte(PaperColor.r * shade);
+                    rgb[i + 1] = ToByte(PaperColor.g * Mathf.Pow(shade, 1.1f));
+                    rgb[i + 2] = ToByte(PaperColor.b * Mathf.Pow(shade, 1.35f));
                 }
             }
             return rgb;

@@ -34,7 +34,7 @@ pins you place appear only after your next visit to a cartography table.
 
 Each biome has a faint colour wash of its own under the ink, a little darker in the woods, so
 you can tell the biomes apart at any zoom. Woods are drawn where the game grows its forests: each
-one a bounded mass of trees inside an edge line, with open land around it. The open land of most
+one a dense mass of trees bounded by its outer crowns, with open land around it. The open land of most
 biomes gets a light ground fill (the first mark in each row); the Deep North is a near-blank
 snowfield.
 

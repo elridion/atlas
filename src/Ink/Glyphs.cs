@@ -93,7 +93,7 @@ namespace Atlas
             float ry = r * 1.25f;
             float cx = x + (Unit(seed, 11) - 0.5f) * 0.6f * s;
             float cy = y - 1.6f * s - ry;
-            m_canvas.EraseEllipse(cx, cy, r + 0.7f, ry + 0.7f);
+            m_canvas.EraseEllipse(cx, cy, r + 0.7f * m_pen, ry + 0.7f * m_pen);
             m_canvas.Ring(cx, cy, r, ry, 1.1f);
             m_canvas.Stroke(x, cy + ry, x, y, Pen);
         }
@@ -107,7 +107,7 @@ namespace Atlas
             var apex = new Vector2(x, baseY - height);
             var left = new Vector2(x - half, baseY);
             var right = new Vector2(x + half, baseY);
-            Poly(apex, right + new Vector2(0.6f, 0.5f), left + new Vector2(-0.6f, 0.5f));
+            Poly(apex, right + new Vector2(0.6f, 0.5f) * m_pen, left + new Vector2(-0.6f, 0.5f) * m_pen);
             m_canvas.Erase(m_points);
             Poly(apex, right, new Vector2(x + half * 0.15f, baseY));
             m_canvas.Fill(m_points);
@@ -122,7 +122,7 @@ namespace Atlas
         {
             float r = 2.2f * s * Vary(seed, 10, 0.15f);
             float cy = y - 2f * s - r;
-            m_canvas.EraseEllipse(x, cy, r + 0.7f, r + 0.7f);
+            m_canvas.EraseEllipse(x, cy, r + 0.7f * m_pen, r + 0.7f * m_pen);
             m_canvas.Ring(x, cy, r, r, 1.1f);
             m_canvas.Stroke(x, cy + r, x, y, Pen);
         }
@@ -190,7 +190,7 @@ namespace Atlas
 
             void DrawCrown(float cx, float cy, float radius)
             {
-                m_canvas.EraseEllipse(cx, cy, radius + 0.7f, radius * 0.8f + 0.7f);
+                m_canvas.EraseEllipse(cx, cy, radius + 0.7f * m_pen, radius * 0.8f + 0.7f * m_pen);
                 m_canvas.Ring(cx, cy, radius, radius * 0.8f, 1.1f);
             }
         }
@@ -268,7 +268,7 @@ namespace Atlas
         {
             float rx = 1.4f * s * Vary(seed, 10, 0.25f);
             float ry = rx * 0.7f;
-            m_canvas.EraseEllipse(x, y - ry, rx + 0.5f, ry + 0.5f);
+            m_canvas.EraseEllipse(x, y - ry, rx + 0.5f * m_pen, ry + 0.5f * m_pen);
             m_canvas.Ring(x, y - ry, rx, ry, Pen);
         }
 

@@ -1,21 +1,36 @@
+using System.Threading;
 using UnityEngine;
 
 namespace Atlas
 {
     /// <summary>
-    /// A part of the sheet inked again at the magnification it is shown at, so zoomed-in pen lines
-    /// stay sharp instead of showing the sheet's pixels. The tile is opaque (ink laid on the
-    /// parchment), so it hides the coarser sheet beneath it; the fog still lies on top.
+    /// A part of the sheet drawn again at the magnification it is shown at (InkPainter.PaintTile),
+    /// so zooming in shows finer detail instead of the sheet's pixels. The tile is opaque (ink
+    /// laid on the paper), so it hides the coarser sheet beneath it; the fog still lies on top.
     /// </summary>
     internal static class DetailTile
     {
         // Worker thread. Returns RGBA rows from south to north, as LoadRawTextureData expects, for
-        // the sheet rectangle (left, top, width, height) at scale pixels per sheet pixel.
-        public static byte[] Render(InkRecord record, byte[] parchment, int left, int top, int width, int height, int scale)
+        // the sheet rectangle region at scale pixels per sheet pixel. The ground is sampled every
+        // gridPixels tile pixels on up to threads threads. The level of detail grows with the
+        // square root of the zoom past 2x (where the tile draws what the sheet draws, only
+        // sharper): trees true to scale at 8x packed into a uniform texture, so glyphs are let to
+        // grow a little on screen instead.
+        public static byte[] Render(InkRecord record, byte[] parchment, WorldSource world, SampleCache cache, RectInt region,
+            int scale, float gridPixels, int threads, CancellationToken cancel)
         {
+            int left = region.x, top = region.y, width = region.width, height = region.height;
             int w = width * scale, h = height * scale;
+            float lod = Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f));
+            // The cache spacing nearest gridPixels tile pixels.
+            float metres = gridPixels / scale * InkPainter.MetresPerPixel;
+            int level = Mathf.Clamp(Mathf.RoundToInt(Mathf.Log(metres, 2f)), 0, SampleCache.Levels - 1);
+            float margin = InkPainter.TileMargin(lod);
+            TileGrid grid = TileGrid.Build(cache, world.m_waterLevel, left - margin, top - margin, left + width + margin, top + height + margin,
+                level, threads, cancel);
             var canvas = new InkCanvas(w, h, left, top, scale);
-            record.Replay(canvas, left, top, left + width, top + height);
+            InkPainter.PaintTile(world, record, grid, canvas, region, lod, cancel);
+            cancel.ThrowIfCancellationRequested();
 
             int paper = Paper.FogSize;
             float perSheet = paper / (float)InkPainter.CanvasSize;

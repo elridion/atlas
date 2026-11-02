@@ -42,18 +42,10 @@ namespace Atlas
         private static Texture2D s_paper;
         private static Texture2D s_fog;
 
-        // Detail tiles: the shown tile, the one being drawn, and the view waiting to settle.
-        private const float DetailDelay = 0.15f;
-        private static Texture2D s_detail;
-        private static RectInt s_detailRegion;
-        private static int s_detailScale;
-        private static Task<byte[]> s_detailTask;
-        private static RectInt s_detailPending;
-        private static int s_detailPendingScale;
-        private static RectInt s_lastWanted;
-        private static int s_lastWantedScale;
-        private static float s_wantedSince;
-        private static bool s_detailBroken;
+        // Close-ups: the decoded world and its sample cache, and the tiles drawn from them.
+        private static readonly DetailTiles s_tiles = new DetailTiles();
+        private static WorldSource s_source;
+        private static SampleCache s_samples;
 
         // True while the atlas is open and for a couple of frames after, as vanilla does for its
         // own map, so the key that closes it does not also open the menu.
@@ -90,7 +82,9 @@ namespace Atlas
             KeepInk(worldUid);
             KeepFog();
             KeepPaper();
-            KeepDetail();
+            if (!s_tiles.Ready && s_record != null && s_paperPixels != null && s_samples != null)
+                s_tiles.SetSource(s_record, s_paperPixels, s_source, s_samples);
+            s_tiles.Update(s_view);
 
             if (!s_view.IsOpen && s_view.ClosedFrames > 2 && OpenPressed() && CanOpen(player)) Open(player);
             s_view.Update();
@@ -195,6 +189,9 @@ namespace Atlas
                     return;
                 }
                 WorldSource source = decoded.Result;
+                s_source = source;
+                WorldGenerator generator = WorldGenerator.instance;
+                s_samples = new SampleCache(generator != null ? new GeneratorSampler(generator, source.m_waterLevel) : (IWorldSampler)new MinimapSampler(source));
                 CancellationToken cancel = s_cancel.Token;
                 int seed = source.m_seed;
                 s_washTask = Task.Run(() => Paper.Washed(Paper.Parchment(seed), source));
@@ -249,75 +246,6 @@ namespace Atlas
             // Uploads once and drops the CPU copy; the sheet never changes for this world.
             s_ink.Apply(updateMipmaps: false, makeNoLongerReadable: true);
         }
-
-        // While the atlas is open and zoomed in, keeps a sharp detail tile over the part in view:
-        // once the view has held still for DetailDelay seconds and the shown tile no longer covers
-        // it at the right magnification, the visible part (with a margin) is inked again.
-        private static void KeepDetail()
-        {
-            if (s_detailTask != null)
-            {
-                if (!s_detailTask.IsCompleted) return;
-                Task<byte[]> done = s_detailTask;
-                s_detailTask = null;
-                if (done.IsFaulted)
-                {
-                    Jotunn.Logger.LogWarning($"An atlas close-up could not be drawn: {done.Exception?.GetBaseException()}");
-                    s_detailBroken = true;
-                    return;
-                }
-                ShowDetail(done.Result, s_detailPending, s_detailPendingScale);
-            }
-            if (!s_view.IsOpen || s_record == null || s_paperPixels == null || s_detailBroken) return;
-            if (!s_view.DetailWanted(out RectInt visible, out int scale))
-            {
-                s_view.HideDetail();
-                return;
-            }
-            if (s_detail && s_detailScale == scale && Contains(s_detailRegion, visible)) return;
-            if (visible != s_lastWanted || scale != s_lastWantedScale)
-            {
-                s_lastWanted = visible;
-                s_lastWantedScale = scale;
-                s_wantedSince = Time.unscaledTime;
-                return;
-            }
-            if (Time.unscaledTime - s_wantedSince < DetailDelay) return;
-
-            int margin = Mathf.Max(visible.width, visible.height) / 4;
-            int left = Mathf.Max(0, visible.xMin - margin), top = Mathf.Max(0, visible.yMin - margin);
-            int right = Mathf.Min(InkPainter.CanvasSize, visible.xMax + margin), bottom = Mathf.Min(InkPainter.CanvasSize, visible.yMax + margin);
-            if (right <= left || bottom <= top) return;
-            var region = new RectInt(left, top, right - left, bottom - top);
-            InkRecord record = s_record;
-            byte[] paper = s_paperPixels;
-            s_detailPending = region;
-            s_detailPendingScale = scale;
-            s_detailTask = Task.Run(() => DetailTile.Render(record, paper, region.x, region.y, region.width, region.height, scale));
-        }
-
-        private static void ShowDetail(byte[] rgba, RectInt region, int scale)
-        {
-            int w = region.width * scale, h = region.height * scale;
-            if (!s_detail || s_detail.width != w || s_detail.height != h)
-            {
-                if (s_detail) UnityEngine.Object.Destroy(s_detail);
-                s_detail = new Texture2D(w, h, TextureFormat.RGBA32, mipChain: false)
-                {
-                    name = "Atlas detail",
-                    wrapMode = TextureWrapMode.Clamp,
-                    filterMode = FilterMode.Bilinear,
-                };
-            }
-            s_detail.LoadRawTextureData(rgba);
-            s_detail.Apply(updateMipmaps: false);
-            s_detailRegion = region;
-            s_detailScale = scale;
-            s_view.ShowDetail(s_detail, region);
-        }
-
-        private static bool Contains(RectInt outer, RectInt inner) =>
-            inner.xMin >= outer.xMin && inner.yMin >= outer.yMin && inner.xMax <= outer.xMax && inner.yMax <= outer.yMax;
 
         private static void KeepFog()
         {
@@ -418,12 +346,9 @@ namespace Atlas
             s_paperPixels = null;
             s_record = null;
             s_inkFailed = false;
-            s_detailTask = null;
-            s_detailBroken = false;
-            s_lastWanted = default;
-            s_lastWantedScale = 0;
-            if (s_detail) UnityEngine.Object.Destroy(s_detail);
-            s_detail = null;
+            s_tiles.Clear();
+            s_source = null;
+            s_samples = null;
             s_fogTask = null;
             s_fogDirty = false;
             s_parchment = null;

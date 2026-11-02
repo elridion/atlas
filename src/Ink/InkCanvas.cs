@@ -25,6 +25,12 @@ namespace Atlas
         private readonly List<Vector2> m_transformed = new List<Vector2>(16);
         private InkRecord m_record;
 
+        // What the calls drawn from now on belong to, kept with them in the record.
+        public InkLayer m_layer;
+        // Pen and band widths are multiplied by this: a detail tile drawn at a finer level of detail
+        // uses finer pens, so lines do not swell with the zoom.
+        public float m_penScale = 1f;
+
         public InkCanvas(int size) : this(size, size, 0f, 0f, 1f)
         {
         }
@@ -49,15 +55,15 @@ namespace Atlas
         // A straight pen stroke with round ends.
         public void Stroke(float x0, float y0, float x1, float y1, float width, float strength = 1f)
         {
-            m_record?.Stroke(x0, y0, x1, y1, width, strength, erase: false);
-            Capsule(X(x0), Y(y0), X(x1), Y(y1), width * m_scale, strength, erase: false);
+            m_record?.Stroke(m_layer, x0, y0, x1, y1, width, strength, erase: false);
+            Capsule(X(x0), Y(y0), X(x1), Y(y1), width * m_penScale * m_scale, strength, erase: false);
         }
 
         // Scrapes a band with round ends back to bare parchment.
         public void Scrape(float x0, float y0, float x1, float y1, float width)
         {
-            m_record?.Stroke(x0, y0, x1, y1, width, 1f, erase: true);
-            Capsule(X(x0), Y(y0), X(x1), Y(y1), width * m_scale, 1f, erase: true);
+            m_record?.Stroke(m_layer, x0, y0, x1, y1, width, 1f, erase: true);
+            Capsule(X(x0), Y(y0), X(x1), Y(y1), width * m_penScale * m_scale, 1f, erase: true);
         }
 
         public void Polyline(IList<Vector2> points, float width, float strength = 1f)
@@ -68,32 +74,32 @@ namespace Atlas
 
         public void Dot(float cx, float cy, float radius, float strength = 1f)
         {
-            m_record?.Ellipse(cx, cy, radius, radius, strength, erase: false);
+            m_record?.Ellipse(m_layer, cx, cy, radius, radius, strength, erase: false);
             Ellipse(X(cx), Y(cy), radius * m_scale, radius * m_scale, strength, erase: false);
         }
 
         public void EraseEllipse(float cx, float cy, float rx, float ry)
         {
-            m_record?.Ellipse(cx, cy, rx, ry, 1f, erase: true);
+            m_record?.Ellipse(m_layer, cx, cy, rx, ry, 1f, erase: true);
             Ellipse(X(cx), Y(cy), rx * m_scale, ry * m_scale, 1f, erase: true);
         }
 
         public void Ring(float cx, float cy, float rx, float ry, float width, float strength = 1f)
         {
-            m_record?.Ring(cx, cy, rx, ry, width, strength);
-            RingPixels(X(cx), Y(cy), rx * m_scale, ry * m_scale, width * m_scale, strength);
+            m_record?.Ring(m_layer, cx, cy, rx, ry, width, strength);
+            RingPixels(X(cx), Y(cy), rx * m_scale, ry * m_scale, width * m_penScale * m_scale, strength);
         }
 
         // Convex polygons only, wound either way.
         public void Fill(IList<Vector2> polygon, float strength = 1f)
         {
-            m_record?.Polygon(polygon, strength, erase: false);
+            m_record?.Polygon(m_layer, polygon, strength, erase: false);
             Polygon(polygon, strength, erase: false);
         }
 
         public void Erase(IList<Vector2> polygon)
         {
-            m_record?.Polygon(polygon, 1f, erase: true);
+            m_record?.Polygon(m_layer, polygon, 1f, erase: true);
             Polygon(polygon, 1f, erase: true);
         }
 

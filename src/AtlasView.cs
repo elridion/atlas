@@ -23,17 +23,22 @@ namespace Atlas
         // Zoom: the largest scale, the opening scale relative to fitting the whole sheet, and the
         // step per wheel notch and per second of gamepad stick.
         private const float MaxScale = 4f;
-        // Above this magnification (screen pixels per sheet pixel) the view asks for a sharp detail
-        // tile, inked at up to MaxDetail screen pixels per sheet pixel.
-        private const float DetailFrom = 1.25f;
-        private const int MaxDetail = 8;
         private const float OpenZoom = 2.5f;
         private const float WheelStep = 1.18f;
         private const float StickZoom = 1.8f;
         private const float StickPan = 900f;
 
-        private const float PinSize = 26f;
-        private const float PinFontSize = 16f;
+        // Pins are inked black, set off from the map by a crisp parchment outline that follows the
+        // icon: OutlineCopies parchment copies shifted OutlineWidth (canvas units) around it.
+        // Names are bold with a hard parchment underlay of LabelUnderlay (TextMeshPro's 0 to 1;
+        // much more runs into the font atlas's padding and shows boxes).
+        private const float PinSize = 30f;
+        private const float PinFontSize = 18f;
+        private const int OutlineCopies = 12;
+        private const float OutlineWidth = 3f;
+        private const float LabelUnderlay = 0.6f;
+        private static Material s_labelMaterial;
+        private static TMP_FontAsset s_labelFont;
 
         private static readonly AccessTools.FieldRef<Minimap, GameObject> s_pinNamePrefab =
             AccessTools.FieldRefAccess<Minimap, GameObject>("m_pinNamePrefab");
@@ -44,7 +49,7 @@ namespace Atlas
         private RectTransform m_pinLayer;
         private RawImage m_paper;
         private RawImage m_ink;
-        private RawImage m_detail;
+        private RectTransform m_detailLayer;
         private RawImage m_fog;
         private readonly Vector3[] m_corners = new Vector3[4];
         private readonly List<RectTransform> m_pins = new List<RectTransform>();
@@ -211,20 +216,32 @@ namespace Atlas
                 if (pin) pin.localScale = counter;
         }
 
-        // Whether the view is zoomed in far enough for a sharp detail tile, the part of the sheet in
-        // view (sheet pixels, y running south) and the magnification to ink it at.
-        public bool DetailWanted(out RectInt visible, out int scale)
+        // Where close-up tiles go: over the ink, under the fog. Null before the window is built.
+        public RectTransform DetailLayer => m_root ? m_detailLayer : null;
+
+        // The most screen pixels per sheet pixel the view zooms to.
+        public float MaxOnScreen => MaxScale * (m_canvas ? m_canvas.scaleFactor : 1f);
+
+        // The part of the sheet in view (sheet pixels, y running south), the screen pixels per
+        // sheet pixel, and the sheet point under the pointer (the view's centre when the pointer
+        // is outside it), where a zoom would centre.
+        public bool ViewRegion(out RectInt visible, out float onScreen, out Vector2 pointer)
         {
             visible = default;
-            scale = 0;
+            pointer = default;
+            onScreen = m_scale * (m_canvas ? m_canvas.scaleFactor : 1f);
             if (!IsOpen || !m_root) return false;
-            float onScreen = m_scale * (m_canvas ? m_canvas.scaleFactor : 1f);
-            if (onScreen < DetailFrom) return false;
-            scale = Mathf.Clamp(Mathf.CeilToInt(onScreen), 2, MaxDetail);
+            float half = InkPainter.CanvasSize * 0.5f;
+            Camera camera = m_canvas && m_canvas.renderMode != RenderMode.ScreenSpaceOverlay ? m_canvas.worldCamera : null;
+            Vector3 screen = ZInput.pointerPosition;
+            if (RectTransformUtility.RectangleContainsScreenPoint(m_viewport, screen, camera)
+                && RectTransformUtility.ScreenPointToLocalPointInRectangle(m_content, screen, camera, out Vector2 under))
+                pointer = new Vector2(under.x + half, half - under.y);
+            else
+                pointer = new Vector2(half - m_position.x / m_scale, half + m_position.y / m_scale);
 
             // The viewport's corners in the sheet's own units, centred on the sheet.
             m_viewport.GetWorldCorners(m_corners);
-            float half = InkPainter.CanvasSize * 0.5f;
             float left = float.MaxValue, right = float.MinValue, top = float.MaxValue, bottom = float.MinValue;
             foreach (Vector3 corner in m_corners)
             {
@@ -241,23 +258,6 @@ namespace Atlas
             if (x1 <= x0 || y1 <= y0) return false;
             visible = new RectInt(x0, y0, x1 - x0, y1 - y0);
             return true;
-        }
-
-        // Lays a detail tile over the sheet rectangle it was inked for.
-        public void ShowDetail(Texture tile, RectInt region)
-        {
-            if (!m_root) return;
-            float half = InkPainter.CanvasSize * 0.5f;
-            RectTransform rect = m_detail.rectTransform;
-            rect.sizeDelta = new Vector2(region.width, region.height);
-            rect.anchoredPosition = new Vector2(region.center.x - half, half - region.center.y);
-            m_detail.texture = tile;
-            if (!m_detail.gameObject.activeSelf) m_detail.gameObject.SetActive(true);
-        }
-
-        public void HideDetail()
-        {
-            if (m_detail && m_detail.gameObject.activeSelf) m_detail.gameObject.SetActive(false);
         }
 
         private bool Build()
@@ -286,9 +286,8 @@ namespace Atlas
 
             m_paper = NewLayer("Paper");
             m_ink = NewLayer("Ink");
-            m_detail = NewLayer("Detail");
-            m_detail.rectTransform.anchorMin = m_detail.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-            m_detail.gameObject.SetActive(false);
+            m_detailLayer = NewRect("Detail", m_content);
+            Stretch(m_detailLayer, 0f);
             m_fog = NewLayer("Fog");
             m_pinLayer = NewRect("Pins", m_content);
             Stretch(m_pinLayer, 0f);
@@ -328,13 +327,28 @@ namespace Atlas
             TMP_FontAsset font = PinFont(minimap);
             float half = InkPainter.HalfExtent;
             float size = InkPainter.CanvasSize;
+            Material labelMaterial = font ? LabelMaterial(font) : null;
             foreach (Snapshot.Pin pin in snapshot.m_pins)
             {
                 if (!sprites.TryGetValue(pin.m_icon, out Sprite sprite) || !sprite) continue;
-                GameObject marker = Object.Instantiate(minimap.m_pinPrefab, m_pinLayer);
+                // A holder per pin, so the outline can lie behind the marker: a UI parent always
+                // draws before its children, never behind them.
+                var holder = NewRect("Pin", m_pinLayer);
+                holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
+                holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
+                holder.sizeDelta = new Vector2(PinSize, PinSize);
+                // A crisp parchment outline of even width that follows the icon's shape: the icon
+                // in parchment, shifted OutlineWidth in a ring of OutlineCopies directions. An
+                // enlarged copy outlined wide parts far and thin parts hardly at all.
+                for (int k = 0; k < OutlineCopies; k++)
+                {
+                    float angle = k * Mathf.PI * 2f / OutlineCopies;
+                    AddBacking(holder, sprite, new Vector2(Mathf.Cos(angle), Mathf.Sin(angle)) * OutlineWidth);
+                }
+                GameObject marker = Object.Instantiate(minimap.m_pinPrefab, holder);
                 var rect = (RectTransform)marker.transform;
                 rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
-                rect.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
+                rect.anchoredPosition = Vector2.zero;
                 rect.sizeDelta = new Vector2(PinSize, PinSize);
                 foreach (Graphic graphic in marker.GetComponentsInChildren<Graphic>(true)) graphic.raycastTarget = false;
                 var image = marker.GetComponent<Image>();
@@ -346,26 +360,62 @@ namespace Atlas
                 Transform check = marker.transform.Find("Checked");
                 if (check) check.gameObject.SetActive(pin.m_checked);
                 string label = Localization.instance.Localize(pin.m_name);
-                if (font && !string.IsNullOrEmpty(label)) AddLabel(rect, label, font);
-                m_pins.Add(rect);
+                if (font && !string.IsNullOrEmpty(label)) AddLabel(holder, label, font, labelMaterial);
+                m_pins.Add(holder);
             }
         }
 
-        private static void AddLabel(RectTransform pin, string label, TMP_FontAsset font)
+        private static void AddLabel(RectTransform pin, string label, TMP_FontAsset font, Material material)
         {
             var rect = NewRect("Name", pin);
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0f);
             rect.pivot = new Vector2(0.5f, 1f);
-            rect.sizeDelta = new Vector2(220f, 24f);
-            rect.anchoredPosition = new Vector2(0f, -2f);
+            rect.sizeDelta = new Vector2(260f, 28f);
+            rect.anchoredPosition = new Vector2(0f, -6f);
             var text = rect.gameObject.AddComponent<TextMeshProUGUI>();
             text.font = font;
             text.fontSize = PinFontSize;
+            text.fontStyle = FontStyles.Bold;
             text.color = Paper.InkColor;
             text.alignment = TextAlignmentOptions.Top;
             text.textWrappingMode = TextWrappingModes.NoWrap;
             text.raycastTarget = false;
+            if (material) text.fontSharedMaterial = material;
             text.text = label;
+        }
+
+        // A parchment copy of the pin's icon behind it, shifted by offset.
+        private static void AddBacking(RectTransform parent, Sprite sprite, Vector2 offset)
+        {
+            var rect = NewRect("Outline", parent, typeof(Image));
+            rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.sizeDelta = new Vector2(PinSize, PinSize);
+            rect.anchoredPosition = offset;
+            var image = rect.GetComponent<Image>();
+            image.sprite = sprite;
+            image.color = Paper.PaperColor;
+            image.raycastTarget = false;
+        }
+
+        // Main thread. The names' font material with a hard parchment underlay: TextMeshPro grows
+        // each letter's own shape by the dilate and draws it behind in parchment, a crisp rim of
+        // even width, like the icons' outline. One copy, shared by every name; vanilla's material
+        // is never changed.
+        private static Material LabelMaterial(TMP_FontAsset font)
+        {
+            if (s_labelMaterial && s_labelFont == font) return s_labelMaterial;
+            Material source = font.material;
+            if (!source) return null;
+            var material = new Material(source) { name = source.name + "_atlas" };
+            material.EnableKeyword(ShaderUtilities.Keyword_Underlay);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayColor)) material.SetColor(ShaderUtilities.ID_UnderlayColor, Paper.PaperColor);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayDilate)) material.SetFloat(ShaderUtilities.ID_UnderlayDilate, LabelUnderlay);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlaySoftness)) material.SetFloat(ShaderUtilities.ID_UnderlaySoftness, 0f);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayOffsetX)) material.SetFloat(ShaderUtilities.ID_UnderlayOffsetX, 0f);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayOffsetY)) material.SetFloat(ShaderUtilities.ID_UnderlayOffsetY, 0f);
+            s_labelMaterial = material;
+            s_labelFont = font;
+            return material;
         }
 
         // Every sprite a pin may use, by name: the pin icons and the location icons (traders,

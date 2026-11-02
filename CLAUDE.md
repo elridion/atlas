@@ -15,15 +15,26 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - `src/AtlasPlugin.cs` loads translations, applies the patches and calls `AtlasMap.Update` every frame.
 - `src/AtlasMap.cs` the controller: per world it loads or paints the ink sheet, lays the fog for the
   current snapshot, and opens `AtlasView` on the map key.
-- `src/AtlasView.cs` the window (parchment, ink and fog `RawImage`s plus pin markers) with zoom and drag.
+- `src/AtlasView.cs` the window (parchment, ink and fog `RawImage`s plus pin markers) with zoom and
+  drag. Pins are inked black (the user likes that) with a crisp parchment outline of even width:
+  12 parchment copies of the icon shifted 3 units in a ring behind it. Names are bold with a
+  hard parchment TextMeshPro underlay on a copy of the font material. Rejected by the user on
+: a soft parchment disc, the icon enlarged behind itself (outlines wide parts far,
+  thin parts barely), and red icons on parchment labels. Each pin is a holder whose first
+  children are the outline copies, since a UI parent draws before its children.
 - `src/TablePatches.cs` the `MapTable.OnRead`/`OnWrite` postfixes and the `Minimap.IsOpen` postfix.
 - `src/InteractiveMap.cs` opens vanilla's large map in a nomap world.
 - `src/Snapshot.cs` the recorded exploration and pins, in `Player.m_customData`.
 - `src/Paper.cs` parchment, the biome wash, fog and the ink texture's pixel data (mip chain).
 - `src/Ink/`: `WorldSource.cs` vanilla minimap data, `Woods.cs` the wood field, `InkPainter.cs`
-  the drawing pipeline and scatter rules, `WoodEdges.cs` the woods' edge line, `Glyphs.cs` the pen glyphs, `InkCanvas.cs` the anti-aliased rasterizer,
-  `DistanceField.cs` distance transform and marching squares, `Noise.cs` hashes and value noise,
-  `InkCache.cs` the per-world disk cache.
+  the drawing pipeline and scatter rules, `Glyphs.cs` the
+  pen glyphs, `InkCanvas.cs` the anti-aliased rasterizer, `InkRecord.cs` the recorded pen calls
+  and their layers, `DistanceField.cs` distance transform and marching squares, `Noise.cs`
+  hashes and value noise, `InkCache.cs` the per-world disk cache.
+- Detail tiles: `DetailTiles.cs` the tile pyramid (what to draw, workers, textures),
+  `DetailTile.cs` composites one, `InkPainter.Tile.cs` draws it, `TileGrid.cs` the ground sampled
+  for it, `SampleCache.cs` the shared samples, `WorldSampler.cs` the world generator and minimap
+  samplers.
 - `assets/translations/<Language>.json` (`atlas_*` keys); `tools/make_icon.ps1` generates
   `package/icon.png`; `hexium.json` Hexium listing metadata.
 
@@ -82,6 +93,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the one behind, so the shaded wedge has to stay wide near the summit. Woods are packed so
   densely that only their southern edge shows trunks. Both came from an art review against the
   classic map style that the user liked.
+- The parchment carries stains (`Paper.Stains`, user's request): large water stains,
+  dried drop rings with a tide line and foxing spots, ragged by noise, placed by hash of the seed.
+  They are world-anchored on the 2048 paper, and numerous enough that the explored-bounds view
+  always shows some; the fog shares the stained parchment, so they run on unbroken.
 - A faint watercolour wash per biome lies under the ink (`Paper.Washed`, darker in woods, pale on
   water, blurred so it bleeds softly across edges); it replaced the earlier pure-black-ink rule
   when the user found the map hard to read. The fog keeps the bare parchment, so
@@ -91,9 +106,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   weird mix"). `Woods.Build` turns vanilla's forest mask (red in Meadows, Black Forest, Plains;
   green in the Mistlands) into a field: copses and clearings under 12 and 16 map pixels dropped,
   then blurred, edge at 0.5. Trees stand only where their foot and crown centre are inside, so
-  the outer crowns form the edge; an edge line traced at 0.4 is drawn before the trees, which
-  scrape it away where they overlap, so it shows only in gaps and joins the wood into one mass.
-  A scalloped edge drawn after the trees was tried and looked fuzzy, with a gap inside it. Ground
+  the outer crowns alone form the edge. Edge lines were tried and dropped: a scalloped edge after
+  the trees looked fuzzy with a gap inside it, and a plain line under the trees read as height
+  contours to the user (removed). Ground
   fills and hills keep `WoodClearance` from every wood. Vanilla's mask (`Minimap.GetMaskColor`)
   marks all Black Forest land as forest, Meadows by `WorldGenerator.InForest`, Plains where the
   forest factor is under 0.8 and the Mistlands by a smoothstep of it, so the Black Forest is one
@@ -106,14 +121,37 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   giant trees.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
-- Zoomed in past 1.25 screen pixels per sheet pixel, the view gets a detail tile: every pen call
-  of the painting is kept in an `InkRecord` (about 720k calls, 20 MB, indexed in 64 px cells) and
-  the calls touching the visible part (plus a quarter margin) are replayed into an `InkCanvas` at
-  the on-screen magnification (up to 8x) on a worker thread, composited on the parchment and laid
-  over the sheet (opaque, under the fog) once the view has held still for 0.15 s. Replaying at 1x
-  matches the sheet exactly. Because only painting yields the record, the world is painted once
-  per session in the background even when the sheet came from the disk cache. In game
-  the plain sheet looked too pixelated at 4x zoom, which is what led to this.
+- Zoomed in past 1.5 screen pixels per sheet pixel, close-ups come from fixed 256² tiles
+  (`DetailTiles`) at one level only, the finest the view reaches (4x, 8x with a UI scale over
+  1), mipmapped on the worker and faded in over 0.2 s, laid over the sheet (opaque, under the
+  fog). A pyramid of 2x, 4x and 8x tiles, coarse ones shown while fine ones were missing, looked
+  scratchy to the user as levels replaced each other. Tiles are drawn ahead of
+  need, one per worker (half the cores, at most 4): the view from the pointer outward and a ring
+  of one tile round it; zoomed out, up to 48 tiles round the pointer, where a zoom lands. At most
+  3 textures are uploaded a frame and 320 kept (about 110 MB with mips). Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs from cells
+  `GlyphReach` beyond it, so neighbours draw the same glyphs and margins and seams do not show.
+  This replaced one big tile for the whole view, which the user found slow to catch up even with
+  the sample cache. The
+  ground fills, trees and coast are drawn afresh (`InkPainter.PaintTile`) from a
+  `TileGrid` sampled every few tile pixels; everything else is replayed from the `InkRecord`
+  (every pen call of the painting with its `InkLayer`, about 720k calls, 20 MB, indexed in 64 px
+  cells, plus the sheet's sea pixels as bits, which tell sea coast from lake shore). Because only
+  painting yields the record, the world is painted once per session in the background even when
+  the sheet came from the disk cache. In game the plain sheet looked too pixelated at
+  4x zoom, and the user then found close zoom lacking detail, which is what led to this.
+- Tiles sample the world generator (`GeneratorSampler`: `GetBiome`, `GetBiomeHeight` and the
+  forest factor, exactly what vanilla's minimap is built from), which vanilla itself calls off
+  the main thread from `HeightmapBuilder`; `Mathf.PerlinNoise` underneath means the offline
+  harness cannot run it and uses `MinimapSampler` instead. A failing generator falls back to the
+  minimap once. Samples sit on world-anchored points at 1, 2, 4, 8 or 16 m (the spacing nearest
+  3 tile pixels: 8 m at 2x, 4 m at 4x, 2 m at 8x) and are kept per world in a `SampleCache` of
+  32² chunks (about 1200, 45 MB at most, least recently used dropped), so neighbouring tiles and
+  zooming back only sample new ground. Generator speed is unmeasured in game.
+- The tile's level of detail is the square root of half the zoom (1 at 2x, 2 at 8x): ground fills
+  and trees shrink and pack by it, and every pen width and glyph margin thins by it
+  (`InkCanvas.m_penScale`, `m_pen`), recorded layers included. Trees at full scale (lod 4 at 8x)
+  were true to life but read as a uniform bubble texture. Scatter grids are anchored to the sheet
+  and hashed per level, level 1 as the sheet, so glyphs do not move as the view pans.
 - Rivers and streams come from `WorldGenerator.GetRivers()`/`GetStreams()`, copied in
   `WorldSource.Capture` and inked along vanilla's own sine curve (`RiverPath.PointAt`, from
   `WorldGenerator.RenderRivers`) over land only, on a scraped band. Streams run from their low

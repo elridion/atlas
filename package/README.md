@@ -44,6 +44,7 @@ Every biome except the mountains has a ground fill of its own (the first mark in
 | Mistlands | Banks of mist drifting across the woods, giant three-crowned trees, hatched rock pillars |
 | Ashlands | Burnt, hatched ground, lava cracks and a few large smoking volcanoes |
 | Deep North | A near-blank snowfield crossed by thin bands of ice ridges, high peaks and ice floes in the northern sea |
+| Rivers | Wide rivers show as water between two banks; narrow rivers and streams as ink lines that taper toward their source |
 
 ## Settings
 

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using HarmonyLib;
 using UnityEngine;
 
@@ -15,6 +16,30 @@ namespace Atlas
         Mistlands,
         Ashlands,
         DeepNorth,
+    }
+
+    /// <summary>
+    /// One river or stream as the world generator lays it out: a straight run from start to end,
+    /// swung from side to side by a sum of sines (WorldGenerator.RenderRivers), in world metres
+    /// (y is the world z axis).
+    /// </summary>
+    internal struct RiverPath
+    {
+        public Vector2 m_start;
+        public Vector2 m_end;
+        public float m_curveWidth;
+        public float m_curveWavelength;
+        public bool m_stream;
+
+        // The course's point at distance t along it, the same curve vanilla carves.
+        public Vector2 PointAt(float t)
+        {
+            Vector2 along = (m_end - m_start).normalized;
+            var side = new Vector2(-along.y, along.x);
+            double k = t / m_curveWavelength;
+            float swing = (float)(Math.Sin(k) * Math.Sin(k * 0.634119987487793) * Math.Sin(k * 0.3341200053691864) * m_curveWidth);
+            return m_start + along * t + side * swing;
+        }
     }
 
     /// <summary>
@@ -47,12 +72,29 @@ namespace Atlas
         public byte[] m_forest;
         public byte[] m_mist;
         public byte[] m_lava;
+        // Rivers and streams from the world generator. The minimap's 12 m pixels lose the narrow
+        // ones (a stream's channel is about 20 m wide), so they are drawn from their courses.
+        public readonly List<RiverPath> m_rivers = new List<RiverPath>();
 
         private Color32[] m_colors;
         private Color32[] m_mask;
         private ushort[] m_halfHeights;
         private float[] m_floatHeights;
-        private (Color32 color, Land land)[] m_palette;
+        private PaletteEntry[] m_palette;
+
+        // A plain struct, not a tuple: tuples need System.ValueTuple.dll on .NET Framework 4.6.2,
+        // which Valheim does not ship, and the type then fails to load in game.
+        private struct PaletteEntry
+        {
+            public Color32 m_color;
+            public Land m_land;
+
+            public PaletteEntry(Color color, Land land)
+            {
+                m_color = color;
+                m_land = land;
+            }
+        }
 
         public static bool IsReady(Minimap minimap) =>
             minimap && s_hasGenerated(minimap) && minimap.m_mapTexture && s_heightTexture(minimap) && s_forestMaskTexture(minimap);
@@ -80,21 +122,44 @@ namespace Atlas
                 source.m_floatHeights = new float[pixels.Length];
                 for (int i = 0; i < pixels.Length; i++) source.m_floatHeights[i] = pixels[i].r;
             }
+            WorldGenerator generator = WorldGenerator.instance;
+            if (generator != null)
+            {
+                AddRivers(source, generator.GetRivers(), stream: false);
+                AddRivers(source, generator.GetStreams(), stream: true);
+            }
             // Vanilla paints the ocean plain white (Minimap.GetPixelColor); the other colours come
             // from the minimap prefab, which overrides the code defaults.
             source.m_palette = new[]
             {
-                ((Color32)minimap.m_meadowsColor, Land.Meadows),
-                ((Color32)minimap.m_blackforestColor, Land.BlackForest),
-                ((Color32)minimap.m_swampColor, Land.Swamp),
-                ((Color32)minimap.m_heathColor, Land.Plains),
-                ((Color32)s_mistlandsColor(minimap), Land.Mistlands),
-                ((Color32)minimap.m_ashlandsColor, Land.Ashlands),
-                ((Color32)minimap.m_mountainColor, Land.Mountain),
-                ((Color32)minimap.m_deepnorthColor, Land.DeepNorth),
-                ((Color32)Color.white, Land.Ocean),
+                new PaletteEntry(minimap.m_meadowsColor, Land.Meadows),
+                new PaletteEntry(minimap.m_blackforestColor, Land.BlackForest),
+                new PaletteEntry(minimap.m_swampColor, Land.Swamp),
+                new PaletteEntry(minimap.m_heathColor, Land.Plains),
+                new PaletteEntry(s_mistlandsColor(minimap), Land.Mistlands),
+                new PaletteEntry(minimap.m_ashlandsColor, Land.Ashlands),
+                new PaletteEntry(minimap.m_mountainColor, Land.Mountain),
+                new PaletteEntry(minimap.m_deepnorthColor, Land.DeepNorth),
+                new PaletteEntry(Color.white, Land.Ocean),
             };
             return source;
+        }
+
+        private static void AddRivers(WorldSource source, List<WorldGenerator.River> rivers, bool stream)
+        {
+            if (rivers == null) return;
+            foreach (WorldGenerator.River river in rivers)
+            {
+                if (river == null || river.curveWavelength <= 0f) continue;
+                source.m_rivers.Add(new RiverPath
+                {
+                    m_start = river.p0,
+                    m_end = river.p1,
+                    m_curveWidth = river.curveWidth,
+                    m_curveWavelength = river.curveWavelength,
+                    m_stream = stream,
+                });
+            }
         }
 
         // Worker thread.
@@ -161,10 +226,11 @@ namespace Atlas
         // The palette colour closest to a map pixel.
         private Color32 Nearest(Color32 c)
         {
-            Color32 best = m_palette[0].color;
+            Color32 best = m_palette[0].m_color;
             int bestDistance = int.MaxValue;
-            foreach (var (color, _) in m_palette)
+            foreach (PaletteEntry entry in m_palette)
             {
+                Color32 color = entry.m_color;
                 int dr = c.r - color.r, dg = c.g - color.g, db = c.b - color.b;
                 int distance = dr * dr + dg * dg + db * db;
                 if (distance >= bestDistance) continue;
@@ -176,15 +242,15 @@ namespace Atlas
 
         private bool Shares(Color32 color, Land land)
         {
-            foreach (var (entry, owner) in m_palette)
-                if (owner == land) return SameColor(entry, color);
+            foreach (PaletteEntry entry in m_palette)
+                if (entry.m_land == land) return SameColor(entry.m_color, color);
             return false;
         }
 
         private Land First(Color32 color)
         {
-            foreach (var (entry, land) in m_palette)
-                if (SameColor(entry, color)) return land;
+            foreach (PaletteEntry entry in m_palette)
+                if (SameColor(entry.m_color, color)) return entry.m_land;
             return Land.Ocean;
         }
 

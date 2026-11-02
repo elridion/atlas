@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using BepInEx;
 using HarmonyLib;
@@ -31,9 +32,22 @@ namespace Atlas
             _harmony.PatchAll(typeof(AtlasPlugin).Assembly);
         }
 
+        // A failure in the atlas is logged once and switches it off for the session, rather than
+        // throwing (and logging) every frame.
+        private bool m_failed;
+
         private void Update()
         {
-            AtlasMap.Update();
+            if (m_failed) return;
+            try
+            {
+                AtlasMap.Update();
+            }
+            catch (Exception e)
+            {
+                m_failed = true;
+                Jotunn.Logger.LogError($"Atlas stopped after an error and stays off until the game restarts: {e}");
+            }
         }
 
         private void OnDestroy()

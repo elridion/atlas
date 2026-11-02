@@ -79,8 +79,14 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   since a fill underneath was scraped away by its dense giant trees.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
-- Tall glyphs test their top with `IsLandAt` as well as the shore margin at their foot, or peaks
-  and trees on south-facing coasts reach into the sea.
+- Rivers and streams come from `WorldGenerator.GetRivers()`/`GetStreams()`, copied in
+  `WorldSource.Capture` and inked along vanilla's own sine curve (`RiverPath.PointAt`, from
+  `WorldGenerator.RenderRivers`) over land only, on a scraped band. Streams run from their low
+  mouth (`p0`, 26-31 m) to the source and taper. Deep North streams are not kept by vanilla and so
+  are not drawn. The offline harness cannot run the generator; its previews use streams laid out
+  with the same rule on the cached heights, so in-game courses differ from the previews.
+- Tall glyphs test their whole column with `IsLandColumn` as well as the shore margin at their
+  foot, or peaks and trees on south-facing coasts or thin spits reach into the sea.
 - Thresholds were set from the Velen world's height percentiles (Ashlands land p90 22 m above
   water, Deep North p90 59 m, Mountain p50 90 m).
 - An offline preview harness (not in the repo) fed vanilla's cached minimap files

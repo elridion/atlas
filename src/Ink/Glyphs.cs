@@ -14,14 +14,20 @@ namespace Atlas
         {
             switch (g.m_kind)
             {
-                case Kind.Peak: Peak(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+                case Kind.Peak:
+                    Peak(g.m_x, g.m_y, g.m_size, g.m_seed);
+                    MarkSolid(g.m_x - g.m_size * 0.5f, g.m_y - g.m_size, g.m_x + g.m_size * 0.62f, g.m_y);
+                    break;
                 case Kind.Hill: Hill(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Broadleaf: Broadleaf(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Conifer: Conifer(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.PlainsTree: PlainsTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.MarshTuft: MarshTuft(g.m_x, g.m_y, g.m_size); break;
                 case Kind.DeadTree: DeadTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
-                case Kind.Spire: Spire(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+                case Kind.Spire:
+                    Spire(g.m_x, g.m_y, g.m_size, g.m_seed);
+                    MarkSolid(g.m_x - 4.5f * g.m_size, g.m_y - 21f * g.m_size, g.m_x + 4.5f * g.m_size, g.m_y);
+                    break;
                 case Kind.GiantTree: GiantTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Volcano: Volcano(g.m_x, g.m_y, g.m_size); break;
                 case Kind.Fissure: Fissure(g.m_x, g.m_y, g.m_size, g.m_seed); break;
@@ -209,21 +215,26 @@ namespace Atlas
             m_canvas.Polyline(m_points, Pen);
         }
 
-        // A lava crack: a jagged line across the flow, heavy enough to show through the hatching.
+        // A lava crack: a jagged line with sharp, alternating kinks and a short side branch, laid
+        // roughly along the flow, heavy enough to show through the hatching. A smooth wobble with a
+        // forked tip read as a flying gull.
         private void Fissure(float x, float y, float s, int seed)
         {
+            float angle = (Unit(seed, 10) - 0.5f) * 1.1f;
+            var along = new Vector2(Mathf.Cos(angle), Mathf.Sin(angle));
+            var across = new Vector2(-along.y, along.x);
             m_points.Clear();
-            float px = x - 5f * s, py = y;
-            m_points.Add(new Vector2(px, py));
-            for (int i = 0; i < 4; i++)
+            for (int i = 0; i <= 5; i++)
             {
-                px += 2.5f * s;
-                py += (Unit(seed, 10 + i) - 0.5f) * 3.2f * s;
-                m_points.Add(new Vector2(px, py));
+                float t = (i - 2.5f) * 2f * s;
+                float kink = (i % 2 == 0 ? 1f : -1f) * (0.6f + Unit(seed, 11 + i) * 0.8f) * s;
+                m_points.Add(new Vector2(x, y) + along * t + across * kink);
             }
             m_canvas.Polyline(m_points, 1.3f);
             Vector2 fork = m_points[2];
-            m_canvas.Stroke(fork.x, fork.y, fork.x + 1.2f * s, fork.y - 2.4f * s, Pen);
+            float side = Unit(seed, 20) < 0.5f ? 1f : -1f;
+            Vector2 tip = fork + (across * side * 2.2f + along * 1.2f) * s;
+            m_canvas.Stroke(fork.x, fork.y, tip.x, tip.y, Pen);
         }
 
         // A wave mark far out at sea.

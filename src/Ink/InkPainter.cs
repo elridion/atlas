@@ -31,6 +31,13 @@ namespace Atlas
         // threshold; 1 is unbroken).
         private static readonly float[] s_ripples = { 4.5f * G, 8.5f * G, 13f * G, 18f * G };
         private static readonly float[] s_rippleGaps = { 1f, 0.68f, 0.55f, 0.45f };
+        // A ring needs water RippleWidth times its distance from land within reach, and (beyond the
+        // first) land in a box RippleLandBox times its distance across of at least RippleLandShare
+        // times its distance squared: a straight coast gives three times that, an islet of about 0.4
+        // times the ring's distance in radius just passes.
+        private const float RippleWidth = 1.5f;
+        private const float RippleLandBox = 1.5f;
+        private const float RippleLandShare = 0.5f;
         private const float OpenWidth = 9f * G;
         private const float DistanceScale = 4f;
         private const float FrameGap = 7f;
@@ -63,6 +70,12 @@ namespace Atlas
         // how close to a crest line a chevron must lie (1 is on the crest).
         private const float RidgeScale = 70f * G;
         private const float RidgeBand = 0.9f;
+        // Rivers: the pen for a river, a stream at its mouth (thinning to Pen at its source), the extra
+        // width scraped clear on either side, and the step between points along a course (canvas px).
+        private const float RiverWidth = 1.8f;
+        private const float StreamMouth = 1.4f;
+        private const float RiverBand = 2.4f;
+        private const float RiverStep = 1.5f;
         private const float SpireSlope = 0.45f;
         // Mistlands land this high above the water gets spires even where it is not steep
         // (the Velen world's Mistlands p90 is 47 m).
@@ -75,7 +88,9 @@ namespace Atlas
         private readonly CancellationToken m_cancel;
         private readonly InkCanvas m_canvas = new InkCanvas(CanvasSize);
         private readonly List<Vector2> m_points = new List<Vector2>(16);
-        private readonly List<bool> m_mistInside = new List<bool>(32);
+        private readonly List<bool> m_pathInside = new List<bool>(32);
+        // Canvas pixels covered by peaks and spires, which the mist banks drawn later must not cut.
+        private byte[] m_solid;
         private readonly List<Glyph> m_glyphs = new List<Glyph>(200000);
         // Ice floes sit on the water, so they are drawn after the coast's ripple lines, over them.
         private readonly List<Glyph> m_floes = new List<Glyph>(4096);
@@ -146,6 +161,7 @@ namespace Atlas
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             foreach (Glyph glyph in m_glyphs) DrawGlyph(glyph);
             DrawMist();
+            DrawRivers();
             m_cancel.ThrowIfCancellationRequested();
             DrawCoast();
             DrawRipples();
@@ -170,7 +186,21 @@ namespace Atlas
                 heights[i] = h;
             }
 
+            // Two blurs before the specks go and one after: one pass left small islands as angular
+            // lozenges and the swamp's flat water level as straight chords along the coast.
             m_coast = new float[size * size];
+            Blur(heights, m_coast, size);
+            Blur(m_coast, heights, size);
+            Array.Copy(heights, m_coast, heights.Length);
+            RemoveSpecks(water, land: true, MinIsland);
+            RemoveSpecks(water, land: false, MinLake);
+            Blur(m_coast, heights, size);
+            m_coast = heights;
+        }
+
+        // 3x3 box blur of a square grid, edges averaged over the cells that exist.
+        private static void Blur(float[] source, float[] target, int size)
+        {
             for (int z = 0; z < size; z++)
             {
                 for (int x = 0; x < size; x++)
@@ -185,16 +215,13 @@ namespace Atlas
                         {
                             int xx = x + dx;
                             if (xx < 0 || xx >= size) continue;
-                            sum += heights[zz * size + xx];
+                            sum += source[zz * size + xx];
                             count++;
                         }
                     }
-                    m_coast[z * size + x] = sum / count;
+                    target[z * size + x] = sum / count;
                 }
             }
-
-            RemoveSpecks(water, land: true, MinIsland);
-            RemoveSpecks(water, land: false, MinLake);
         }
 
         // Flattens connected patches of land (or of water) smaller than minCells map pixels into
@@ -331,6 +358,15 @@ namespace Atlas
             return m_land[py * CanvasSize + px] != 0;
         }
 
+        // Whether the whole column a tall glyph stands in, from its foot up to height, is land:
+        // testing only the top let a pine on a thin spit of land reach across the water between.
+        private bool IsLandColumn(float x, float y, float height)
+        {
+            for (int k = 1; k <= 4; k++)
+                if (!IsLandAt(x, y - height * k / 4f)) return false;
+            return true;
+        }
+
         private void Add(Spot spot, Kind kind, float size)
         {
             m_glyphs.Add(new Glyph { m_x = spot.m_x, m_y = spot.m_y, m_size = size, m_kind = kind, m_seed = spot.m_seed });
@@ -403,7 +439,7 @@ namespace Atlas
                 bool north = s.m_land == Land.DeepNorth && s.m_above >= DeepNorthPeakHeight;
                 if (!mountain && !north) return;
                 float width = Mathf.Lerp(18f, 30f, Mathf.Clamp01((s.m_above - PeakHeight) / 160f)) * G;
-                if (s.m_shore < width * 0.45f || !IsLandAt(s.m_x, s.m_y - width * 0.75f)) return;
+                if (s.m_shore < width * 0.45f || !IsLandColumn(s.m_x, s.m_y, width * 0.75f)) return;
                 Add(s, Kind.Peak, width);
             });
             // Hills: groups of open humps on steep open ground, and a ring of foothills around each
@@ -423,14 +459,14 @@ namespace Atlas
             Scatter(5.2f * G, 23, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Meadows || !s.m_forest || s.m_shore < 4f || !(s.m_roll < 0.95f)) return;
-                if (!IsLandAt(s.m_x, s.m_y - 8f * G)) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 8f * G)) return;
                 Add(s, Kind.Broadleaf, G);
             });
             // Black Forest: dense pines with a few clearings.
             Scatter(5.5f * G, 24, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.BlackForest || s.m_shore < 4f || !(s.m_roll < 0.9f)) return;
-                if (!IsLandAt(s.m_x, s.m_y - 11f * G)) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 11f * G)) return;
                 if (Noise(s.m_x / (40f * G), s.m_y / (40f * G), m_world.m_seed) > 0.72f) return;
                 Add(s, Kind.Conifer, G);
             });
@@ -438,6 +474,7 @@ namespace Atlas
             Scatter(12f * G, 25, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Plains || !s.m_forest || s.m_shore < 3f || !(s.m_roll < 0.5f)) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 6f * G)) return;
                 Add(s, Kind.PlainsTree, G);
             });
             // Swamp: a few marsh tufts among the water strokes, and some dead trees.
@@ -457,19 +494,19 @@ namespace Atlas
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 5f || !(s.m_roll < 0.8f)) return;
                 if (s.m_slope < SpireSlope && s.m_above < SpireHeight) return;
-                if (!IsLandAt(s.m_x, s.m_y - 22f * G)) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 22f * G)) return;
                 Add(s, Kind.Spire, G);
             });
             Scatter(8f * G, 29, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || !s.m_mist || s.m_slope >= SpireSlope || s.m_shore < 5f || !(s.m_roll < 0.75f)) return;
-                if (!IsLandAt(s.m_x, s.m_y - 14f * G)) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 14f * G)) return;
                 Add(s, Kind.GiantTree, G);
             });
             // Ashlands: a few large smoking volcanoes on the heights, lava cracks in the flows.
             Scatter(34f * G, 30, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_above < VolcanoHeight || s.m_shore < 14f * G || !(s.m_roll < 0.3f)) return;
+                if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_above < VolcanoHeight || s.m_shore < 10f * G || !(s.m_roll < 0.45f)) return;
                 Add(s, Kind.Volcano, VolcanoScale * G);
             });
             Scatter(16f * G, 31, s =>
@@ -545,23 +582,42 @@ namespace Atlas
         private void MistLine(float left, float y, float start, float end, float length, float phase)
         {
             m_points.Clear();
-            m_mistInside.Clear();
+            m_pathInside.Clear();
             for (float t = start; t <= end; t += MistStep)
             {
                 var point = new Vector2(left + t, y + Mathf.Sin(t / length * 7.5f + phase) * 1.2f * G);
                 m_points.Add(point);
-                m_mistInside.Add(IsMistlandsAt(point.x, point.y));
+                m_pathInside.Add(IsMistlandsAt(point.x, point.y) && !IsSolidAt(point.x, point.y));
             }
             for (int pass = 0; pass < 2; pass++)
             {
                 for (int i = 1; i < m_points.Count; i++)
                 {
-                    if (!m_mistInside[i] || !m_mistInside[i - 1]) continue;
+                    if (!m_pathInside[i] || !m_pathInside[i - 1]) continue;
                     Vector2 a = m_points[i - 1], b = m_points[i];
                     if (pass == 0) m_canvas.Scrape(a.x, a.y, b.x, b.y, MistBand);
                     else m_canvas.Stroke(a.x, a.y, b.x, b.y, Pen);
                 }
             }
+        }
+
+        // Marks a glyph's bounding box, grown by the mist band's half width, as off limits to mist.
+        private void MarkSolid(float left, float top, float right, float bottom)
+        {
+            if (m_solid == null) m_solid = new byte[CanvasSize * CanvasSize];
+            float grow = MistBand * 0.5f + 1f;
+            int x0 = Mathf.Clamp((int)(left - grow), 0, CanvasSize - 1), x1 = Mathf.Clamp((int)(right + grow), 0, CanvasSize - 1);
+            int y0 = Mathf.Clamp((int)(top - grow), 0, CanvasSize - 1), y1 = Mathf.Clamp((int)(bottom + grow), 0, CanvasSize - 1);
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++)
+                    m_solid[y * CanvasSize + x] = 1;
+        }
+
+        private bool IsSolidAt(float x, float y)
+        {
+            if (m_solid == null) return false;
+            int px = Mathf.Clamp((int)x, 0, CanvasSize - 1), py = Mathf.Clamp((int)y, 0, CanvasSize - 1);
+            return m_solid[py * CanvasSize + px] != 0;
         }
 
         private bool IsMistlandsAt(float x, float y)
@@ -571,31 +627,108 @@ namespace Atlas
             return m_world.m_biome[m_world.Index(wx, wz)] == Land.Mistlands;
         }
 
+        // Each ring runs only where the water is wide enough for it (some water at least half as
+        // far again from land lies within reach), so a narrow strait keeps one or two rings rather
+        // than a wall of lines from both banks; and the rings beyond the first only around land
+        // big enough to carry them, so a tiny islet is not ringed like a target.
+        // Rivers and streams from the world generator, drawn over the glyphs on a band scraped back
+        // to parchment, so they read through woods as on the classic map. Only the stretches over
+        // land are drawn: where a channel is wide enough to show as water on the map, the coast
+        // already draws both banks. Streams start at their low mouth and taper toward the source.
+        private void DrawRivers()
+        {
+            float edge = EdgeRadius - 50f;
+            float step = RiverStep * MetresPerPixel;
+            foreach (RiverPath river in m_world.m_rivers)
+            {
+                float length = Vector2.Distance(river.m_start, river.m_end);
+                if (length <= 0f) continue;
+                m_points.Clear();
+                m_pathInside.Clear();
+                for (float t = 0f; t <= length + step * 0.5f; t += step)
+                {
+                    Vector2 world = river.PointAt(Math.Min(t, length));
+                    var point = new Vector2((world.x + HalfExtent) / MetresPerPixel, (HalfExtent - world.y) / MetresPerPixel);
+                    m_points.Add(point);
+                    m_pathInside.Add(world.sqrMagnitude < edge * edge && IsLandAt(point.x, point.y));
+                }
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    for (int i = 1; i < m_points.Count; i++)
+                    {
+                        if (!m_pathInside[i] || !m_pathInside[i - 1]) continue;
+                        float t = (float)i / (m_points.Count - 1);
+                        float width = river.m_stream ? Mathf.Lerp(StreamMouth, Pen, t) : RiverWidth;
+                        Vector2 a = m_points[i - 1], b = m_points[i];
+                        if (pass == 0) m_canvas.Scrape(a.x, a.y, b.x, b.y, width + RiverBand);
+                        else m_canvas.Stroke(a.x, a.y, b.x, b.y, width);
+                    }
+                }
+            }
+        }
+
         private void DrawRipples()
         {
             int n = CanvasSize;
             float edge = EdgeRadius / MetresPerPixel - 12f;
             float centre = n * 0.5f;
+            int[] landSum = LandIntegral();
+            var field = new DistanceField(n);
+            var deepReach = new byte[n * n];
             Func<int, int, float> distance = (x, y) => m_waterDistance[y * n + x] / DistanceScale;
-            Func<int, int, bool> skip = (x, y) =>
-            {
-                float dx = x + 1f - centre, dy = y + 1f - centre;
-                return dx * dx + dy * dy > edge * edge || !IsOpenWater(y * n + x) || !IsOpenWater((y + 1) * n + x + 1);
-            };
             // Distances run to the centre of the nearest land pixel; the coast lies half a pixel out.
             // Each line further out breaks off more often, as if the pen ran dry, so the ripples fade
             // with distance while every stroke stays full ink.
             int seed = m_world.m_seed;
             for (int i = 0; i < s_ripples.Length; i++)
             {
+                m_cancel.ThrowIfCancellationRequested();
+                float ring = s_ripples[i];
+                byte deep = (byte)Math.Min(255f, ring * RippleWidth * DistanceScale);
+                field.Compute(j => m_land[j] == 0 && m_waterDistance[j] >= deep, deepReach, 1f);
+                float reach = ring * (RippleWidth - 1f) + 2.5f;
+                int box = (int)(ring * RippleLandBox);
+                float landNeeded = i == 0 ? 0f : RippleLandShare * ring * ring;
+                Func<int, int, bool> skip = (x, y) =>
+                {
+                    float dx = x + 1f - centre, dy = y + 1f - centre;
+                    if (dx * dx + dy * dy > edge * edge || m_land[y * n + x] != 0) return true;
+                    if (deepReach[y * n + x] > reach) return true;
+                    return landNeeded > 0f && LandInBox(landSum, x, y, box) < landNeeded;
+                };
                 float gaps = s_rippleGaps[i];
                 int salt = seed + 5 + i;
-                DistanceField.Contour(n, distance, s_ripples[i] + 0.5f, skip, (a, b) =>
+                DistanceField.Contour(n, distance, ring + 0.5f, skip, (a, b) =>
                 {
                     if (gaps < 1f && Noise(a.x / 18f, a.y / 18f, salt) > gaps) return;
                     m_canvas.Stroke(a.x + 0.5f, a.y + 0.5f, b.x + 0.5f, b.y + 0.5f, Pen);
                 });
             }
+        }
+
+        // Summed-area table of the land mask, (n + 1)² entries.
+        private int[] LandIntegral()
+        {
+            int n = CanvasSize, stride = n + 1;
+            var sum = new int[stride * stride];
+            for (int y = 1; y <= n; y++)
+            {
+                int row = 0;
+                for (int x = 1; x <= n; x++)
+                {
+                    row += m_land[(y - 1) * n + x - 1];
+                    sum[y * stride + x] = sum[(y - 1) * stride + x] + row;
+                }
+            }
+            return sum;
+        }
+
+        private static int LandInBox(int[] sum, int x, int y, int half)
+        {
+            int n = CanvasSize, stride = n + 1;
+            int x0 = Math.Max(0, x - half), y0 = Math.Max(0, y - half);
+            int x1 = Math.Min(n, x + half + 1), y1 = Math.Min(n, y + half + 1);
+            return sum[y1 * stride + x1] - sum[y0 * stride + x1] - sum[y1 * stride + x0] + sum[y0 * stride + x0];
         }
 
         private void DrawFrame()

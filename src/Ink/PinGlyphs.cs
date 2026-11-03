@@ -130,7 +130,7 @@ namespace Atlas
             ink.Stroke(x0, y0, x1, y1, LogWidth);
         }
 
-        // A longhouse: walls and door under a gable roof with crossed ridge ends, its eastern
+        // A longhouse: plain walls under a gable roof with crossed ridge ends, its eastern
         // roof plane hatched as the map shades every glyph's eastern side.
         private static void House(InkCanvas ink, InkCanvas body)
         {
@@ -144,7 +144,6 @@ namespace Atlas
             ink.Polyline(new[] { new Vector2(5.6f, 13.2f), new Vector2(5.6f, 21.6f), new Vector2(20.4f, 21.6f), new Vector2(20.4f, 13.2f) }, Pen);
             ink.Stroke(13f, 4.4f, 11.2f, 2.2f, FinePen);
             ink.Stroke(13f, 4.4f, 14.8f, 2.2f, FinePen);
-            ink.Polyline(new[] { new Vector2(11.4f, 21.6f), new Vector2(11.4f, 16.6f), new Vector2(14.6f, 16.6f), new Vector2(14.6f, 21.6f) }, FinePen);
             for (float x = 15.2f; x < 21.5f; x += 2.1f) ink.Stroke(x, 4.4f + (x - 13f) * 0.936f + 0.9f, x, 12.6f, FinePen);
         }
 
@@ -310,21 +309,18 @@ namespace Atlas
             for (float x = 17.8f; x < 22.6f; x += 1.9f) ink.Stroke(x, 10.6f + (x - 17.8f) * 1.4f, x + 0.4f, 20.8f, FinePen);
         }
 
-        // Hildir's third, the Sealed Towers: a crenellated tower with a dark door.
+        // Hildir's third, the Sealed Towers: a plain flat-topped tower with a window slit and a
+        // dark door; battlements are too fine to read at a pin's size.
         private static void Tower(InkCanvas ink, InkCanvas body)
         {
             var outline = new List<Vector2>
             {
-                new Vector2(8.2f, 21.8f), new Vector2(8.8f, 7.4f), new Vector2(7.8f, 7.4f), new Vector2(7.8f, 3.4f),
-                new Vector2(10.2f, 3.4f), new Vector2(10.2f, 5.2f), new Vector2(11.8f, 5.2f), new Vector2(11.8f, 3.4f),
-                new Vector2(14.2f, 3.4f), new Vector2(14.2f, 5.2f), new Vector2(15.8f, 5.2f), new Vector2(15.8f, 3.4f),
-                new Vector2(18.2f, 3.4f), new Vector2(18.2f, 7.4f), new Vector2(17.2f, 7.4f), new Vector2(17.8f, 21.8f),
+                new Vector2(8.2f, 21.8f), new Vector2(8.8f, 4.4f), new Vector2(17.2f, 4.4f), new Vector2(17.8f, 21.8f),
             };
             body.EraseOutline(outline, Pen * 0.5f);
             ink.EraseOutline(outline, 0f);
             Loop(ink, outline, Pen);
-            ink.Stroke(8.8f, 7.4f, 17.2f, 7.4f, FinePen);
-            ink.Stroke(13f, 10.2f, 13f, 12.8f, Pen);
+            ink.Stroke(13f, 8.6f, 13f, 11.6f, Pen);
             FillSolid(ink, Curve(new[] { new Vector2(11.4f, 21.8f), new Vector2(11.4f, 18f), new Vector2(13f, 16.4f), new Vector2(14.6f, 18f), new Vector2(14.6f, 21.8f) }, closed: false));
             ink.Stroke(4.4f, 21.8f, 21.6f, 21.8f, Pen);
         }

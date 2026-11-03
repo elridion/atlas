@@ -508,18 +508,67 @@ internal static class Program
         return 0;
     }
 
-    // Test pins round the view's centre: offset in canvas units (y up), glyph, name, checked.
+    // Test pins round the view's centre: offset in canvas units (y up), glyph, name, checked, and
+    // the biome the name belongs to (null for any land). Each is moved to the nearest land of its
+    // biome in the view (SnapPins), as a player would set it, so the samples never show a pin in
+    // open sea or silver outside the Mountains whatever the view.
     static readonly object[][] s_testPins =
     {
-        new object[] { -210, 150, "Fire", "Camp", false },
-        new object[] { 70, 210, "House", "Home", false },
-        new object[] { 230, 40, "Hammer", "Copper mine", false },
-        new object[] { -120, -60, "Point", "Silver", false },
-        new object[] { 10, 10, "Portal", "Portal to the swamp", false },
-        new object[] { 190, -210, "Death", "Died here", false },
-        new object[] { -260, -220, "Point", "Raspberries", true },
-        new object[] { -40, -250, "House", "Old outpost", false },
+        new object[] { -210, 150, "Fire", "Camp", false, null },
+        new object[] { 70, 210, "House", "Home", false, "Meadows" },
+        new object[] { 230, 40, "Hammer", "Copper mine", false, "BlackForest" },
+        new object[] { -120, -60, "Point", "Silver", false, "Mountain" },
+        new object[] { 10, 10, "Portal", "Portal to the swamp", false, null },
+        new object[] { 190, -210, "Death", "Died here", false, null },
+        new object[] { -260, -220, "Point", "Raspberries", true, "Meadows" },
+        new object[] { -40, -250, "House", "Old outpost", false, null },
     };
+
+    // Where each test pin stands in the view (output pixels, y up): the nearest point to its
+    // offset that is land of its biome, ShoreClear pixels off water each way and PinSpacing from
+    // the pins placed before; failing that any such land; failing that its offset.
+    static Vector2[] SnapPins(int n, int left, int bottom, int scale, object source)
+    {
+        const int ShoreClear = 10, PinSpacing = 56, Margin = 40, Reach = 360, Step = 3;
+        MethodInfo landAt = source.GetType().GetMethod("LandAt", All), waterAt = source.GetType().GetMethod("IsWaterAt", All);
+        float mpp = 2f * 10800f / 4096f;
+        bool Water(float x, float y) => (bool)waterAt.Invoke(source, new object[] { (left + x / scale) * mpp - 10800f, 10800f - (bottom - y / scale) * mpp });
+        string Land(float x, float y) => landAt.Invoke(source, new object[] { (left + x / scale) * mpp - 10800f, 10800f - (bottom - y / scale) * mpp }).ToString();
+        var spots = new Vector2[s_testPins.Length];
+        for (int p = 0; p < s_testPins.Length; p++)
+        {
+            object[] pin = s_testPins[p];
+            var nominal = new Vector2(n / 2 + (int)pin[0], n / 2 + (int)pin[1]);
+            bool Fits(Vector2 at, string want)
+            {
+                if (at.x < Margin || at.y < Margin || at.x > n - Margin || at.y > n - Margin) return false;
+                if (Water(at.x, at.y) || Water(at.x - ShoreClear, at.y) || Water(at.x + ShoreClear, at.y) || Water(at.x, at.y - ShoreClear) || Water(at.x, at.y + ShoreClear)) return false;
+                if (want != null && Land(at.x, at.y) != want) return false;
+                for (int q = 0; q < p; q++) if (Vector2.Distance(spots[q], at) < PinSpacing) return false;
+                return true;
+            }
+            spots[p] = nominal;
+            bool found = false;
+            foreach (string want in new[] { (string)pin[5], null })
+            {
+                for (int r = 0; r <= Reach && !found; r += Step)
+                {
+                    int around = Math.Max(1, (int)(2f * Mathf.PI * r / Step));
+                    for (int k = 0; k < around; k++)
+                    {
+                        float a = 2f * Mathf.PI * k / around;
+                        var at = nominal + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+                        if (!Fits(at, want)) continue;
+                        spots[p] = new Vector2(Mathf.Round(at.x), Mathf.Round(at.y));
+                        found = true;
+                        break;
+                    }
+                }
+                if (found || pin[5] == null) break;
+            }
+        }
+        return spots;
+    }
 
     // Lays the test pins over rgba (n x n, rows from the south) as the atlas window does. left is
     // the sheet x of the output's west edge, bottom the sheet y (running south) of its south edge.
@@ -577,9 +626,11 @@ internal static class Program
         MethodInfo liftOf = T("Atlas.PinGlyphs").GetMethod("Lift", All);
         int Lift(string name) => liftOf == null ? 0 : (int)Math.Round((float)liftOf.Invoke(null, new object[] { Enum.Parse(kind, name) }) * size);
         var placed = new System.Collections.Generic.List<Rect>();
-        foreach (object[] pin in s_testPins)
+        Vector2[] spots = SnapPins(n, left, bottom, scale, source);
+        for (int p = 0; p < s_testPins.Length; p++)
         {
-            int cx = n / 2 + (int)pin[0], cy = n / 2 + (int)pin[1] + Lift((string)pin[2]);
+            object[] pin = s_testPins[p];
+            int cx = (int)spots[p].x, cy = (int)spots[p].y + Lift((string)pin[2]);
             placed.Add(new Rect(cx - size * 0.5f, cy - size * 0.5f, size, size));
             Glyph((string)pin[2], cx, cy, true);
             if ((bool)pin[4]) Glyph("Checked", cx, cy, false);
@@ -602,9 +653,10 @@ internal static class Program
                 StringFormat format = StringFormat.GenericTypographic;
                 Func<Rect, float> inkUnder = r => (float)mean.Invoke(density, new object[] { left + r.xMin / scale, bottom - r.yMax / scale, left + r.xMax / scale, bottom - r.yMin / scale });
                 float icon = size * 0.5f + 4f;
-                foreach (object[] pin in s_testPins)
+                for (int p = 0; p < s_testPins.Length; p++)
                 {
-                    var at = new Vector2(n / 2 + (int)pin[0], n / 2 + (int)pin[1] + Lift((string)pin[2]));
+                    object[] pin = s_testPins[p];
+                    var at = new Vector2(spots[p].x, spots[p].y + Lift((string)pin[2]));
                     SizeF measured = g.MeasureString((string)pin[3], font, 1000, format);
                     var extent = new Vector2(measured.Width + 2f, font.Height);
                     int place = (int)choose.Invoke(null, new object[] { at, extent, -1, icon, 2f, placed, inkUnder });

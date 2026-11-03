@@ -222,12 +222,20 @@ namespace Atlas
         public const float DeepNorthPeakHeight = 45f;
         // Summits and hilltops: a map pixel (12 m) is a summit when it is the highest within
         // SummitCells and rises SummitProminence metres above the lowest point within
-        // ProminenceCells; hilltops likewise with smaller numbers. Filler peaks keep SummitClearance
-        // times the two glyphs' widths away from a summit's glyph.
+        // ProminenceCells; hilltops likewise with smaller numbers. Filler peaks mass round a
+        // summit's glyph as they do round each other, overlapping it, but one standing within
+        // SummitCore of the summit's width from its centre may neither hide more than the
+        // summit's lower SummitShown from in front nor rise above its apex from behind
+        // (NearSummit), so the summit still stands out. Kept a fixed distance away instead, they
+        // leave most of a range round its summits bare ground that does not read as high.
         private const int SummitCells = 6;
         private const float SummitProminence = 20f;
         private const int HilltopCells = 4;
         private const float HillProminence = 6f;
+        // The Meadows roll more gently than the Plains and are mostly wood, so its few open
+        // hilltops are looked for on a finer scale; with the Plains' numbers it got barely a hill.
+        private const int MeadowHilltopCells = 2;
+        private const float MeadowHillProminence = 4f;
         private const int ProminenceCells = 10;
         // Every part of a hill keeps this far (canvas pixels) off water and river courses: its
         // pen's half width, the coast's, and a pixel of parchment between.
@@ -244,7 +252,8 @@ namespace Atlas
         private const float HillShiftReach = 1f;
         private const float HillShiftDrop = 0.5f;
         private const float HillGap = 1.5f;
-        private const float SummitClearance = 0.55f;
+        private const float SummitCore = 0.3f;
+        private const float SummitShown = 0.5f;
         // Mist banks: the gap between a bank's three lines (canvas pixels), the step between points
         // along a line, and the height above the water (metres) by which banks have thinned to
         // their fewest, as the game's mist clears on the heights.
@@ -274,6 +283,26 @@ namespace Atlas
         private const float SpireSlope = 0.45f;
         private const int SpireCells = 5;
         private const float SpireProminence = 25f;
+        // A summit crag that would stand outside the Mistlands shrinks by SpireShrink, at most
+        // SpireShrinkSteps sizes in all, before it is left out.
+        private const float SpireShrink = 0.85f;
+        private const int SpireShrinkSteps = 4;
+        private const int SpireAnchorSteps = 3;
+        // The share of a summit crag's height, from its foot up, that must stand over land, however
+        // far it slides: above that its top may rise over water, but a crag on an islet with only
+        // its foot on land stands in the sea.
+        private const float SpireLandBase = 0.3f;
+        // Where a real summit lies on its glyph, as a share of the glyph's height up from the
+        // foot. The glyphs are drawn in elevation but placed on a plan, and whatever stands
+        // south of where it belongs lies over ground that is not its own: with the apex on the
+        // summit the whole body hung south of it, over the next biome or the coast. Centred a
+        // little below the middle, the base stays close to the summit's own ground and the top
+        // rises over the land behind, as the glyphs in front already hide the ones behind.
+        private const float SummitAnchor = 0.4f;
+        // A summit's peak that fits nowhere along its centre line shrinks by SummitShrink, at most
+        // SummitShrinkSteps sizes in all, before it is left out.
+        private const float SummitShrink = 0.85f;
+        private const int SummitShrinkSteps = 4;
         // Scarps: the Mistlands' broken rock, where trees keep off, as small cliff edges along the
         // contour with hachures falling downhill. On ground of SpireSlope and steeper, on a grid
         // of ScarpStep G with ScarpOdds of its cells drawn, ScarpShore (canvas pixels) off the
@@ -334,8 +363,8 @@ namespace Atlas
         private readonly List<bool> m_pathInside = new List<bool>(32);
         // Canvas pixels covered by peaks and spires, which the mist banks drawn later must not cut.
         private readonly List<Glyph> m_glyphs = new List<Glyph>(200000);
-        // Real summits placed so far: apex position (x, y) and glyph width (z).
-        private readonly List<Vector3> m_summits = new List<Vector3>(1024);
+        // Real summits' peaks placed so far: foot (x, y), glyph width (z) and height (w).
+        private readonly List<Vector4> m_summits = new List<Vector4>(1024);
         // Volcano feet placed so far, which keep later ones away.
         private readonly List<Vector2> m_volcanoes = new List<Vector2>(64);
         // Crag feet placed so far, which moved Ashlands glyphs keep away from.
@@ -848,15 +877,17 @@ namespace Atlas
 
         private bool IsWoodAt(float x, float y) => m_grid != null ? m_grid.IsWood(x, y) : m_wood[PixelAt(x, y)] != 0;
 
-        // Whether a peak of the given width and height standing at (x, y) lies wholly over land:
-        // its centre column, both ends of its base and both flanks. Testing the column alone lets
-        // the wide base of a coastal peak hang out over the sea.
-        private bool PeakOnLand(float x, float y, float width, float height)
+        // Whether a peak of the given width and height standing at (x, y) lies over land: its
+        // centre column, both ends of its base and both flanks, up to reach of its height. Testing
+        // the column alone lets the wide base of a coastal peak hang out over the sea. A summit's
+        // peak needs land only up to the summit (SummitAnchor): above it the peak rises over
+        // whatever lies behind, water included, as the glyphs in front hide those behind.
+        private bool PeakOnLand(float x, float y, float width, float height, float reach = 1f)
         {
-            if (!IsLandColumn(x, y, height)) return false;
-            float half = width * 0.55f;
+            if (!IsLandColumn(x, y, height * reach)) return false;
+            float half = width * 0.55f, flank = Mathf.Min(0.5f, reach);
             return IsLandAt(x - half, y) && IsLandAt(x + half, y)
-                && IsLandAt(x - half * 0.5f, y - height * 0.5f) && IsLandAt(x + half * 0.5f, y - height * 0.5f);
+                && IsLandAt(x - half * (1f - flank), y - height * flank) && IsLandAt(x + half * (1f - flank), y - height * flank);
         }
 
         // Whether a peak-like glyph of the given width standing at (x, y) keeps its base off every
@@ -1382,7 +1413,7 @@ namespace Atlas
                         continue;
                     }
                     if (!high && !hillCountry) continue;
-                    int radius = high ? SummitCells : HilltopCells;
+                    int radius = high ? SummitCells : land == Land.Meadows ? MeadowHilltopCells : HilltopCells;
                     if (!IsHighest(h, size, x, z, radius)) continue;
                     float prominence = h[i] - Lowest(h, size, x, z, ProminenceCells);
 
@@ -1398,18 +1429,11 @@ namespace Atlas
                     {
                         if (prominence < SummitProminence) continue;
                         float width = Mathf.Lerp(22f, 34f, Mathf.Clamp01((prominence - SummitProminence) / 80f)) * G;
-                        // The peak glyph rises from its foot to an apex offset a little east of the
-                        // foot; place the foot so the apex lands on the summit.
-                        float height = PeakHeightOf(width, seed);
-                        float footX = cx - width * Unit(seed, 11) * 0.12f, footY = cy + height;
-                        if (!PeakOnLand(footX, footY, width, height)) continue;
-                        m_glyphs.Add(new Glyph { m_x = footX, m_y = footY, m_size = width, m_kind = Kind.Peak, m_seed = seed });
-                        m_summits.Add(new Vector3(cx, cy, width));
-                        m_hillBoxes.Add(new Vector4(footX - width * 0.56f, footY - height, footX + width * 0.56f, footY));
+                        PlaceSummitPeak(cx, cy, width, seed);
                     }
                     else
                     {
-                        if (prominence < HillProminence) continue;
+                        if (prominence < (land == Land.Meadows ? MeadowHillProminence : HillProminence)) continue;
                         float width = Mathf.Lerp(9f, 15f, Mathf.Clamp01((prominence - HillProminence) / 25f)) * G;
                         // Water is FitHill's test, on the hill's whole drawn shape: keeping the foot
                         // half a width off water would shut out hilltops whose shrunk hill fits.
@@ -1425,6 +1449,31 @@ namespace Atlas
             foreach (HillMiss miss in hillMisses)
                 if (ShiftHill(miss, out Glyph hill)) AddHill(hill);
         }
+
+        // The peak on a real summit. The glyph rises from its foot to an apex offset a little east
+        // of the foot, and is placed so the summit lies SummitAnchor of the way up its centre
+        // line. Where its base would reach water there (a summit on a narrow island or spit), it
+        // tries the summit at other heights on the glyph, nearest first, then smaller sizes: a
+        // summit that is the only high ground of its island keeps its peak.
+        private void PlaceSummitPeak(float cx, float cy, float width, int seed)
+        {
+            for (int step = 0; step < SummitShrinkSteps; step++, width *= SummitShrink)
+            {
+                float height = PeakHeightOf(width, seed);
+                foreach (float anchor in s_summitAnchors)
+                {
+                    float footX = cx - width * Unit(seed, 11) * 0.12f * anchor, footY = cy + height * anchor;
+                    if (!PeakOnLand(footX, footY, width, height, anchor)) continue;
+                    m_glyphs.Add(new Glyph { m_x = footX, m_y = footY, m_size = width, m_kind = Kind.Peak, m_seed = seed });
+                    m_summits.Add(new Vector4(footX, footY, width, height));
+                    m_hillBoxes.Add(new Vector4(footX - width * 0.56f, footY - height, footX + width * 0.56f, footY));
+                    return;
+                }
+            }
+        }
+
+        // The heights on a summit's peak tried for the summit, SummitAnchor first.
+        private static readonly float[] s_summitAnchors = { SummitAnchor, 0.6f, 0.2f, 0.8f, 1f, 0f };
 
         // A hilltop whose hill does not fit there, kept for ShiftHill: the hilltop (canvas), the
         // hill's full width and seed, the biome, and the hilltop's height and prominence (metres).
@@ -1603,8 +1652,14 @@ namespace Atlas
         // and off every river's inked course.
         private bool HillDryAt(Vector2 p) => m_landDistance[PixelAt(p.x, p.y)] >= HillWaterGap && !OnRiver(p.x, p.y);
 
-        // A Mistlands crag on a real summit, sized by its prominence, the foot set so the apex of
-        // its pinnacle lands on the summit, as peaks are placed.
+        // A Mistlands crag on a real summit, sized by its prominence and placed as peaks are, the
+        // summit SummitAnchor of the way up it. Its foot must stand in the Mistlands: a crag on a
+        // summit near the border would otherwise plant its base, and the Mistlands' rock with it,
+        // in the biome to the south. Such a crag slides north along its centre line, in
+        // SpireAnchorSteps down to its foot on the summit, which is Mistlands, so a border summit
+        // keeps its crag, rising over the Mistlands behind. Both ends of its base must be land
+        // and SpireLandBase of it must stand over land, or it shrinks by SpireShrink a step, and
+        // is left out if it never fits.
         private void PlaceSummitSpire(float[] h, int size, int x, int z)
         {
             if (!IsHighest(h, size, x, z, SpireCells)) return;
@@ -1618,11 +1673,21 @@ namespace Atlas
             if (dx * dx + dy * dy > edge * edge || !IsLandAt(cx, cy)) return;
             int seed = HashInt(x, z, m_world.m_seed + 78);
             float s = Mathf.Lerp(1.1f, 1.6f, Mathf.Clamp01((prominence - SpireProminence) / 60f)) * G;
-            float height = SpireHeightOf(s, seed);
-            float footY = cy + height;
-            if (!IsLandColumn(cx, footY, height) || m_landDistance[PixelAt(cx, footY)] < 4f) return;
-            m_glyphs.Add(new Glyph { m_x = cx, m_y = footY, m_size = s, m_kind = Kind.Spire, m_seed = seed });
-            m_spires.Add(new Vector3(cx, footY, height * 0.35f));
+            for (int step = 0; step < SpireShrinkSteps; step++, s *= SpireShrink)
+            {
+                float height = SpireHeightOf(s, seed), half = height * 0.31f;
+                for (int k = 0; k < SpireAnchorSteps; k++)
+                {
+                    float anchor = SummitAnchor * (1f - k / (SpireAnchorSteps - 1f));
+                    float footY = cy + height * anchor;
+                    if (LandAt(cx, footY) != Land.Mistlands) continue;
+                    if (!IsLandAt(cx - half, footY) || !IsLandAt(cx + half, footY)) continue;
+                    if (!IsLandColumn(cx, footY, height * Mathf.Max(anchor, SpireLandBase)) || m_landDistance[PixelAt(cx, footY)] < 4f) continue;
+                    m_glyphs.Add(new Glyph { m_x = cx, m_y = footY, m_size = s, m_kind = Kind.Spire, m_seed = seed });
+                    m_spires.Add(new Vector3(cx, footY, height * 0.35f));
+                    return;
+                }
+            }
         }
 
         // Whether a filler spire at this foot would crowd a summit's.
@@ -1670,14 +1735,18 @@ namespace Atlas
         private static int PixelAt(float x, float y) =>
             Mathf.Clamp((int)y, 0, CanvasSize - 1) * CanvasSize + Mathf.Clamp((int)x, 0, CanvasSize - 1);
 
-        // Whether a filler peak at this foot would crowd a real summit's glyph.
-        private bool NearSummit(float x, float y, float width)
+        // Whether a filler peak with this foot, width and height would hide a real summit's peak:
+        // standing in front, covering more than its lower SummitShown, or behind, rising above
+        // its apex.
+        private bool NearSummit(float x, float y, float width, float height)
         {
-            foreach (Vector3 summit in m_summits)
+            foreach (Vector4 summit in m_summits)
             {
-                float reach = (summit.z + width) * SummitClearance;
-                float dx = x - summit.x, dy = y - (summit.y + summit.z * 0.6f);
-                if (dx * dx + dy * dy < reach * reach) return true;
+                if (Mathf.Abs(x - summit.x) >= summit.z * SummitCore) continue;
+                float apex = y - height;
+                // Only glyphs whose heights overlap can hide one another.
+                if (apex >= summit.y || y <= summit.y - summit.w) continue;
+                if (y >= summit.y ? apex < summit.y - summit.w * SummitShown : apex < summit.y - summit.w) return true;
             }
             return false;
         }
@@ -1880,7 +1949,7 @@ namespace Atlas
                 if (!mountain && !north) return;
                 float width = Mathf.Lerp(14f, 22f, Mathf.Clamp01((s.m_above - PeakHeight) / 160f)) * G;
                 if (s.m_shore < width * 0.45f || !PeakOnLand(s.m_x, s.m_y, width, PeakHeightOf(width, s.m_seed))) return;
-                if (NearSummit(s.m_x, s.m_y, width)) return;
+                if (NearSummit(s.m_x, s.m_y, width, PeakHeightOf(width, s.m_seed))) return;
                 Add(s, Kind.Peak, width);
             });
             foreach (Glyph glyph in m_glyphs)

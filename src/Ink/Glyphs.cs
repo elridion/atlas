@@ -75,8 +75,8 @@ namespace Atlas
         // twin summit on the west), the summit right of centre so the lit western flank is the long
         // one, and the eastern face hatched with slanting strokes under a small solid wedge at the
         // top, which keeps ranges dark at the opening zoom. Proportions, a blunt top, a snow line
-        // and the hatching hand vary by seed too. The apex stays where the summit placement puts
-        // it (x + 0.12 width at most, PeakHeightOf above the foot).
+        // and the hatching hand vary by seed too. The apex is x + 0.12 width at most and
+        // PeakHeightOf above the foot.
         // Without body, the peak's fill keeps the ground's own wash (the Ashlands' crags).
         private void Peak(float x, float y, float width, int seed, bool body = true)
         {
@@ -201,7 +201,7 @@ namespace Atlas
         }
 
         // A peak's height for its width: from broad and low to tall and narrow, by seed. Summit
-        // placement uses it too, to set the foot so the apex lands on the summit.
+        // placement uses it too, to set the foot so the summit lies SummitAnchor up the glyph.
         private static float PeakHeightOf(float width, int seed) => width * Mathf.Lerp(0.58f, 1.02f, Unit(seed, 10));
 
         // Scrapes a peak's or pinnacle's outline (foot to foot, the base closing it) back to
@@ -807,7 +807,7 @@ namespace Atlas
         }
 
         // A spire's height for its size, shared with summit placement, which sets the foot so the
-        // apex lands on the summit.
+        // summit lies SummitAnchor up the glyph.
         private static float SpireHeightOf(float s, int seed) => Mathf.Lerp(8f, 12f, Unit(seed, 10)) * s;
 
         // One pinnacle: 0.45 to 0.62 of its height wide (narrower read as needles), leaning a little, jagged flanks with

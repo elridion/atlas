@@ -82,14 +82,6 @@ namespace Atlas
         // Grey ash clouds over the Ashlands, in blotches of about AshScale metres.
         private static readonly Tint s_ash = new Tint(92, 86, 82, 0.45f);
         private const float AshScale = 700f;
-        // The body of a Mistlands spire (BodyKind.Mist), as a peak's body takes the mountains'
-        // wash: the Mistlands' own folium, a little deeper and greyer (dulled with a touch of soot)
-        // and laid a little stronger, so the spire reads as rock of that land and stands out from
-        // the ground wash round it, even in a wood (0.26 plus WoodWash). On clean paper it comes
-        // to about (181, 164, 155) against the ground's (204, 185, 167) and the wood's (193, 175,
-        // 163): still a thin glaze, a muted mauve-grey, so the spire's black wedge and pen keep
-        // the contrast and the range does not read as a dark blot at the opening zoom.
-        private static readonly Tint s_mistRock = new Tint(108, 94, 122, 0.4f);
         private const float WoodWash = 0.1f;
         private const int WashBlur = 3;
         // How much of the water's blue a swamp pool keeps at full wetness.
@@ -543,14 +535,15 @@ namespace Atlas
         }
 
         // The glaze a body of this kind is filled with: the mountains' or the Deep North's wash,
-        // or the Mistlands' rock (s_mistRock). Bodies take it strictly, whatever biome they reach
-        // over.
+        // or for a Mistlands spire the Mistlands' own wash as its woods have it (WoodTint), the
+        // ground most spires stand in, so the rock is that land's colour, a shade deeper than
+        // its open ground. Bodies take it strictly, whatever biome they reach over.
         private static Tint BodyTint(BodyKind kind)
         {
             switch (kind)
             {
                 case BodyKind.North: return s_tints[(int)Land.DeepNorth];
-                case BodyKind.Mist: return s_mistRock;
+                case BodyKind.Mist: return WoodTint(Land.Mistlands);
                 default: return s_tints[(int)Land.Mountain];
             }
         }

@@ -282,9 +282,18 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   coast, tildes at scored points of the shore with a scatter at sea, and a band of short tildes
   along every coast all read badly; keep groups at the bends.
 - Peaks stand on real summits: local height maxima within `SummitCells` that rise
-  `SummitProminence` above their surroundings, sized by prominence, the glyph placed so its apex
-  is on the summit. Smaller filler peaks mass between them in staggered rows and keep clear of
-  the summits. Hills sit on real hilltops found the same way, their foot at least half their
+  `SummitProminence` above their surroundings, sized by prominence, the glyph placed so the
+  summit lies `SummitAnchor` 0.4 of its height up its centre line, not at its apex: the glyphs
+  are drawn in elevation on a plan, and with the apex on the summit the whole body hangs south
+  of it, over the next biome or the coast; the top rising over the land behind reads
+  naturally, as glyphs in front hide those behind. Smaller filler peaks mass between and round
+  them in staggered rows, overlapping them; only a filler within `SummitCore` 0.3 of a summit's
+  width from its centre, whose height overlaps the summit's, is left out when it would hide
+  more than the summit's lower `SummitShown` half from in front or rise above its apex from
+  behind (`NearSummit`). A fixed clearance round every summit (0.55 of the two widths) dropped
+  about 80% of the fillers and left large mountain areas bare, reading as low ground.
+  Hills sit on real hilltops found the same way (in the Meadows, which roll more gently and are
+  mostly wood, on a finer scale: `MeadowHilltopCells` 2, `MeadowHillProminence` 4 m), their foot at least half their
   width from woods (water is tested on the whole shape instead). Every drawn part of a hill
   (both domes' outlines and insides, the hatch dashes) keeps `HillWaterGap` off water and river
   courses (`ProbeHill`, `HillDryAt`; the probe shares `DomeOutline`/`DomeDash` with the
@@ -381,7 +390,13 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the Mist plane (16 MB) but cannot hold a pixel shared by two kinds, where a spire stands in
   front of a peak or a skirt runs over another body. Carrying the mountain tint north spills it
   over plains with no peaks. Peaks are tested for land at both base ends and both flanks
-  (`PeakOnLand`), not only their centre, so coastal peaks do not hang over the sea.
+  (`PeakOnLand`), not only their centre, so coastal peaks do not hang over the sea. A summit's
+  peak needs land only up to the summit (`reach` = `SummitAnchor`): above it the peak rises
+  over whatever lies behind, water included. A summit's peak whose base would reach water
+  (a summit on a narrow island or spit) tries the summit at other heights on its centre line,
+  nearest first (`s_summitAnchors`), then shrinks by `SummitShrink` up to `SummitShrinkSteps`
+  sizes before it is left out (`PlaceSummitPeak`): a lone summit may be its island's only
+  high ground.
 - Peaks vary by seed, like the classic map's mountains: a jagged ridge line (a plain crag, a
   shoulder on the east, or a twin summit on the west), the east face a solid wedge for the top
   `PeakWedge` of the flank and slanting hatch strokes below, some with a spur down the lit face;
@@ -528,14 +543,20 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Crags (`Spire`) are pinnacles in the peaks' hand (`Pinnacle`: 0.45-0.62 of their height wide,
   jagged flanks, a ledge, some twin tips, a solid wedge down `SpireWedge` of the east face, a
   smaller one or two behind), on real summits (`PlaceSummitSpire`: highest within `SpireCells`,
-  `SpireProminence` metres) and, as filler, only on ground steeper than 1.3 `SpireSlope`, clear
+  `SpireProminence` metres, placed at `SummitAnchor` as peaks are). A summit crag's foot must be
+  Mistlands, or a crag on a border summit plants its base and rock in the biome to the south;
+  such a crag slides north along its centre line (`SpireAnchorSteps`, down to its foot on the
+  summit), so border summits, often a Mistlands fringe a pixel or two wide, keep their crag
+  rising over the Mistlands. Both base ends must be land and the lower `SpireLandBase` 0.3 of
+  it over land (the top may rise over water), or it shrinks by `SpireShrink` up to
+  `SpireShrinkSteps` sizes, else is left out. Filler crags stand only on ground steeper than
+  1.3 `SpireSlope`, clear
   of the summits; a fixed trapezoid on every high pixel reads as fence posts. Their bodies are
   filled as the peaks' are: scraped and marked `BodyKind.Mist`, with the peaks' `ScrapeBase` and
-  skirt, so the glyph in front decides. The fill is `Paper.s_mistRock` (108, 94, 122 at 0.4),
-  the Mistlands' folium a little deeper and dulled with soot: about (181, 164, 155) on clean
-  paper against the ground's wash (204, 185, 167; 193, 175, 163 in a wood), a muted mauve-grey,
-  deeper so the spire stands out and still a thin glaze so the black wedge keeps its contrast.
-  On the sheet it is not laid opaque as a peak's body is: the clean-paper colour on the stained,
+  skirt, so the glyph in front decides. The fill is the Mistlands' own wash as its woods have
+  it (`Paper.WoodTint(Land.Mistlands)`, the same as its tree crowns), so the rock is that
+  land's colour, a shade deeper than its open ground; a separate rock hue reads as off from
+  the Mistlands. On the sheet it is not laid opaque as a peak's body is: the clean-paper colour on the stained,
   patinated Mistlands reads lighter and lilac there while close-ups show it deeper than the
   ground, so `Paper.MistInk` lays it as the colour and opacity that give the rock's glaze over
   the Mistlands' wash (as `SeaInk` does for the sea wash).

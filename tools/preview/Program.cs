@@ -572,10 +572,14 @@ internal static class Program
                 }
         }
 
+        // A pin's glyph stands on its place as the atlas window draws it (PinGlyphs.Lift), when
+        // this Atlas has it; rows run north here, so the lift is added.
+        MethodInfo liftOf = T("Atlas.PinGlyphs").GetMethod("Lift", All);
+        int Lift(string name) => liftOf == null ? 0 : (int)Math.Round((float)liftOf.Invoke(null, new object[] { Enum.Parse(kind, name) }) * size);
         var placed = new System.Collections.Generic.List<Rect>();
         foreach (object[] pin in s_testPins)
         {
-            int cx = n / 2 + (int)pin[0], cy = n / 2 + (int)pin[1];
+            int cx = n / 2 + (int)pin[0], cy = n / 2 + (int)pin[1] + Lift((string)pin[2]);
             placed.Add(new Rect(cx - size * 0.5f, cy - size * 0.5f, size, size));
             Glyph((string)pin[2], cx, cy, true);
             if ((bool)pin[4]) Glyph("Checked", cx, cy, false);
@@ -600,7 +604,7 @@ internal static class Program
                 float icon = size * 0.5f + 4f;
                 foreach (object[] pin in s_testPins)
                 {
-                    var at = new Vector2(n / 2 + (int)pin[0], n / 2 + (int)pin[1]);
+                    var at = new Vector2(n / 2 + (int)pin[0], n / 2 + (int)pin[1] + Lift((string)pin[2]));
                     SizeF measured = g.MeasureString((string)pin[3], font, 1000, format);
                     var extent = new Vector2(measured.Width + 2f, font.Height);
                     int place = (int)choose.Invoke(null, new object[] { at, extent, -1, icon, 2f, placed, inkUnder });

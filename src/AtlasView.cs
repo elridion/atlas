@@ -70,6 +70,8 @@ namespace Atlas
         private RawImage m_fog;
         private readonly Vector3[] m_corners = new Vector3[4];
         private readonly List<RectTransform> m_pins = new List<RectTransform>();
+        // Each pin's lift (PinGlyphs.Lift), parallel to m_pins.
+        private readonly List<float> m_pinLifts = new List<float>();
         private Snapshot m_pinSnapshot;
         private Canvas m_canvas;
 
@@ -126,6 +128,7 @@ namespace Atlas
             if (m_root) Object.Destroy(m_root);
             m_root = null;
             m_pins.Clear();
+            m_pinLifts.Clear();
             m_pinSnapshot = null;
             m_density = null;
         }
@@ -329,6 +332,7 @@ namespace Atlas
             Canvas canvas = m_root.GetComponentInParent<Canvas>();
             m_canvas = canvas ? canvas.rootCanvas : null;
             m_pins.Clear();
+            m_pinLifts.Clear();
             m_pinSnapshot = null;
             m_appliedScale = -1f;
             m_appliedPosition = new Vector2(float.NaN, float.NaN);
@@ -354,6 +358,7 @@ namespace Atlas
             foreach (RectTransform pin in m_pins)
                 if (pin) Object.Destroy(pin.gameObject);
             m_pins.Clear();
+            m_pinLifts.Clear();
             m_labels.Clear();
             Minimap minimap = Minimap.instance;
             if (snapshot == null || !minimap) return;
@@ -367,27 +372,32 @@ namespace Atlas
             foreach (Snapshot.Pin pin in snapshot.m_pins)
             {
                 PinTextures textures;
-                if (drawn.TryGetValue(pin.m_icon, out PinGlyph glyph)) textures = Textures(glyph, null);
-                else if (sprites.TryGetValue(pin.m_icon, out Sprite sprite) && sprite) textures = Textures(PinGlyph.Traced, sprite);
+                PinGlyph glyph;
+                if (drawn.TryGetValue(pin.m_icon, out glyph)) textures = Textures(glyph, null);
+                else if (sprites.TryGetValue(pin.m_icon, out Sprite sprite) && sprite) textures = Textures(glyph = PinGlyph.Traced, sprite);
                 else continue;
                 if (textures == null) continue;
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
                 holder.sizeDelta = new Vector2(PinSize, PinSize);
-                AddBody(holder, textures.m_body, pin.m_position);
-                AddImage(holder, "Ink", textures.m_ink);
-                if (pin.m_checked && check != null) AddImage(holder, "Checked", check.m_ink);
+                // The holder sits on the pin's place; the glyph stands on it (PinGlyphs.Lift).
+                float lift = PinGlyphs.Lift(glyph) * PinSize;
+                AddBody(holder, textures.m_body, pin.m_position, lift);
+                AddImage(holder, "Ink", textures.m_ink, lift);
+                if (pin.m_checked && check != null) AddImage(holder, "Checked", check.m_ink, lift);
                 string label = Localization.instance.Localize(pin.m_name);
                 if (font && !string.IsNullOrEmpty(label))
                 {
                     PinLabel placed = AddLabel(holder, label, font);
+                    placed.m_lift = lift;
                     // Bosses and traders first, then named pins in the order they were made.
                     placed.m_priority = pin.m_type == Minimap.PinType.Boss || pin.m_type == Minimap.PinType.Hildir1
                         || pin.m_type == Minimap.PinType.Hildir2 || pin.m_type == Minimap.PinType.Hildir3 ? 0 : 1;
                     m_labels.Add(placed);
                 }
                 m_pins.Add(holder);
+                m_pinLifts.Add(lift);
             }
             m_labels.Sort((a, b) => a.m_priority.CompareTo(b.m_priority));
             m_layoutScale = -1f;
@@ -404,6 +414,8 @@ namespace Atlas
             public Vector2 m_size;
             public int m_priority;
             public int m_place = -1;
+            // How far the pin's glyph stands above its place (canvas units at screen size).
+            public float m_lift;
         }
 
         // A name: the letters in bare ink over their gap, a stencil of the same letters grown a
@@ -488,16 +500,18 @@ namespace Atlas
         {
             m_placed.Clear();
             float icon = PinSize * 0.5f + LabelGap;
-            foreach (RectTransform pin in m_pins)
+            for (int i = 0; i < m_pins.Count; i++)
             {
+                RectTransform pin = m_pins[i];
                 if (!pin) continue;
-                Vector2 at = pin.anchoredPosition * m_scale;
+                Vector2 at = pin.anchoredPosition * m_scale + new Vector2(0f, m_pinLifts[i]);
                 m_placed.Add(new Rect(at.x - PinSize * 0.5f, at.y - PinSize * 0.5f, PinSize, PinSize));
             }
             foreach (PinLabel label in m_labels)
             {
                 if (!label.m_rect) continue;
-                Vector2 at = label.m_holder.anchoredPosition * m_scale;
+                // Names are laid out round the glyph as drawn, which stands above the pin's place.
+                Vector2 at = label.m_holder.anchoredPosition * m_scale + new Vector2(0f, label.m_lift);
                 int chosen = PinLayout.Choose(at, label.m_size, label.m_place, icon, LabelClearance, m_placed, InkUnder);
                 label.m_place = chosen;
                 bool show = chosen >= 0;
@@ -506,7 +520,7 @@ namespace Atlas
                 Rect area = PinLayout.Area(at, label.m_size, chosen, icon);
                 m_placed.Add(area);
                 label.m_rect.pivot = new Vector2(0.5f, 0.5f);
-                label.m_rect.anchoredPosition = area.center - at;
+                label.m_rect.anchoredPosition = area.center - label.m_holder.anchoredPosition * m_scale;
                 int align = PinLayout.Alignment(chosen);
                 TextAlignmentOptions alignment = align < 0 ? TextAlignmentOptions.Left : align > 0 ? TextAlignmentOptions.Right : TextAlignmentOptions.Center;
                 label.m_text.alignment = alignment;
@@ -535,17 +549,18 @@ namespace Atlas
         // The pin's body: filled in the wash of the biome the pin stands in, as a peak's body is
         // filled in the mountains', so terrain ink stops at the pin's own outline. Before the
         // world is decoded, plain paper.
-        private void AddBody(RectTransform holder, Texture body, Vector3 position)
+        private void AddBody(RectTransform holder, Texture body, Vector3 position, float lift)
         {
             Color32 colour = Paper.PaperColor;
             if (m_world != null) colour = Paper.PinBodyColor(m_world.LandAt(position.x, position.z), m_world.IsWaterAt(position.x, position.z));
-            AddImage(holder, "Body", body).color = colour;
+            AddImage(holder, "Body", body, lift).color = colour;
         }
 
-        private static RawImage AddImage(RectTransform holder, string name, Texture texture)
+        private static RawImage AddImage(RectTransform holder, string name, Texture texture, float lift)
         {
             var rect = NewRect(name, holder, typeof(RawImage));
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = new Vector2(0f, lift);
             rect.sizeDelta = new Vector2(PinSize, PinSize);
             var image = rect.GetComponent<RawImage>();
             image.texture = texture;

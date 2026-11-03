@@ -41,7 +41,7 @@ namespace Atlas
     /// glyph on the sheet is drawn, instead of a solid black icon on a parchment ring, which reads
     /// as a sticker on the hand-drawn map. The body is what keeps a pin legible
     /// on dark ground: inside it the paper shows with no terrain ink. Pins are laid out in a box of
-    /// PinUnits units, centred on the pin's place; pure math, so the preview draws them too.
+    /// PinUnits units, standing on the pin's place (Lift); pure math, so the preview draws them too.
     /// </summary>
     internal static class PinGlyphs
     {
@@ -59,6 +59,33 @@ namespace Atlas
         // and the share of the body above which the interior is left out (an all-dark icon).
         private const float TraceDark = 0.55f;
         private const float TraceMostDark = 0.6f;
+
+        // How far a glyph is lifted off its pin's place, as a share of the pin's size: a pin drawn
+        // in elevation stands on its place as a tree or a peak does, its foot (the ground line it
+        // is drawn on, in pin units) on the spot; signs seen from above (the open circle, the
+        // stone circle) and icons traced from sprites stay centred on it.
+        public static float Lift(PinGlyph glyph) => (FootOf(glyph) - PinUnits * 0.5f) / PinUnits;
+
+        private static float FootOf(PinGlyph glyph)
+        {
+            switch (glyph)
+            {
+                case PinGlyph.Fire: return 22.2f;
+                case PinGlyph.House: return 21.6f;
+                case PinGlyph.Hammer: return 22.4f;
+                case PinGlyph.Portal: return 21.8f;
+                case PinGlyph.Death: return 22f;
+                case PinGlyph.Bed: return 21.6f;
+                case PinGlyph.Boss: return 21.4f;
+                case PinGlyph.Tomb: return 21.4f;
+                case PinGlyph.Cavern: return 21.6f;
+                case PinGlyph.Tower: return 21.8f;
+                case PinGlyph.Trader: return 22.6f;
+                case PinGlyph.Tent: return 21.6f;
+                case PinGlyph.Cauldron: return 23.4f;
+                default: return PinUnits * 0.5f;
+            }
+        }
 
         public static PinMark Draw(PinGlyph glyph, int size)
         {

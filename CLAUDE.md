@@ -20,7 +20,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   filled in the wash of the biome under the pin (`Paper.PinBodyColor`: the biome's glaze on clean
   paper, as a peak's body takes the mountains', water's on water; biome and water from the
   sheet's `WorldSource`). A black icon on a parchment ring and a flat underlay behind names read
-  as modern stickers on the hand-drawn map.
+  as modern stickers on the hand-drawn map. A pin drawn in elevation stands on its place as a
+  tree or peak does, its foot on the spot (`PinGlyphs.Lift`, from each glyph's ground line in pin
+  units; the images and the name layout are lifted, the holder stays on the place); plan signs
+  (open circle, stone circle) and traced sprites stay centred.
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen (fire: campfire, house: longhouse,
   the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer, not a work hammer;
   circle: open circle; portal: dolmen; death: memorial stone with the yr rune on a mound, never a

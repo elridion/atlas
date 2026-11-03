@@ -51,7 +51,7 @@
   death, a horned skull for a boss's altar, a barrow, a cave mouth and a tower for Hildir's
   requests, a stone circle for the Sacrificial Stones, a bag for Haldor, a tent for Hildir's
   camp and a cauldron for the Bog Witch; other places the game marks, such as the Forge of
-  Potential, are traced in outline. Each pin is filled in the colour of the biome it stands in and
+  Potential, are traced in outline. Each pin stands on its place as the trees and peaks do, is filled in the colour of the biome it stands in and
   the ground's pen marks break off round it, so it reads on the darkest woods. Names are
   lettered beside their pins on the clearest ground round them, the pen lines breaking off round
   their letters, and give way where pins crowd; checked pins are struck through.

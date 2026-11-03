@@ -808,8 +808,9 @@ namespace Atlas
             Scatter(spacing, spacing, 0.9f, 0f, salt, visit);
 
         // Rows: separate column and row spacing, a jitter as a fraction of the cell, and every other
-        // row shifted by stagger cells, so glyphs pack like bricks.
-        private void Scatter(float spacingX, float spacingY, float jitter, float stagger, int salt, Action<Spot> visit)
+        // row shifted by stagger cells, so glyphs pack like bricks. A sheet grid hashes as level 1
+        // at every level of detail, so its marks stand at the same places at every zoom.
+        private void Scatter(float spacingX, float spacingY, float jitter, float stagger, int salt, Action<Spot> visit, bool sheetGrid = false)
         {
             // The grid is anchored to the sheet, so a tile's glyphs are the same whichever part of
             // the sheet it covers; each level of detail has grids of its own.
@@ -823,7 +824,8 @@ namespace Atlas
             float edge = EdgeRadius / MetresPerPixel;
             float centre = CanvasSize * 0.5f;
             // Level 1 hashes as the sheet does, so a tile at that level places the sheet's glyphs.
-            int worldSeed = unchecked(m_world.m_seed + salt * 7919 + (Mathf.RoundToInt(m_lod * 4f) - 4) * 104729);
+            int level = sheetGrid ? 0 : Mathf.RoundToInt(m_lod * 4f) - 4;
+            int worldSeed = unchecked(m_world.m_seed + salt * 7919 + level * 104729);
             for (int gy = gy0; gy < gy1; gy++)
             {
                 for (int gx = gx0; gx < gx1; gx++)
@@ -1037,12 +1039,17 @@ namespace Atlas
         // lines average away to grey at the opening zoom.
         private void DrawBackground()
         {
-            // Meadows: short tufts of grass.
-            Scatter(12f * m_g, 14, s =>
+            // Meadows: short tufts of grass. They are few, so they keep one grid and its margins in
+            // sheet pixels at every level of detail, and every zoom shows the same tufts: a grid
+            // of each level's own brings a fresh set at each zoom, thick in close-ups and almost
+            // none on the sheet. Only the tuft itself shrinks with the level, as the trees do.
+            Scatter(8f * G, 8f * G, 0.9f, 0f, 14, s =>
             {
+                s.m_shore /= m_lod;
+                s.m_woodDistance /= m_lod;
                 if (!IsOpenLand(s, Land.Meadows, 3f) || !(s.m_roll < 0.3f)) return;
                 Grass(s.m_x, s.m_y, m_g);
-            });
+            }, sheetGrid: true);
             // Black Forest: scattered stones on the open ground between the woods.
             Scatter(10f * m_g, 17, s =>
             {

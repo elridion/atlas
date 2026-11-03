@@ -614,7 +614,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   and trees shrink and pack by it, and every pen width and glyph margin thins by it
   (`InkCanvas.m_penScale`, `m_pen`), recorded layers included. Trees at full scale (lod 4 at 8x)
   are true to life but read as a uniform bubble texture. Scatter grids are anchored to the sheet
-  and hashed per level, level 1 as the sheet, so glyphs do not move as the view pans.
+  and hashed per level, level 1 as the sheet, so glyphs do not move as the view pans. The
+  Meadows' grass is the exception (`Scatter`'s `sheetGrid`): one 8 G grid hashed as level 1 and
+  its shore and wood margins in sheet pixels at every level, only the tuft shrinking with the
+  level, so the same few tufts stand at the same places on the sheet and in every close-up; on
+  per-level 12 G grids they were a fresh set at each zoom and nearly absent on the sheet and at 2x.
 - Rivers and streams come from `WorldGenerator.GetRivers()`/`GetStreams()`, copied in
   `WorldSource.Capture` and inked along vanilla's own sine curve (`RiverPath.PointAt`, from
   `WorldGenerator.RenderRivers`) over land only, on a scraped band. Streams run from their low

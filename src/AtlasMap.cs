@@ -40,9 +40,11 @@ namespace Atlas
         private static SeaMark[] s_fogTaskMarks;
 
         private static byte[] s_parchment;
-        // The parchment, made once per world and shared by the fog and the wash: with its stains
-        // it takes a second or two, too long to make twice.
+        // The parchment, made once per world and shared by the fog and the wash.
         private static Task<byte[]> s_parchmentTask;
+        // The sheet's stains and patina, laid over everything (Paper.Dirt); a second or two to make.
+        private static Task<byte[]> s_dirtTask;
+        private static Texture2D s_dirt;
         // The sheet's paper: the parchment under the biome wash, or the bare parchment if the wash
         // failed. The fog keeps the bare parchment.
         private static Task<Paper.Wash> s_washTask;
@@ -94,6 +96,7 @@ namespace Atlas
             KeepInk(worldUid);
             KeepFog();
             KeepPaper();
+            KeepDirt();
             if (!s_tiles.Ready && s_record != null && s_wash != null && s_samples != null)
                 s_tiles.SetSource(s_record, s_wash, s_source, s_samples);
             s_tiles.Update(s_view);
@@ -129,7 +132,7 @@ namespace Atlas
                 player.Message(MessageHud.MessageType.Center, s_inkFailed ? "$atlas_failed" : "$atlas_drawing");
                 return;
             }
-            s_view.Show(s_paper, s_ink, s_fog, s_snapshot, s_density, s_source);
+            s_view.Show(s_paper, s_ink, s_fog, s_dirt, s_snapshot, s_density, s_source);
         }
 
         private static bool OpenPressed() => ZInput.GetButtonDown("Map") || JoyMapPressed();
@@ -351,6 +354,38 @@ namespace Atlas
             s_paper.Apply(updateMipmaps: false, makeNoLongerReadable: true);
         }
 
+        // Makes the sheet's dirt once per world and uploads it; the atlas opens without it until it
+        // is there, and an open atlas takes it up at once.
+        private static void KeepDirt()
+        {
+            if (s_dirt) return;
+            if (s_dirtTask == null)
+            {
+                int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
+                s_dirtTask = Task.Run(() => Paper.Dirt(seed));
+                return;
+            }
+            if (!s_dirtTask.IsCompleted) return;
+            if (s_dirtTask.IsFaulted)
+            {
+                Jotunn.Logger.LogWarning($"The atlas could not age its sheet: {s_dirtTask.Exception?.GetBaseException()}");
+                s_dirtTask = Task.FromResult<byte[]>(null);
+                return;
+            }
+            if (s_dirtTask.Result == null) return;
+            int size = Paper.FogSize;
+            s_dirt = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false)
+            {
+                name = "Atlas dirt",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            s_dirt.LoadRawTextureData(s_dirtTask.Result);
+            s_dirt.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            s_dirtTask = null;
+            s_view.SetDirt(s_dirt);
+        }
+
         private static void UploadFog()
         {
             int size = Paper.FogSize;
@@ -398,6 +433,7 @@ namespace Atlas
             s_fogDirty = false;
             s_parchment = null;
             s_parchmentTask = null;
+            s_dirtTask = null;
             s_fogPixels = null;
             s_seaMarks = null;
             s_fogMarks = null;
@@ -405,6 +441,8 @@ namespace Atlas
             if (s_ink) UnityEngine.Object.Destroy(s_ink);
             if (s_paper) UnityEngine.Object.Destroy(s_paper);
             if (s_fog) UnityEngine.Object.Destroy(s_fog);
+            if (s_dirt) UnityEngine.Object.Destroy(s_dirt);
+            s_dirt = null;
             s_ink = null;
             s_paper = null;
             s_fog = null;

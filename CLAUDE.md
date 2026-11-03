@@ -434,21 +434,27 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   saddled outline whole would leave the line of a hill behind showing through. Pens stay
   1.1-1.3 and `Pen`. The crown is the outline's highest point, wherever the crest puts it:
   `HillFoot` sets the foot from it so the crown lands exactly on the hilltop.
-- The parchment carries stains (`Paper.Stains`) modelled on domain warping (Quilez),
+- The sheet carries stains (`Paper.Stains`) modelled on domain warping (Quilez),
   coffee-ring physics, Curtis et al. watercolour glazing and conservation notes on foxing, so
-  they look natural and carry into the painted parts. Stains are optical density: the paper is
+  they look natural and lie over everything drawn. Stains are optical density: the paper is
   multiplied by `pow(tint, D)` per channel (brown for blots, redder for foxing), densities add
   and are softly capped. Blots (old water stains with re-wetting rims, drop rings) are
   domain-warped, turned and stretched, with a tide line that rises sharply at the edge and fades
   inward, at least 1.5 paper pixels wide. Foxing comes in Gaussian clusters, biased toward the
-  sheet's edge, plus lone spots, each a ragged core with a soft halo. The biome wash and the
-  water's blue are glazes (`Paper.Filter`: the tint relative to clean paper multiplies the
-  paper), so stains show through them; on clean paper the colours are unchanged. Water stops at
-  the frame; beyond it is bare margin. The fog shares the stained parchment, so stains run on
-  unbroken. An uneven patina (`Paper.Age`, warped fBm blotches, worked out every 4 paper
-  pixels) lies over the whole sheet so the map does not look too clean. The parchment is made
-  once per world (`AtlasMap.Parchment`, shared by fog and wash) with its blots and rows in
-  parallel (about 1.4 s offline, 4.3 s single-threaded).
+  sheet's edge, plus lone spots, each a ragged core with a soft halo. Blots and foxing are the
+  topmost layer of the view (`Paper.Dirt`, the `Dirt` RawImage above the pins and names, made
+  once per world in `AtlasMap.KeepDirt`), so they cover ink, close-ups, fog, pins and names
+  alike. An overlay can only blend, so each pixel is the colour and opacity that give the
+  stain's exact multiply over clean paper; over ink it lifts the black a little, as water
+  stains fade ink. The preview lays it over every view last (`--nodirt` leaves it out). The
+  biome wash and the water's blue are glazes (`Paper.Filter`: the tint relative to clean paper
+  multiplies the paper); on clean paper the colours are unchanged. Water stops at the frame;
+  beyond it is bare margin. An uneven patina (`Paper.Age`, warped fBm blotches, worked out
+  every 4 paper pixels) browns the whole parchment so the map does not look too clean; it stays
+  in the paper, since laid on top it would lift every ink line, and pin bodies take it from the
+  paper at their place (`Paper.AgedPin`). The parchment is made once per world
+  (`AtlasMap.Parchment`, shared by fog and wash); the stains' blots and rows run in parallel
+  (about 1.4 s offline, 4.3 s single-threaded).
 - A faint watercolour wash per biome lies under the ink (`Paper.Washed`, darker in woods except
   the Deep North's, whose chalk a stronger wash would whiten, so its snow keeps one colour, and
   the Mountains', which keep the peaks' grey so the biome still reads as mountains; pale on

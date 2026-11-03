@@ -327,11 +327,12 @@ namespace Atlas
         private static float Through(float tint, float density) =>
             Mathf.Pow(tint, MaxStain * (1f - Mathf.Exp(-density / MaxStain)));
 
+        // The parchment: mottled, darkened towards its corners and browned by an even patina. The
+        // stains and foxing lie over everything drawn on it instead (Dirt).
         public static byte[] Parchment(int seed)
         {
             int n = FogSize;
             var rgb = new byte[n * n * 3];
-            Stains(seed, out float[] blots, out float[] foxing);
             float[] age = Ages(seed);
             // Rows are independent, so they run in parallel.
             System.Threading.Tasks.Parallel.For(0, n, y =>
@@ -345,15 +346,48 @@ namespace Atlas
                     float u = (x + 0.5f) / n * 2f - 1f, v = (y + 0.5f) / n * 2f - 1f;
                     float corner = Mathf.Clamp01((Mathf.Sqrt(u * u + v * v) - 0.75f) / 0.66f);
                     shade *= 1f - Vignette * corner * corner;
-                    int p = y * n + x, i = p * 3;
-                    float b = blots[p] + AgeAt(age, x, y), f = foxing[p];
+                    int i = (y * n + x) * 3;
+                    float b = AgeAt(age, x, y);
                     // Darker paper also turns browner, as old parchment does.
-                    rgb[i] = ToByte(PaperColor.r * shade * Through(s_stainTint.x, b) * Through(s_foxTint.x, f));
-                    rgb[i + 1] = ToByte(PaperColor.g * Mathf.Pow(shade, 1.1f) * Through(s_stainTint.y, b) * Through(s_foxTint.y, f));
-                    rgb[i + 2] = ToByte(PaperColor.b * Mathf.Pow(shade, 1.35f) * Through(s_stainTint.z, b) * Through(s_foxTint.z, f));
+                    rgb[i] = ToByte(PaperColor.r * shade * Through(s_stainTint.x, b));
+                    rgb[i + 1] = ToByte(PaperColor.g * Mathf.Pow(shade, 1.1f) * Through(s_stainTint.y, b));
+                    rgb[i + 2] = ToByte(PaperColor.b * Mathf.Pow(shade, 1.35f) * Through(s_stainTint.z, b));
                 }
             });
             return rgb;
+        }
+
+        // The dirt of the sheet: its stains and foxing as RGBA over the parchment's square
+        // (FogSize², rows as the parchment's), laid over everything drawn on it, ink, pins and names
+        // included, as dirt lies on a real map. A stain filters the light, so over the paper it
+        // multiplies by pow(tint, density) per channel (Through); an overlay can only blend, so each
+        // pixel is the colour and opacity that give exactly that over clean paper, the opacity being
+        // the largest channel's loss. Over ink it lifts the black a little towards the stain's
+        // brown, as water stains fade ink. The even patina stays in the paper (Parchment): laid on
+        // top, it would lift every ink line on the sheet.
+        public static byte[] Dirt(int seed)
+        {
+            int n = FogSize;
+            var rgba = new byte[n * n * 4];
+            Stains(seed, out float[] blots, out float[] foxing);
+            System.Threading.Tasks.Parallel.For(0, n, y =>
+            {
+                for (int x = 0; x < n; x++)
+                {
+                    int p = y * n + x, o = p * 4;
+                    float b = blots[p], f = foxing[p];
+                    float tr = Through(s_stainTint.x, b) * Through(s_foxTint.x, f);
+                    float tg = Through(s_stainTint.y, b) * Through(s_foxTint.y, f);
+                    float tb = Through(s_stainTint.z, b) * Through(s_foxTint.z, f);
+                    float alpha = Math.Max(1f - tr, Math.Max(1f - tg, 1f - tb));
+                    if (alpha <= 0f) continue;
+                    rgba[o] = ToByte(PaperColor.r * (1f - (1f - tr) / alpha));
+                    rgba[o + 1] = ToByte(PaperColor.g * (1f - (1f - tg) / alpha));
+                    rgba[o + 2] = ToByte(PaperColor.b * (1f - (1f - tb) / alpha));
+                    rgba[o + 3] = ToByte(alpha * 255f);
+                }
+            });
+            return rgba;
         }
 
         // The parchment under a faint watercolour wash, one tint per biome (darker in the woods), so
@@ -559,6 +593,16 @@ namespace Atlas
             Color32 p = PaperColor;
             WaterColor(p.r, p.g, p.b, out float r, out float g, out float b);
             return new Color32(ToByte(r), ToByte(g), ToByte(b), 255);
+        }
+
+        // A pin body's colour browned by the paper's patina where the pin stands (world metres),
+        // so a pin does not look cleaner than the paper round it.
+        public static Color32 AgedPin(Color32 colour, float wx, float wz, int seed)
+        {
+            float b = Age((int)((wx + InkPainter.HalfExtent) / (2f * InkPainter.HalfExtent) * FogSize),
+                (int)((wz + InkPainter.HalfExtent) / (2f * InkPainter.HalfExtent) * FogSize), seed);
+            return new Color32(ToByte(colour.r * Through(s_stainTint.x, b)), ToByte(colour.g * Through(s_stainTint.y, b)),
+                ToByte(colour.b * Through(s_stainTint.z, b)), colour.a);
         }
 
         // A biome's wash on clean paper.

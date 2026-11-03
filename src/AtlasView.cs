@@ -67,6 +67,7 @@ namespace Atlas
         private RawImage m_paper;
         private RawImage m_ink;
         private RectTransform m_detailLayer;
+        private RawImage m_dirt;
         private RawImage m_fog;
         private readonly Vector3[] m_corners = new Vector3[4];
         private readonly List<RectTransform> m_pins = new List<RectTransform>();
@@ -88,7 +89,7 @@ namespace Atlas
         public bool IsOpen { get; private set; }
         public int ClosedFrames { get; private set; } = 999;
 
-        public void Show(Texture paper, Texture ink, Texture fog, Snapshot snapshot, InkDensity density, WorldSource world)
+        public void Show(Texture paper, Texture ink, Texture fog, Texture dirt, Snapshot snapshot, InkDensity density, WorldSource world)
         {
             if (!Build()) return;
             m_density = density;
@@ -100,6 +101,7 @@ namespace Atlas
             m_paper.texture = paper;
             m_ink.texture = ink;
             m_fog.texture = fog;
+            SetDirt(dirt);
             SetPins(snapshot);
             m_root.SetActive(true);
             m_root.transform.SetAsLastSibling();
@@ -131,6 +133,14 @@ namespace Atlas
             m_pinLifts.Clear();
             m_pinSnapshot = null;
             m_density = null;
+        }
+
+        // The sheet's stains and patina, over everything else; none until they are made.
+        public void SetDirt(Texture dirt)
+        {
+            if (!m_dirt) return;
+            m_dirt.texture = dirt;
+            m_dirt.enabled = dirt;
         }
 
         public void Refresh(Texture fog, Snapshot snapshot)
@@ -328,6 +338,9 @@ namespace Atlas
             m_fog = NewLayer("Fog");
             m_pinLayer = NewRect("Pins", m_content);
             Stretch(m_pinLayer, 0f);
+            // Dirt lies on top of everything, pins and names included, as on a real map.
+            m_dirt = NewLayer("Dirt");
+            m_dirt.enabled = false;
 
             Canvas canvas = m_root.GetComponentInParent<Canvas>();
             m_canvas = canvas ? canvas.rootCanvas : null;
@@ -547,12 +560,14 @@ namespace Atlas
         }
 
         // The pin's body: filled in the wash of the biome the pin stands in, as a peak's body is
-        // filled in the mountains', so terrain ink stops at the pin's own outline. Before the
-        // world is decoded, plain paper.
+        // filled in the mountains', so terrain ink stops at the pin's own outline, and browned by
+        // the paper's patina there. Before the world is decoded, plain paper.
         private void AddBody(RectTransform holder, Texture body, Vector3 position, float lift)
         {
             Color32 colour = Paper.PaperColor;
-            if (m_world != null) colour = Paper.PinBodyColor(m_world.LandAt(position.x, position.z), m_world.IsWaterAt(position.x, position.z));
+            if (m_world != null)
+                colour = Paper.AgedPin(Paper.PinBodyColor(m_world.LandAt(position.x, position.z), m_world.IsWaterAt(position.x, position.z)),
+                    position.x, position.z, m_world.m_seed);
             AddImage(holder, "Body", body, lift).color = colour;
         }
 

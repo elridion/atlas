@@ -160,6 +160,10 @@ internal static class Program
 
         Type paper = T("Atlas.Paper");
         byte[] parchment = (byte[])paper.GetMethod("Parchment", All).Invoke(null, new object[] { 12345 });
+        // The sheet's stains and patina, laid over every view last as the atlas window lays them
+        // over everything, pins and names included (when this Atlas has them; --nodirt leaves them out).
+        MethodInfo dirtOf = paper.GetMethod("Dirt", All);
+        byte[] dirt = dirtOf == null || Array.IndexOf(args, "--nodirt") >= 0 ? null : (byte[])dirtOf.Invoke(null, new object[] { 12345 });
         object wash = paper.GetMethod("Washed", All).Invoke(null, new object[] { parchment, source });
         byte[] washed = Array.IndexOf(args, "--nowash") >= 0 ? parchment : (byte[])wash.GetType().GetField("m_sheet").GetValue(wash);
         System.Console.WriteLine($"wash {sw.ElapsedMilliseconds} ms");
@@ -233,6 +237,7 @@ internal static class Program
                         for (int y = 0; y < 256; y++)
                             Buffer.BlockCopy(tile, y * 1024, all, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
                     }
+                Dirt(all, 768, tx0 * tileSize, ty0 * tileSize, 3 * tileSize, scale, dirt, fog);
                 Save(Path.Combine(outDir, p[0] + ".png"), all, 768, 768, 1);
             }
             else if (p[0] == "biomes")
@@ -304,6 +309,7 @@ internal static class Program
                         for (int c = 0; c < 3; c++) rgba[o + c] = (byte)(rgba[o + c] * (1f - alpha) + texel[c] * alpha + 0.5f);
                     }
                 }
+                Dirt(rgba, ow, left, top, w, scale, dirt, fog);
                 Save(Path.Combine(outDir, p[0] + ".png"), rgba, ow, ow, 1);
             }
             else if (p[0] == "seamarks")
@@ -369,11 +375,13 @@ internal static class Program
                             Buffer.BlockCopy(tile, y * 1024, all, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
                     }
                 DrawPins(all, 768, tx0 * tileSize, ty0 * tileSize + 3 * tileSize, scale, source, sheet, !p[0].StartsWith("pinsbare"), washed, fog);
+                Dirt(all, 768, tx0 * tileSize, ty0 * tileSize, 3 * tileSize, scale, dirt, fog);
                 Save(Path.Combine(outDir, p[0] + ".png"), all, 768, 768, 1);
             }
             else if (p[0] == "overview")
             {
                 var rgba = Sheet(inkMips, washed, fog, 0, 0, canvas, 1);
+                Dirt(rgba, canvas, 0, 0, canvas, 1, dirt, fog);
                 Save(Path.Combine(outDir, "overview.png"), rgba, canvas, canvas, 4);
             }
             else
@@ -383,6 +391,7 @@ internal static class Program
                 int left = (int)((wx + half) / mpp) - w / 2, top = (int)((half - wz) / mpp) - w / 2;
                 var rgba = p.Length > 5 && p[5] == "sheet" ? Sheet(inkMips, washed, fog, left, top, w, scale)
                     : (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt(left, top, w, w), scale, 3f, 4, CancellationToken.None });
+                Dirt(rgba, w * scale, left, top, w, scale, dirt, fog);
                 Save(Path.Combine(outDir, p[0] + ".png"), rgba, w * scale, w * scale, 1);
             }
             System.Console.WriteLine($"{p[0]} {sw.ElapsedMilliseconds} ms");
@@ -584,12 +593,13 @@ internal static class Program
         MethodInfo mean = density.GetType().GetMethod("Mean", All);
 
         MethodInfo landAt = source.GetType().GetMethod("LandAt", All), waterAt = source.GetType().GetMethod("IsWaterAt", All);
-        MethodInfo bodyColor = T("Atlas.Paper").GetMethod("PinBodyColor", All);
+        MethodInfo bodyColor = T("Atlas.Paper").GetMethod("PinBodyColor", All), aged = T("Atlas.Paper").GetMethod("AgedPin", All);
         void Glyph(string name, int cx, int cy, bool body)
         {
             // The body's fill: the wash of the biome at the pin, as the atlas window lays it.
             float pwx = (left + cx / (float)scale) * 2f * 10800f / canvas - 10800f, pwz = 10800f - (bottom - cy / (float)scale) * 2f * 10800f / canvas;
             var fill = (Color32)bodyColor.Invoke(null, new object[] { landAt.Invoke(source, new object[] { pwx, pwz }), waterAt.Invoke(source, new object[] { pwx, pwz }) });
+            if (aged != null) fill = (Color32)aged.Invoke(null, new object[] { fill, pwx, pwz, 12345 });
             object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, name), size * over });
             var ink = (byte[])Get(mark, "m_ink");
             var shape = (byte[])Get(mark, "m_body");
@@ -832,6 +842,38 @@ internal static class Program
         {
             zip.CopyTo(ms);
             return ms.ToArray();
+        }
+    }
+
+    // Lays the sheet's dirt (Paper.Dirt, fog x fog RGBA, rows from the south) over an output of
+    // n x n pixels whose rows also run from the south, covering the sheet square of width w from
+    // (left, top) at scale output pixels per sheet pixel; bilinear as the game samples it.
+    static void Dirt(byte[] rgba, int n, float left, float top, int w, int scale, byte[] dirt, int fog)
+    {
+        if (dirt == null) return;
+        const int canvas = 4096;
+        var texel = new float[4];
+        for (int oy = 0; oy < n; oy++)
+        {
+            float fy = (canvas - (top + w - (oy + 0.5f) / scale)) * fog / canvas - 0.5f;
+            int y0 = Mathf.Clamp((int)Math.Floor(fy), 0, fog - 2);
+            float ty = Mathf.Clamp01(fy - y0);
+            for (int ox = 0; ox < n; ox++)
+            {
+                float fx = (left + (ox + 0.5f) / scale) * fog / canvas - 0.5f;
+                int x0 = Mathf.Clamp((int)Math.Floor(fx), 0, fog - 2);
+                float tx = Mathf.Clamp01(fx - x0);
+                for (int c = 0; c < 4; c++)
+                {
+                    float a00 = dirt[(y0 * fog + x0) * 4 + c], a10 = dirt[(y0 * fog + x0 + 1) * 4 + c];
+                    float a01 = dirt[((y0 + 1) * fog + x0) * 4 + c], a11 = dirt[((y0 + 1) * fog + x0 + 1) * 4 + c];
+                    texel[c] = Lerp(Lerp(a00, a10, tx), Lerp(a01, a11, tx), ty);
+                }
+                float alpha = texel[3] / 255f;
+                if (alpha <= 0f) continue;
+                int o = (oy * n + ox) * 4;
+                for (int c = 0; c < 3; c++) rgba[o + c] = (byte)(rgba[o + c] * (1f - alpha) + texel[c] * alpha + 0.5f);
+            }
         }
     }
 

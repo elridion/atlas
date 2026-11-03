@@ -9,7 +9,7 @@
 - Every biome has a faint colour wash of its own under the ink, so biomes read apart at any zoom,
   and water is one even indigo wash ending crisply at the shore. The colours are thin glazes of pigments a northern illuminator of the
   period could have had.
-- The parchment is aged all over: an uneven patina, old water stains with tide lines, dried rings and clusters of small brown spots, showing through the colours as on real stained paper.
+- The parchment is aged all over: an uneven patina, and old water stains with tide lines, dried rings and clusters of small brown spots lying over everything on the map, ink, pins and names included, as on a real stained sheet.
 - Woods are drawn where the game grows its forests, each one a dense mass of trees bounded by its
   outer crowns, with the open land around it kept clear. Every tree carries its biome's wood
   colour, as the peaks carry the mountains' grey, right out to the edge of its wood.

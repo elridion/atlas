@@ -250,11 +250,14 @@ namespace Atlas
         // A body outline: the peak's with its feet raised (ScrapeBody), or a floe's corners.
         private readonly List<Vector2> m_bodyOutline = new List<Vector2>(16);
 
-        private bool IsNorthAt(float x, float y)
+        private bool IsNorthAt(float x, float y) => LandAt(x, y) == Land.DeepNorth;
+
+        // The biome at a sheet point: the tile's own ground in close-ups, the world's on the sheet.
+        private Land LandAt(float x, float y)
         {
             float wx = x * MetresPerPixel - HalfExtent, wz = HalfExtent - y * MetresPerPixel;
-            if (m_grid != null) return m_grid.m_land[m_grid.Nearest(x, y)] == Land.DeepNorth;
-            return m_world.m_biome[m_world.Index(wx, wz)] == Land.DeepNorth;
+            if (m_grid != null) return m_grid.m_land[m_grid.Nearest(x, y)];
+            return m_world.m_biome[m_world.Index(wx, wz)];
         }
 
 
@@ -550,7 +553,7 @@ namespace Atlas
         private void Broadleaf(float x, float y, float s, int seed)
         {
             Crown c = BroadleafCrown(x, y, s, seed);
-            EraseCrown(c);
+            EraseCrown(c, x, y);
             Shade(c.m_cx, c.m_cy, c.m_rx, c.m_ry, seed);
             HandCrown(c.m_cx, c.m_cy, c.m_rx, c.m_ry, seed);
             m_canvas.Stroke(x, c.m_cy + c.m_ry * 0.9f, x + (c.m_cx - x) * 0.3f, y, Pen);
@@ -605,7 +608,27 @@ namespace Atlas
         private float CrownEraseX(Crown c) => c.m_rx * 1.12f + 0.7f * m_pen;
         private float CrownEraseY(Crown c) => c.m_ry * 1.12f + 0.7f * m_pen;
 
-        private void EraseCrown(Crown c) => m_canvas.EraseEllipse(c.m_cx, c.m_cy, CrownEraseX(c), CrownEraseY(c));
+        // Scrapes the paper round a crown, then marks the crown inside its traced outline as a
+        // wood body of the biome at the tree's foot (x, y). The scraped ellipse is wider than the
+        // outline, so marking it would ring the crown with a halo of the wash.
+        private void EraseCrown(Crown c, float x, float y)
+        {
+            m_canvas.EraseEllipse(c.m_cx, c.m_cy, CrownEraseX(c), CrownEraseY(c));
+            CrownOutline(c.m_cx, c.m_cy, c.m_rx, c.m_ry, c.m_seed, c.m_wobble, overlap: false);
+            BeginWood(x, y);
+            m_canvas.EraseOutline(m_points, BodyGrow * m_pen);
+            m_canvas.m_markBody = BodyKind.None;
+        }
+
+        // Marks the erases from here as a tree's body: like a peak's, it takes a wash strictly,
+        // here the wood wash of the biome the tree stands in (Paper.WoodTint), so a crown over
+        // the edge of its wood or of its biome keeps its own colour instead of the ground's.
+        // The biome is taken at the foot, so a crown is never split between two.
+        private void BeginWood(float x, float y)
+        {
+            m_canvas.m_woodLand = LandAt(x, y);
+            m_canvas.m_markBody = BodyKind.Wood;
+        }
 
         // A crown traced as a pen would: a closed loop whose radius wobbles a little all round, by
         // seed, and whose start and end overlap slightly, so no two crowns are the same shape. A
@@ -613,17 +636,25 @@ namespace Atlas
         // wobbleScale above 1 makes a raggeder outline (the Mistlands' canopies).
         private void HandCrown(float cx, float cy, float rx, float ry, int seed, float wobbleScale = 1f)
         {
+            CrownOutline(cx, cy, rx, ry, seed, wobbleScale, overlap: true);
+            m_canvas.Polyline(m_points, Mathf.Lerp(1f, 1.25f, Unit(seed, 44)));
+        }
+
+        // The hand-traced crown's points into m_points: once round as a polygon, or with the
+        // pen's overlap past the start for the stroke.
+        private void CrownOutline(float cx, float cy, float rx, float ry, int seed, float wobbleScale, bool overlap)
+        {
             m_points.Clear();
             const int steps = 14;
             float start = Unit(seed, 40) * Mathf.PI * 2f;
-            for (int i = 0; i <= steps + 1; i++)
+            int last = overlap ? steps + 1 : steps - 1;
+            for (int i = 0; i <= last; i++)
             {
                 float a = start + Mathf.PI * 2f * i / steps;
                 float bump = CrownBump(seed, a, wobbleScale);
                 if (i > steps) bump *= 0.96f;
                 m_points.Add(new Vector2(cx + Mathf.Cos(a) * rx * bump, cy + Mathf.Sin(a) * ry * bump));
             }
-            m_canvas.Polyline(m_points, Mathf.Lerp(1f, 1.25f, Unit(seed, 44)));
         }
 
         // The hand-traced crown's radius at angle a, as a share of the ellipse's: two lumps of
@@ -663,7 +694,9 @@ namespace Atlas
             var left = new Vector2(x - half, baseY + (Unit(seed, 14) - 0.5f) * 0.5f * s);
             var right = new Vector2(x + half, baseY + (Unit(seed, 15) - 0.5f) * 0.5f * s);
             Poly(apex, right + new Vector2(0.6f, 0.5f) * m_pen, left + new Vector2(-0.6f, 0.5f) * m_pen);
+            BeginWood(x, y);
             m_canvas.Erase(m_points);
+            m_canvas.m_markBody = BodyKind.None;
             float split = Mathf.Lerp(0.0f, 0.35f, Unit(seed, 16));
             Poly(apex, right, new Vector2(Mathf.Lerp(x, right.x, split), baseY));
             m_canvas.Fill(m_points);
@@ -679,7 +712,7 @@ namespace Atlas
         private void PlainsTree(float x, float y, float s, int seed)
         {
             Crown c = PlainsCrown(x, y, s, seed);
-            EraseCrown(c);
+            EraseCrown(c, x, y);
             Shade(c.m_cx, c.m_cy, c.m_rx, c.m_ry, seed);
             HandCrown(c.m_cx, c.m_cy, c.m_rx, c.m_ry, seed);
             m_canvas.Stroke(x, c.m_cy + c.m_ry * 0.9f, x + (c.m_cx - x) * 0.3f, y, Pen);
@@ -861,7 +894,7 @@ namespace Atlas
 
             // One crown only: lobes behind or beside it show as thin black crescents along its
             // edge at the map's scale.
-            EraseCrown(crown);
+            EraseCrown(crown, x, y);
             Shade(cx, cy, rx, ry, crown.m_seed);
             HandCrown(cx, cy, rx, ry, crown.m_seed, crown.m_wobble);
         }

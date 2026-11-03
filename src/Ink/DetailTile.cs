@@ -85,6 +85,17 @@ namespace Atlas
                         lg += (bg - lg) * body;
                         lb += (bb - lb) * body;
                     }
+                    // A tree's crown takes its biome's wood wash the same way (Paper.WoodGlaze).
+                    byte wood = canvas.m_bodyWood[ty * w + tx];
+                    if (wood != 0)
+                    {
+                        float body = InkCanvas.WoodCover(wood);
+                        Paper.WoodGlaze(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
+                            PaperAt(wash.m_parchment, paper, px, py, 2), InkCanvas.WoodLand(wood), out float br, out float bg, out float bb);
+                        lr += (br - lr) * body;
+                        lg += (bg - lg) * body;
+                        lb += (bb - lb) * body;
+                    }
                     // A sea illustration's darker wash, sampled from the same mask the sheet lays.
                     foreach (SeaWash sea in seaWashes)
                     {

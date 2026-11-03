@@ -11,7 +11,8 @@
   period could have had.
 - The parchment is aged all over: an uneven patina, old water stains with tide lines, dried rings and clusters of small brown spots, showing through the colours as on real stained paper.
 - Woods are drawn where the game grows its forests, each one a dense mass of trees bounded by its
-  outer crowns, with the open land around it kept clear.
+  outer crowns, with the open land around it kept clear. Every tree carries its biome's wood
+  colour, as the peaks carry the mountains' grey, right out to the edge of its wood.
 - Every biome has its own pen marks: ranges of jagged, hatched peaks washed in the mountains' grey, ringed by foothills, grass and woods of
   round crowns in the Meadows, stones and dark pine woods in the Black Forest, patches of marsh lines with reeds
   and tall ancient dead trees in the Swamp, a dry stipple and copses on the Plains, rolling hills on the real hilltops of the

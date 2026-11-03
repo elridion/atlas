@@ -13,13 +13,15 @@ namespace Atlas
     /// how a glyph hides whatever lies behind it. A recorder, when set, keeps every call so it can
     /// be replayed into a detail tile later.
     /// </summary>
-    // What a peak's or spire's body takes the wash of; each kind but None has its own body mask.
+    // What a peak's, spire's or tree's body takes the wash of; each kind but None has its own
+    // body mask.
     internal enum BodyKind : byte
     {
         None,
         Mountain,
         North,
         Mist,
+        Wood,
     }
 
     internal sealed class InkCanvas
@@ -37,9 +39,17 @@ namespace Atlas
         // (a spire in front of a peak, a skirt over another body) a pixel holds a share of each,
         // which one mask and one kind could not keep.
         public readonly byte[] m_bodyMist;
-        // While not None, Erase marks the scraped polygon as that kind of body (and clears the
-        // others); any other erase clears all, so the glyph in front decides.
+        // The same for tree crowns, which take the wood wash of the biome the tree stands in
+        // (Paper.WoodTint). Each byte packs that biome (WoodCode, top three bits) with the
+        // coverage (bottom five bits), since a cached sheet is shown before the world is read
+        // and so cannot look the biome up.
+        public readonly byte[] m_bodyWood;
+        // While not None, an erase marks what it scrapes as that kind of body (and clears the
+        // others); any other erase clears all, so the glyph in front decides. Polygon, outline and
+        // ellipse erases mark; scraped strokes never do.
         public BodyKind m_markBody;
+        // The biome a Wood body is marked with.
+        public Land m_woodLand;
         // When set, every erase also keeps its coverage here (the most of any erase), so a glyph's
         // scraped silhouette can be read back: a sea illustration's wash follows it (SeaWash).
         public byte[] m_scraped;
@@ -73,6 +83,7 @@ namespace Atlas
             m_body = new byte[width * height];
             m_bodyNorth = new byte[width * height];
             m_bodyMist = new byte[width * height];
+            m_bodyWood = new byte[width * height];
             m_originX = originX;
             m_originY = originY;
             m_scale = scale;
@@ -86,8 +97,34 @@ namespace Atlas
                 case BodyKind.Mountain: return m_body;
                 case BodyKind.North: return m_bodyNorth;
                 case BodyKind.Mist: return m_bodyMist;
+                case BodyKind.Wood: return m_bodyWood;
                 default: return null;
             }
+        }
+
+        // The biomes a Wood body can take, by code (0: none).
+        private static readonly Land[] s_woodLands =
+        {
+            Land.Ocean, Land.Meadows, Land.BlackForest, Land.Swamp, Land.Mountain, Land.Plains, Land.Mistlands, Land.DeepNorth,
+        };
+        private const int WoodLevels = 31;
+
+        // A biome's code in a Wood body byte, or 0 for a biome whose trees take no wood wash.
+        public static int WoodCode(Land land)
+        {
+            for (int i = 1; i < s_woodLands.Length; i++)
+                if (s_woodLands[i] == land) return i;
+            return 0;
+        }
+
+        public static float WoodCover(byte packed) => (packed & WoodLevels) / (float)WoodLevels;
+
+        public static Land WoodLand(byte packed) => s_woodLands[packed >> 5];
+
+        private static byte PackWood(float cover, int code)
+        {
+            int level = (int)(Mathf.Clamp01(cover) * WoodLevels + 0.5f);
+            return level == 0 ? (byte)0 : (byte)((code << 5) | level);
         }
 
         public void Record(InkRecord record) => m_record = record;
@@ -128,8 +165,16 @@ namespace Atlas
 
         public void EraseEllipse(float cx, float cy, float rx, float ry)
         {
-            m_record?.Ellipse(m_layer, cx, cy, rx, ry, 1f, erase: true);
-            Ellipse(X(cx), Y(cy), rx * m_scale, ry * m_scale, 1f, erase: true);
+            m_record?.Ellipse(m_layer, cx, cy, rx, ry, 1f, erase: true, m_markBody, m_woodLand);
+            m_erasingPolygon = true;
+            try
+            {
+                Ellipse(X(cx), Y(cy), rx * m_scale, ry * m_scale, 1f, erase: true);
+            }
+            finally
+            {
+                m_erasingPolygon = false;
+            }
         }
 
         public void Ring(float cx, float cy, float rx, float ry, float width, float strength = 1f)
@@ -147,7 +192,7 @@ namespace Atlas
 
         public void Erase(IList<Vector2> polygon)
         {
-            m_record?.Polygon(m_layer, polygon, 1f, erase: true, body: m_markBody);
+            m_record?.Polygon(m_layer, polygon, 1f, erase: true, body: m_markBody, land: m_woodLand);
             Polygon(polygon, 1f, erase: true);
         }
 
@@ -158,7 +203,7 @@ namespace Atlas
         // keeps the product of what is left, so neither comes out whole.
         public void EraseOutline(IList<Vector2> outline, float grow)
         {
-            m_record?.Outline(m_layer, outline, grow, m_markBody);
+            m_record?.Outline(m_layer, outline, grow, m_markBody, m_woodLand);
             m_erasingPolygon = true;
             try
             {
@@ -390,7 +435,18 @@ namespace Atlas
             Fade(m_body, index, keep, marking == BodyKind.Mountain);
             Fade(m_bodyNorth, index, keep, marking == BodyKind.North);
             Fade(m_bodyMist, index, keep, marking == BodyKind.Mist);
-            if (marking != BodyKind.None)
+            byte wood = m_bodyWood[index];
+            if (marking == BodyKind.Wood)
+            {
+                int code = WoodCode(m_woodLand);
+                float cover = Math.Max(WoodCover(wood), Math.Min(coverage, 1f));
+                m_bodyWood[index] = code == 0 ? (byte)0 : PackWood(cover, code);
+            }
+            else if (wood != 0)
+            {
+                m_bodyWood[index] = PackWood(WoodCover(wood) * keep, wood >> 5);
+            }
+            if (marking != BodyKind.None && marking != BodyKind.Wood)
             {
                 int value = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
                 byte[] mark = BodyMask(marking);
@@ -410,7 +466,7 @@ namespace Atlas
             if (!marking) mask[index] = (byte)(mask[index] * keep);
         }
 
-        // Set while a polygon is erased, so only polygon erases mark body.
+        // Set while a polygon, outline or ellipse is erased, so only those erases mark body.
         private bool m_erasingPolygon;
     }
 }

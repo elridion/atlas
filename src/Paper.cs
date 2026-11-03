@@ -618,18 +618,49 @@ namespace Atlas
         // and lilac there while close-ups (BodyGlaze over the stained paper) show it deeper than
         // the ground; laid so, the sheet darkens the paper under it as the close-ups do. A peak's
         // body stays opaque: the ground round it is mostly the same mountain wash.
-        private static void MistInk(out float alpha, out float r, out float g, out float b)
+        private static void MistInk(out float alpha, out float r, out float g, out float b) =>
+            InkOver(Glazed(Land.Mistlands), BodyColor(BodyKind.Mist), out alpha, out r, out g, out b);
+
+        // The colour and opacity that, laid over ground, give target: the opacity is the largest
+        // channel's loss, so that channel is a pure glaze. Nothing for a target no darker.
+        private static void InkOver(Color32 ground, Color32 target, out float alpha, out float r, out float g, out float b)
         {
-            Color32 ground = Glazed(Land.Mistlands), rock = BodyColor(BodyKind.Mist);
-            alpha = Math.Max(1f - rock.r / (float)ground.r, Math.Max(1f - rock.g / (float)ground.g, 1f - rock.b / (float)ground.b));
+            alpha = Math.Max(1f - target.r / (float)ground.r, Math.Max(1f - target.g / (float)ground.g, 1f - target.b / (float)ground.b));
             if (alpha <= 0f)
             {
-                r = g = b = 0f;
+                alpha = r = g = b = 0f;
                 return;
             }
-            r = ground.r - (ground.r - rock.r) / alpha;
-            g = ground.g - (ground.g - rock.g) / alpha;
-            b = ground.b - (ground.b - rock.b) / alpha;
+            r = ground.r - (ground.r - target.r) / alpha;
+            g = ground.g - (ground.g - target.g) / alpha;
+            b = ground.b - (ground.b - target.b) / alpha;
+        }
+
+        // A tree's body (BodyKind.Wood): the wash its biome's ground takes in a wood (Washed),
+        // strictly, as a peak's body takes the mountains'. The Mountains and the Deep North keep
+        // their open wash under trees.
+        private static Tint WoodTint(Land land)
+        {
+            Tint t = s_tints[(int)land];
+            if (land != Land.DeepNorth && land != Land.Mountain) t.m_strength += WoodWash;
+            return t;
+        }
+
+        // A tree's body on the sheet, as MistInk lays a spire's: the colour and opacity that,
+        // over its biome's open ground wash on clean paper, give the wood wash. Inside a wood the
+        // ground already has it, so crowns there come out a shade deeper than the floor; at a
+        // wood's edge, where the blurred wash fades, they keep it.
+        private static void WoodInk(Land land, out float alpha, out float r, out float g, out float b) =>
+            InkOver(Glazed(land), Glazed(WoodTint(land)), out alpha, out r, out g, out b);
+
+        // A tree's body in close-ups: its wood wash glazed over a parchment colour.
+        public static void WoodGlaze(float r, float g, float b, Land land, out float pr, out float pg, out float pb)
+        {
+            Tint t = WoodTint(land);
+            float s = t.m_strength;
+            pr = r * (1f - s + s * Filter(t.m_color.r, PaperColor.r));
+            pg = g * (1f - s + s * Filter(t.m_color.g, PaperColor.g));
+            pb = b * (1f - s + s * Filter(t.m_color.b, PaperColor.b));
         }
 
         // A body's glaze over a parchment colour, for peak and spire bodies in close-ups.
@@ -644,7 +675,8 @@ namespace Atlas
 
         // RGBA ink for every mip level, as LoadRawTextureData expects it, from a painted sheet: ink
         // coverage, then the body masks in BodyKind order (InkPainter.Paint), each body filled
-        // with its BodyColor under the ink (a spire's as a glaze, MistInk), with the wash of its
+        // with its BodyColor under the ink (a spire's and a tree's as a glaze, MistInk and
+        // WoodInk), with the wash of its
         // sea illustrations (marks, or null for none). The planes are read in place, not copied
         // out: each is 16 MB. Levels are averaged premultiplied, so ink and body mix rightly.
         public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks)
@@ -660,6 +692,14 @@ namespace Atlas
             int bodyAt = sheet.Length >= 2 * plane ? plane : -1;
             int northAt = sheet.Length >= 3 * plane ? 2 * plane : -1;
             int mistAt = sheet.Length >= 4 * plane ? 3 * plane : -1;
+            int woodAt = sheet.Length >= 5 * plane ? 4 * plane : -1;
+            // Each wood code's ink (InkCanvas.WoodCode), worked out once.
+            var woodAlpha = new float[8];
+            var woodR = new float[8];
+            var woodG = new float[8];
+            var woodB = new float[8];
+            for (int code = 1; code < 8; code++)
+                WoodInk(InkCanvas.WoodLand((byte)(code << 5)), out woodAlpha[code], out woodR[code], out woodG[code], out woodB[code]);
             byte[] ink = sheet;
             SeaInk(out float seaAlpha, out float seaR, out float seaG, out float seaB);
             // Premultiplied RGBA of the current level, rows from the south.
@@ -674,12 +714,15 @@ namespace Atlas
                     float m = bodyAt >= 0 ? sheet[bodyAt + i] / 255f : 0f;
                     float q = northAt >= 0 ? sheet[northAt + i] / 255f : 0f;
                     float k = mistAt >= 0 ? sheet[mistAt + i] / 255f : 0f;
+                    byte wood = woodAt >= 0 ? sheet[woodAt + i] : (byte)0;
+                    int code = wood >> 5;
                     float mu = m * (1f - a), qu = q * (1f - a), ku = k * mistAlpha * (1f - a);
+                    float wu = InkCanvas.WoodCover(wood) * woodAlpha[code] * (1f - a);
                     int o = (y * n + x) * 4;
-                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + InkColor.r * a);
-                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + InkColor.g * a);
-                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + InkColor.b * a);
-                    level[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + a) * 255f);
+                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + woodR[code] * wu + InkColor.r * a);
+                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + woodG[code] * wu + InkColor.g * a);
+                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + woodB[code] * wu + InkColor.b * a);
+                    level[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + wu + a) * 255f);
                 }
             }
             // The sea illustrations' wash under their ink. They stand in open water far from any

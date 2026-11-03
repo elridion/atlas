@@ -17,7 +17,7 @@ namespace Atlas
         // Canvas: CanvasSize pixels across HalfExtent metres either side of the world centre.
         public const int CanvasSize = 4096;
         // The painted sheet's planes of CanvasSize² bytes: ink, then one body mask per BodyKind.
-        public const int SheetPlanes = 4;
+        public const int SheetPlanes = 5;
         public const float HalfExtent = 10800f;
         public const float MetresPerPixel = 2f * HalfExtent / CanvasSize;
         // Vanilla's world edge (WorldGenerator.waterEdge): the frame is drawn there.
@@ -448,13 +448,14 @@ namespace Atlas
             painter.Run();
             record?.Seal(CanvasSize);
             // The sheet: ink coverage, then the body masks in BodyKind order (mountain, Deep
-            // North, Mistlands), one byte a pixel each.
+            // North, Mistlands, wood), one byte a pixel each.
             int n = CanvasSize * CanvasSize;
             var sheet = new byte[n * SheetPlanes];
             Buffer.BlockCopy(painter.m_canvas.m_ink, 0, sheet, 0, n);
             Buffer.BlockCopy(painter.m_canvas.m_body, 0, sheet, n, n);
             Buffer.BlockCopy(painter.m_canvas.m_bodyNorth, 0, sheet, 2 * n, n);
             Buffer.BlockCopy(painter.m_canvas.m_bodyMist, 0, sheet, 3 * n, n);
+            Buffer.BlockCopy(painter.m_canvas.m_bodyWood, 0, sheet, 4 * n, n);
             return sheet;
         }
 

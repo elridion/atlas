@@ -69,9 +69,11 @@ namespace Atlas
             public InkLayer m_layer;
             // The glyph the call belongs to (an index into m_groupFeet), or -1.
             public int m_group;
-            // A polygon erase that marks a peak's or spire's body (InkCanvas.m_markBody), or the
+            // An erase that marks a peak's, spire's or tree's body (InkCanvas.m_markBody), or the
             // mask a tint raises.
             public BodyKind m_body;
+            // The biome a Wood body takes (InkCanvas.m_woodLand).
+            public Land m_land;
             public float m_a, m_b, m_c, m_d, m_e, m_f;
         }
 
@@ -106,15 +108,15 @@ namespace Atlas
         public void Stroke(InkLayer layer, float x0, float y0, float x1, float y1, float width, float strength, bool erase) =>
             m_calls.Add(new Call { m_op = erase ? Op.Scrape : Op.Stroke, m_layer = layer, m_group = m_group, m_a = x0, m_b = y0, m_c = x1, m_d = y1, m_e = width, m_f = strength });
 
-        public void Ellipse(InkLayer layer, float cx, float cy, float rx, float ry, float strength, bool erase) =>
-            m_calls.Add(new Call { m_op = erase ? Op.EraseEllipse : Op.Ellipse, m_layer = layer, m_group = m_group, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_f = strength });
+        public void Ellipse(InkLayer layer, float cx, float cy, float rx, float ry, float strength, bool erase, BodyKind body = BodyKind.None, Land land = Land.Ocean) =>
+            m_calls.Add(new Call { m_op = erase ? Op.EraseEllipse : Op.Ellipse, m_layer = layer, m_group = m_group, m_body = body, m_land = land, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_f = strength });
 
         public void Ring(InkLayer layer, float cx, float cy, float rx, float ry, float width, float strength) =>
             m_calls.Add(new Call { m_op = Op.Ring, m_layer = layer, m_group = m_group, m_a = cx, m_b = cy, m_c = rx, m_d = ry, m_e = width, m_f = strength });
 
-        public void Polygon(InkLayer layer, IList<Vector2> polygon, float strength, bool erase, BodyKind body = BodyKind.None)
+        public void Polygon(InkLayer layer, IList<Vector2> polygon, float strength, bool erase, BodyKind body = BodyKind.None, Land land = Land.Ocean)
         {
-            m_calls.Add(new Call { m_op = erase ? Op.Erase : Op.Fill, m_layer = layer, m_group = m_group, m_body = body, m_a = m_points.Count, m_b = polygon.Count, m_f = strength });
+            m_calls.Add(new Call { m_op = erase ? Op.Erase : Op.Fill, m_layer = layer, m_group = m_group, m_body = body, m_land = land, m_a = m_points.Count, m_b = polygon.Count, m_f = strength });
             for (int i = 0; i < polygon.Count; i++) m_points.Add(polygon[i]);
         }
 
@@ -126,9 +128,9 @@ namespace Atlas
         }
 
         // An outline scraped in one pass (InkCanvas.EraseOutline): how far its edge is pushed out in c.
-        public void Outline(InkLayer layer, IList<Vector2> outline, float grow, BodyKind body)
+        public void Outline(InkLayer layer, IList<Vector2> outline, float grow, BodyKind body, Land land)
         {
-            m_calls.Add(new Call { m_op = Op.EraseOutline, m_layer = layer, m_group = m_group, m_body = body, m_a = m_points.Count, m_b = outline.Count, m_c = grow });
+            m_calls.Add(new Call { m_op = Op.EraseOutline, m_layer = layer, m_group = m_group, m_body = body, m_land = land, m_a = m_points.Count, m_b = outline.Count, m_c = grow });
             for (int i = 0; i < outline.Count; i++) m_points.Add(outline[i]);
         }
 
@@ -341,7 +343,12 @@ namespace Atlas
                 case Op.Stroke: canvas.Stroke(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e, c.m_f); break;
                 case Op.Scrape: canvas.Scrape(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e); break;
                 case Op.Ellipse: canvas.Dot(c.m_a, c.m_b, c.m_c, c.m_f); break;
-                case Op.EraseEllipse: canvas.EraseEllipse(c.m_a, c.m_b, c.m_c, c.m_d); break;
+                case Op.EraseEllipse:
+                    canvas.m_markBody = c.m_body;
+                    canvas.m_woodLand = c.m_land;
+                    canvas.EraseEllipse(c.m_a, c.m_b, c.m_c, c.m_d);
+                    canvas.m_markBody = BodyKind.None;
+                    break;
                 case Op.Ring: canvas.Ring(c.m_a, c.m_b, c.m_c, c.m_d, c.m_e, c.m_f); break;
                 case Op.Fill:
                 case Op.Erase:
@@ -351,6 +358,7 @@ namespace Atlas
                     else
                     {
                         canvas.m_markBody = c.m_body;
+                        canvas.m_woodLand = c.m_land;
                         canvas.Erase(polygon);
                         canvas.m_markBody = BodyKind.None;
                     }
@@ -364,6 +372,7 @@ namespace Atlas
                     polygon.Clear();
                     for (int k = 0; k < (int)c.m_b; k++) polygon.Add(m_points[(int)c.m_a + k]);
                     canvas.m_markBody = c.m_body;
+                    canvas.m_woodLand = c.m_land;
                     canvas.EraseOutline(polygon, c.m_c);
                     canvas.m_markBody = BodyKind.None;
                     break;

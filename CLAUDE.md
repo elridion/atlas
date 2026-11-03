@@ -356,9 +356,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (`ScrapeBody`, `InkCanvas.EraseOutline`, an `Op.EraseOutline` in the record: exact coverage of
   a concave outline, flanks grown `BodyGrow` 0.4 pen under their ink, base on the foot line); a
   fan of triangles from a hub leaves a faint centre line up to the apex. It marks body with
-  `InkCanvas.m_markBody`, which writes one of three body masks (`BodyKind` Mountain, North,
-  Mist, one plane each; any later erase clears the others, so the glyph in front decides). The
-  Mistlands' pinnacles fill their bodies the same way with `BodyKind.Mist` (below). The body
+  `InkCanvas.m_markBody`, which writes one of four body masks (`BodyKind` Mountain, North,
+  Mist, Wood, one plane each; any later erase clears the others, so the glyph in front
+  decides). The Mistlands' pinnacles fill their bodies the same way with `BodyKind.Mist`
+  (below), and trees with `BodyKind.Wood` (see the woods). The body
   stays fully the peak's wash; below the foot a skirt (`Skirt`, `InkCanvas.Tint`, an `Op.Tint`
   in the record, `PeakSkirt` 4 sheet px, its lower edge `SkirtTaper` in from each end) raises
   the mask without touching the ink, from the body's own strength (`PeakBleed` 1) to nothing
@@ -373,8 +374,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   body's base edge is anti-aliased on the foot line, so dots and slivers of the peaks and trees
   behind would show just under the base line. Mountain ground keeps the mountain wash even where
   no peak is drawn, so the biome still reads as mountains; do not give it the neighbours' wash.
-  The sheet is ink then the three masks (`InkPainter.Paint`, `SheetPlanes` 4 planes of 4096²,
-  64 MB, cached together); `Paper.InkWithMips` reads the planes in place and fills bodies with
+  The sheet is ink then the four masks (`InkPainter.Paint`, `SheetPlanes` 5 planes of 4096²,
+  80 MB, cached together); `Paper.InkWithMips` reads the planes in place and fills bodies with
   `Paper.BodyColor` under the ink, and close-ups glaze `Paper.BodyGlaze` over the stained
   parchment, replaying the kind from the record. A kind byte beside one shared mask would save
   the Mist plane (16 MB) but cannot hold a pixel shared by two kinds, where a spire stands in
@@ -442,7 +443,16 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   then blurred, edge at 0.5. Trees stand only where their foot and crown centre are inside, so
   the outer crowns alone form the edge. Do not draw edge lines: a scalloped edge after the trees
   looks fuzzy with a gap inside it, and a plain line under the trees reads as height contours.
-  Ground fills and hills keep `WoodClearance` from every wood. Vanilla's mask
+  Ground fills and hills keep `WoodClearance` from every wood.
+  Every tree's body takes its biome's wood wash strictly, as a peak's takes the mountains'
+  (`BodyKind.Wood`, `Paper.WoodTint`: the biome's tint plus `WoodWash`, none extra in the
+  Mountains and the Deep North), so crowns at a wood's or a biome's edge keep their colour
+  where the blurred wash fades. The biome is the one at the tree's foot (`BeginWood`), packed
+  into the Wood plane's byte (`InkCanvas.WoodCode`, top 3 bits; coverage in the bottom 5),
+  since a cached sheet is shown before the world is read. A round crown is marked inside its
+  traced outline grown `BodyGrow` (`EraseCrown`), not over its wider scraped ellipse, which
+  rings it with a halo; a pine over its scraped triangle. The sheet lays it as a glaze
+  (`Paper.WoodInk`, over the biome's open wash), close-ups with `Paper.WoodGlaze`. Vanilla's mask
   (`Minimap.GetMaskColor`) marks all Black Forest land as forest, Meadows by
   `WorldGenerator.InForest`, Plains where the forest factor is under 0.8 and the Mistlands by a
   smoothstep of it, so the Black Forest is one solid wood with no invented clearings. (Cells

@@ -78,5 +78,6 @@
 - The atlas is drawn once per world in the background and kept, so opening it never stalls the game.
 - Zooming in redraws the part in view at that zoom from the world itself: coasts and wood edges
   follow the land to within a few metres, and woods fill with more, finer trees. Close-ups take
-  over a little sooner as you zoom in. Close-ups are drawn
+  over a little sooner as you zoom in, are ready shortly after you join rather than after you
+  first open the atlas, and fill in faster. Close-ups are drawn
   ahead of time in small tiles around the pointer, so zooming in rarely waits.

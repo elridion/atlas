@@ -44,34 +44,59 @@ namespace Atlas
             var rgba = new byte[w * h * 4];
             var seaWashes = new List<SeaWash>();
             record.SeaWashes(left, top, left + width, top + height, seaWashes);
+            // The paper's bilinear weights depend on the column and the row alone, so they are
+            // worked out once each, and every paper sample of a pixel shares them; the parchment
+            // under a pixel is read once, when first needed, instead of up to five times over (the
+            // arithmetic, and so every pixel, is unchanged). The colour pass was about half of a
+            // close-up's time in game.
+            float limit = paper - 1.001f;
+            var columnCell = new int[w];
+            var columnFrac = new float[w];
+            for (int tx = 0; tx < w; tx++)
+            {
+                float px = Mathf.Clamp((left + (tx + 0.5f) / scale) * perSheet - 0.5f, 0f, limit);
+                columnCell[tx] = (int)px;
+                columnFrac[tx] = px - (int)px;
+            }
+            float step = 1f / scale;
+            byte[] land = wash.m_land, parchment = wash.m_parchment;
             for (int ty = 0; ty < h; ty++)
             {
                 // Parchment rows run from the south, the sheet's from the north.
-                float py = (InkPainter.CanvasSize - (top + (ty + 0.5f) / scale)) * perSheet - 0.5f;
+                float py = Mathf.Clamp((InkPainter.CanvasSize - (top + (ty + 0.5f) / scale)) * perSheet - 0.5f, 0f, limit);
+                int y0 = (int)py;
+                float fy = py - y0;
                 int row = h - 1 - ty;
                 float sy = top + (ty + 0.5f) / scale;
                 for (int tx = 0; tx < w; tx++)
                 {
                     float sx = left + (tx + 0.5f) / scale;
-                    float px = sx * perSheet - 0.5f;
-                    float a = canvas.m_ink[ty * w + tx] / 255f;
+                    int x0 = columnCell[tx];
+                    float fx = columnFrac[tx];
+                    int cell = y0 * paper + x0;
+                    int p = ty * w + tx;
+                    float a = canvas.m_ink[p] / 255f;
                     int o = (row * w + tx) * 4;
                     // The land's wash, with the tile's own water over it: its fine heights put the
                     // blue exactly where its coast runs, which the paper's 10 m pixels cannot.
-                    float depth = world.m_waterLevel - grid.Sample(grid.m_height, sx, sy);
+                    float ground = grid.Sample(grid.m_height, sx, sy);
+                    float depth = world.m_waterLevel - ground;
                     float ex = sx - InkPainter.CanvasSize * 0.5f, ey = sy - InkPainter.CanvasSize * 0.5f;
                     if (ex * ex + ey * ey >= frame * frame) depth = float.NegativeInfinity;
                     // The depth's change over one tile pixel sets the edge's one-pixel ramp. Streams
                     // show in the tile's own heights; the paper's stream band is for the sheet.
-                    float step = 1f / scale;
-                    float slope = Mathf.Max(Mathf.Abs(grid.Sample(grid.m_height, sx + step, sy) - grid.Sample(grid.m_height, sx, sy)),
-                        Mathf.Abs(grid.Sample(grid.m_height, sx, sy + step) - grid.Sample(grid.m_height, sx, sy)));
+                    float slope = Mathf.Max(Mathf.Abs(grid.Sample(grid.m_height, sx + step, sy) - ground),
+                        Mathf.Abs(grid.Sample(grid.m_height, sx, sy + step) - ground));
                     float water = Paper.Waterness(depth, slope, 0f);
-                    float lr = PaperAt(wash.m_land, paper, px, py, 0), lg = PaperAt(wash.m_land, paper, px, py, 1), lb = PaperAt(wash.m_land, paper, px, py, 2);
+                    float lr = Bilinear(land, cell * 3, 3, paper * 3, fx, fy);
+                    float lg = Bilinear(land, cell * 3 + 1, 3, paper * 3, fx, fy);
+                    float lb = Bilinear(land, cell * 3 + 2, 3, paper * 3, fx, fy);
+                    bool haveParchment = false;
+                    float pr = 0f, pg = 0f, pb = 0f;
                     if (water > 0f)
                     {
-                        Paper.WaterColor(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
-                            PaperAt(wash.m_parchment, paper, px, py, 2), out float wr, out float wg, out float wb);
+                        Parchment(parchment, cell, paper, fx, fy, ref haveParchment, ref pr, ref pg, ref pb);
+                        Paper.WaterColor(pr, pg, pb, out float wr, out float wg, out float wb);
                         lr += (wr - lr) * water;
                         lg += (wg - lg) * water;
                         lb += (wb - lb) * water;
@@ -79,33 +104,34 @@ namespace Atlas
                     // The glimpse round the explored land: bare parchment over the ground's wash,
                     // the water and the glyphs' bodies, with the terrain's ink greyer, as the sheet
                     // lays it (Paper.InkWithMips).
-                    float g = glimpse != null ? GlimpseAt(glimpse, paper, px, py) : 0f;
+                    float g = glimpse != null ? Bilinear(glimpse, cell * 4 + 3, 4, paper * 4, fx, fy) / 255f : 0f;
                     float open = 1f - g;
                     if (g > 0f)
                     {
-                        lr += (PaperAt(wash.m_parchment, paper, px, py, 0) - lr) * g;
-                        lg += (PaperAt(wash.m_parchment, paper, px, py, 1) - lg) * g;
-                        lb += (PaperAt(wash.m_parchment, paper, px, py, 2) - lb) * g;
+                        Parchment(parchment, cell, paper, fx, fy, ref haveParchment, ref pr, ref pg, ref pb);
+                        lr += (pr - lr) * g;
+                        lg += (pg - lg) * g;
+                        lb += (pb - lb) * g;
                     }
                     // A peak's or spire's body takes its kind's glaze strictly, over the stained
                     // paper (Paper.BodyGlaze), as the sheet fills it with BodyColor.
                     for (var kind = BodyKind.Mountain; kind <= BodyKind.Mist; kind++)
                     {
-                        float body = canvas.BodyMask(kind)[ty * w + tx] / 255f * open;
+                        float body = canvas.BodyMask(kind)[p] / 255f * open;
                         if (body <= 0f) continue;
-                        Paper.BodyGlaze(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
-                            PaperAt(wash.m_parchment, paper, px, py, 2), kind, out float br, out float bg, out float bb);
+                        Parchment(parchment, cell, paper, fx, fy, ref haveParchment, ref pr, ref pg, ref pb);
+                        Paper.BodyGlaze(pr, pg, pb, kind, out float br, out float bg, out float bb);
                         lr += (br - lr) * body;
                         lg += (bg - lg) * body;
                         lb += (bb - lb) * body;
                     }
                     // A tree's crown takes its biome's wood wash the same way (Paper.WoodGlaze).
-                    byte wood = canvas.m_bodyWood[ty * w + tx];
+                    byte wood = canvas.m_bodyWood[p];
                     if (wood != 0)
                     {
                         float body = InkCanvas.WoodCover(wood) * open;
-                        Paper.WoodGlaze(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
-                            PaperAt(wash.m_parchment, paper, px, py, 2), InkCanvas.WoodLand(wood), out float br, out float bg, out float bb);
+                        Parchment(parchment, cell, paper, fx, fy, ref haveParchment, ref pr, ref pg, ref pb);
+                        Paper.WoodGlaze(pr, pg, pb, InkCanvas.WoodLand(wood), out float br, out float bg, out float bb);
                         lr += (br - lr) * body;
                         lg += (bg - lg) * body;
                         lb += (bb - lb) * body;
@@ -117,7 +143,7 @@ namespace Atlas
                         if (amount > 0f) Paper.SeaGlaze(lr, lg, lb, amount, out lr, out lg, out lb);
                     }
                     // A pin's red ink, under any black ink drawn over it later.
-                    float red = canvas.m_pinInk[ty * w + tx] / 255f;
+                    float red = canvas.m_pinInk[p] / 255f;
                     if (red > 0f)
                     {
                         lr += (pinInk.r - lr) * red;
@@ -137,32 +163,23 @@ namespace Atlas
         }
 
 
-        // Bilinear sample of the glimpse's opacity (RGBA rows from the south, as the parchment's).
-        private static float GlimpseAt(byte[] glimpse, int size, float x, float y)
+        // A bilinear sample of one channel at index i (the cell's lower left), right and down
+        // apart from its neighbours, with the cell's weights.
+        private static float Bilinear(byte[] values, int i, int right, int down, float fx, float fy)
         {
-            x = Mathf.Clamp(x, 0f, size - 1.001f);
-            y = Mathf.Clamp(y, 0f, size - 1.001f);
-            int x0 = (int)x, y0 = (int)y;
-            float fx = x - x0, fy = y - y0;
-            int i = (y0 * size + x0) * 4 + 3;
-            int right = 4, down = size * 4;
-            float bottom = glimpse[i] + (glimpse[i + right] - glimpse[i]) * fx;
-            float topRow = glimpse[i + down] + (glimpse[i + down + right] - glimpse[i + down]) * fx;
-            return (bottom + (topRow - bottom) * fy) / 255f;
-        }
-
-        // Bilinear parchment sample, so the paper's grain stays smooth at any magnification.
-        private static float PaperAt(byte[] parchment, int size, float x, float y, int channel)
-        {
-            x = Mathf.Clamp(x, 0f, size - 1.001f);
-            y = Mathf.Clamp(y, 0f, size - 1.001f);
-            int x0 = (int)x, y0 = (int)y;
-            float fx = x - x0, fy = y - y0;
-            int i = (y0 * size + x0) * 3 + channel;
-            int right = 3, down = size * 3;
-            float bottom = parchment[i] + (parchment[i + right] - parchment[i]) * fx;
-            float topRow = parchment[i + down] + (parchment[i + down + right] - parchment[i + down]) * fx;
+            float bottom = values[i] + (values[i + right] - values[i]) * fx;
+            float topRow = values[i + down] + (values[i + down + right] - values[i + down]) * fx;
             return bottom + (topRow - bottom) * fy;
         }
-    }
+
+        // The parchment under a pixel, read on first use, so the paper's grain stays smooth at any
+        // magnification.
+        private static void Parchment(byte[] parchment, int cell, int size, float fx, float fy, ref bool have, ref float r, ref float g, ref float b)
+        {
+            if (have) return;
+            have = true;
+            r = Bilinear(parchment, cell * 3, 3, size * 3, fx, fy);
+            g = Bilinear(parchment, cell * 3 + 1, 3, size * 3, fx, fy);
+            b = Bilinear(parchment, cell * 3 + 2, 3, size * 3, fx, fy);
+        }    }
 }

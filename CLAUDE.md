@@ -738,6 +738,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   edge, and three round crowns on a stick read as lollipops.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
+- Close-ups need the painted record, so the world is painted in the background right after login even behind a cached sheet (about 15 s in game; started only on the first opening, close-ups came 30 s after joining, the user's call). In game a 256² close-up took about 85 ms on a worker (timing build, 1440p, 8x tiles): sampling 14, ink 15 (80+ in dense woods), colour 42, mipmaps 1. The colour pass now reads each paper value once per pixel (`DetailTile.Render`), pixel for pixel the same. Skipping trees whose footprint misses the tile saved nothing (clipped strokes are cheap); the ink cost is in the trees on the tile.
 - Zoomed in past 1.25 screen pixels per sheet pixel, close-ups come from fixed 256² tiles
   (`DetailTiles`) at one level only, at every zoom: the finest the view reaches (4x, 8x above
   1080p or with a UI scale over 1), mipmapped on the worker and faded in over 0.2 s, laid over

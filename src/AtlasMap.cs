@@ -36,8 +36,6 @@ namespace Atlas
         private static AggregateException s_paintError;
         // Set after an error in Update: the atlas is off for the session.
         private static bool s_stopped;
-        // Whether the atlas was opened in this world, which starts painting behind a cached sheet.
-        private static bool s_opened;
         // The pins to draw into the sheet and their key (KeepPins), the key of the uploaded sheet,
         // of the sheet on disk and of the painting under way, and pins whose painting failed.
         private static SheetPin[] s_pins = new SheetPin[0];
@@ -175,7 +173,6 @@ namespace Atlas
                 return;
             }
             s_view.Show(s_paper, s_ink, s_fog, s_dirt, s_snapshot, s_density, s_source);
-            s_opened = true;
         }
 
         private static bool OpenPressed() => ZInput.GetButtonDown("Map") || JoyMapPressed();
@@ -266,11 +263,12 @@ namespace Atlas
 
                 // The sheet is painted when there is none, when its pins are not the current ones
                 // (pins are drawn into it), and, behind a cached sheet with the right pins, once the
-                // atlas is first opened, for the record close-ups are drawn from: most sessions
-                // never zoom in, and painting beside the cache load doubled the work after login.
+                // cache is loaded, for the record close-ups are drawn from: started only when the
+                // atlas was first opened, close-ups came half a minute after joining (the user's
+                // call: about 15 s of background work each session for close-ups ready at once).
                 if (s_cacheTask != null) return;
                 bool stale = s_sheet == null || s_rawKey != s_pinsKey;
-                if (!stale && (s_record != null || !s_opened)) return;
+                if (!stale && s_record != null) return;
                 if (s_hasFailedKey && s_failedKey == s_pinsKey) return;
                 WorldSource source = s_source;
                 CancellationToken cancel = s_cancel.Token;
@@ -656,7 +654,6 @@ namespace Atlas
             s_density = null;
             s_inkFailed = false;
             s_paintError = null;
-            s_opened = false;
             s_pins = new SheetPin[0];
             s_pinsKey = 0L;
             s_pinsDirty = true;

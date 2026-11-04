@@ -31,6 +31,11 @@ namespace Atlas
         // Cancelled when the world changes, so a half-finished drawing for the old world stops.
         private static CancellationTokenSource s_cancel = new CancellationTokenSource();
         private static bool s_inkFailed;
+        // Why decoding or painting failed, kept while the disk cache is still loading: if the
+        // cache then has no sheet either, the atlas has failed rather than still drawing.
+        private static AggregateException s_paintError;
+        // Set after an error in Update: the atlas is off for the session.
+        private static bool s_stopped;
         private static Texture2D s_ink;
         // The sea illustrations on the uploaded sheet, those the uploaded fog showed or hid whole,
         // and those the fog being laid does. The atlas opens only once the first two agree, so a
@@ -63,7 +68,22 @@ namespace Atlas
 
         // True while the atlas is open and for a couple of frames after, as vanilla does for its
         // own map, so the key that closes it does not also open the menu.
-        public static bool BlocksGame => s_view.IsOpen || s_view.ClosedFrames <= 2;
+        public static bool BlocksGame => !s_stopped && (s_view.IsOpen || s_view.ClosedFrames <= 2);
+
+        // Switches the atlas off for the session after an error. The view is closed and stops
+        // blocking input: left open, the Minimap.IsOpen postfix would keep the player frozen.
+        public static void Stop()
+        {
+            s_stopped = true;
+            try
+            {
+                Reset();
+            }
+            catch (Exception e)
+            {
+                Jotunn.Logger.LogWarning($"The atlas could not clean up after its error: {e}");
+            }
+        }
 
         public static void Update()
         {
@@ -117,7 +137,8 @@ namespace Atlas
             s_snapshot = Snapshot.Take(minimap);
             s_snapshot.Save(player, ZNet.instance.GetWorldUID());
             s_fogDirty = true;
-            s_sparkles.Begin(table);
+            // The snapshot is still saved for the next session, but nothing would end the sparkles.
+            if (!s_stopped) s_sparkles.Begin(table);
         }
 
         private static void Open(Player player)
@@ -179,6 +200,8 @@ namespace Atlas
                     s_density = s_cacheTask.Result.m_density;
                 }
                 s_cacheTask = null;
+                // Painting failed while the cache was loading, and the cache had no sheet either.
+                if (!s_ink && s_paintError != null) Fail(s_paintError);
             }
             if (s_mipsTask != null && s_mipsTask.IsCompleted)
             {
@@ -206,6 +229,7 @@ namespace Atlas
                 if (decoded.IsFaulted)
                 {
                     s_washFailed = true;
+                    s_paintError = decoded.Exception;
                     if (!s_ink && s_cacheTask == null) Fail(decoded.Exception);
                     else Jotunn.Logger.LogWarning($"The atlas could not read the world: {decoded.Exception?.GetBaseException()}");
                     s_paintTask = Task.FromResult<PaintResult>(null);
@@ -235,6 +259,7 @@ namespace Atlas
             if (painted.IsFaulted)
             {
                 // Without a sheet there is nothing to show; with one, only detail tiles are lost.
+                s_paintError = painted.Exception;
                 if (!s_ink && s_cacheTask == null) Fail(painted.Exception);
                 else Jotunn.Logger.LogWarning($"The atlas could not prepare its close-up detail: {painted.Exception?.GetBaseException()}");
                 s_paintTask = Task.FromResult<PaintResult>(null);
@@ -427,6 +452,7 @@ namespace Atlas
             s_record = null;
             s_density = null;
             s_inkFailed = false;
+            s_paintError = null;
             s_tiles.Clear();
             s_sparkles.Clear();
             s_source = null;

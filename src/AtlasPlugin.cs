@@ -47,6 +47,7 @@ namespace Atlas
             {
                 m_failed = true;
                 Jotunn.Logger.LogError($"Atlas stopped after an error and stays off until the game restarts: {e}");
+                AtlasMap.Stop();
             }
         }
 

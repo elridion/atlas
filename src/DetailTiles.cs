@@ -8,9 +8,9 @@ using UnityEngine.UI;
 namespace Atlas
 {
     /// <summary>
-    /// Close-ups as fixed tiles, as web maps do: TilePixels squared tiles at the finest
-    /// magnification the view reaches (4x, or 8x with a larger UI scale), mipmapped so they stay
-    /// clean when zoomed out, each drawn on its own worker (DetailTile.Render) and kept as a
+    /// Close-ups as fixed tiles, as web maps do: TilePixels squared tiles at the magnification
+    /// that keeps about one texel per screen pixel (2x, 4x or 8x), one level on screen at a time,
+    /// mipmapped, each drawn on its own worker (DetailTile.Render) and kept as a
     /// texture. The view fills in piece by piece, each tile fading in, panning back is instant,
     /// and tiles are drawn ahead of need: a ring round the view, and round the pointer before the
     /// view is zoomed in far enough to show them. Main thread, except the rendering.
@@ -64,6 +64,8 @@ namespace Atlas
         private CancellationTokenSource m_cancel = new CancellationTokenSource();
         private long m_frame;
         private bool m_broken;
+        // The level on screen, or -1 below DetailFrom.
+        private int m_shownLevel = -1;
 
         private InkRecord m_record;
         private Paper.Wash m_paper;
@@ -93,6 +95,7 @@ namespace Atlas
             m_ready.Clear();
             m_parent = null;
             m_broken = false;
+            m_shownLevel = -1;
             m_record = null;
             m_paper = null;
             m_world = null;
@@ -109,11 +112,16 @@ namespace Atlas
             if (!view.IsOpen || !m_parent || !Ready) return;
             if (!view.ViewRegion(out RectInt visible, out float onScreen, out Vector2 pointer)) return;
 
-            // One level only, the finest the view can reach: tiles switching between levels as
-            // they came in looked scratchy. Mipmaps keep them clean when zoomed out.
+            // The level that keeps about one tile texel per screen pixel at this zoom. The finest
+            // level the view can reach at every zoom took thousands of tiles above 1080p, past the
+            // cap. Levels never show mixed (tiles switching between levels as they came in looked
+            // scratchy): on a zoom across levels the shown one stays until the new one covers the
+            // view, then they swap whole.
             bool detail = onScreen >= DetailFrom;
-            int level = Level(view.MaxOnScreen);
-            Show(detail ? level : -1, visible);
+            int level = Level(detail ? onScreen : DetailFrom);
+            if (!detail) m_shownLevel = -1;
+            else if (m_shownLevel != level && (m_shownLevel < 0 || Covers(level, visible))) Swap(level, visible);
+            Show(detail ? m_shownLevel : -1, visible);
             Fade();
 
             // What to draw, most wanted first: the view from the pointer outward and a ring of one
@@ -149,6 +157,33 @@ namespace Atlas
         }
 
         private static int TileSize(int level) => TilePixels / s_scales[level];
+
+        // Whether every tile of a level touching the visible part of the sheet is uploaded.
+        private bool Covers(int level, RectInt visible)
+        {
+            int size = TileSize(level);
+            int x0 = Mathf.Max(0, visible.xMin / size), x1 = Mathf.Min(InkPainter.CanvasSize / size - 1, (visible.xMax - 1) / size);
+            int y0 = Mathf.Max(0, visible.yMin / size), y1 = Mathf.Min(InkPainter.CanvasSize / size - 1, (visible.yMax - 1) / size);
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++)
+                    if (!m_tiles.ContainsKey(Key(level, x, y))) return false;
+            return true;
+        }
+
+        // Shows a new level. Swapping for a level already on screen, its tiles come in at full
+        // strength, since fading them in over the sheet would flash the coarser sheet through.
+        private void Swap(int level, RectInt visible)
+        {
+            bool replacing = m_shownLevel >= 0;
+            m_shownLevel = level;
+            if (!replacing) return;
+            foreach (Tile tile in m_tiles.Values)
+            {
+                if (tile.m_level != level || !tile.m_region.Overlaps(visible) || !tile.m_image) continue;
+                tile.m_shown = 1f;
+                tile.m_image.color = Color.white;
+            }
+        }
 
         private static long Key(int level, int x, int y) => ((long)level << 40) | ((long)(x & 0xFFFFF) << 20) | (long)(y & 0xFFFFF);
 
@@ -347,7 +382,9 @@ namespace Atlas
         // Drops the least recently used tiles beyond Capacity.
         private void Trim()
         {
-            if (m_tiles.Count <= Capacity) return;
+            // A 4K view takes up to about 600 tiles with its ring; room for twice what is wanted
+            // keeps a pan back instant there without a tile list sorted every frame.
+            if (m_tiles.Count <= Mathf.Max(Capacity, 2 * m_wanted.Count)) return;
             var tiles = new List<KeyValuePair<long, Tile>>(m_tiles);
             tiles.Sort((a, b) => a.Value.m_used.CompareTo(b.Value.m_used));
             for (int i = 0; i < tiles.Count - Capacity; i++)
@@ -363,6 +400,7 @@ namespace Atlas
         {
             foreach (Tile tile in m_tiles.Values) Destroy(tile);
             m_tiles.Clear();
+            m_shownLevel = -1;
             m_parent = parent;
             if (!parent) return;
             for (int i = 0; i < m_layers.Length; i++)

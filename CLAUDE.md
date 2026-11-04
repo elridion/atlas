@@ -624,13 +624,16 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
 - Zoomed in past 1.5 screen pixels per sheet pixel, close-ups come from fixed 256² tiles
-  (`DetailTiles`) at one level only, the finest the view reaches (4x, 8x with a UI scale over
-  1), mipmapped on the worker and faded in over 0.2 s, laid over the sheet (opaque, under the
-  fog). Do not show coarser tile levels while fine ones load: levels replacing each other look
-  scratchy. Tiles are drawn ahead of need, one per worker (half the cores, at most 4): the view
+  (`DetailTiles`) at the level that keeps about one texel per screen pixel at the current zoom
+  (2x, 4x or 8x), mipmapped on the worker and faded in over 0.2 s, laid over the sheet (opaque,
+  under the fog). One level is on screen at a time: on a zoom across levels the shown level
+  stays until the new one covers the view, then they swap whole, the new tiles at full
+  strength. Do not show two levels mixed: tiles switching between levels as they come in look
+  scratchy. The finest level the view could reach, shown at every zoom, took 1000-3000 tiles
+  above 1080p. Tiles are drawn ahead of need, one per worker (half the cores, at most 4): the view
   from the pointer outward and a ring of one tile round it; zoomed out, up to 48 tiles round the
   pointer, where a zoom lands. At most 3 textures are uploaded a frame and 320 kept (about
-  110 MB with mips). Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs
+  110 MB with mips), or twice the tiles wanted when that is more (a 4K view wants about 600). Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs
   from cells `GlyphReach` beyond it, so neighbours draw the same glyphs and margins and seams do
   not show. The sheet's non-tree glyphs are recorded as groups with their feet
   (`InkRecord.BeginGroup`), and a tile sorts them in with its own trees and draws all from north

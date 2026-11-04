@@ -18,7 +18,7 @@ namespace Atlas
         // sharper): trees true to scale at 8x pack into a uniform texture, so glyphs are let to
         // grow a little on screen instead.
         public static byte[] Render(InkRecord record, Paper.Wash wash, WorldSource world, SampleCache cache, RectInt region,
-            int scale, float gridPixels, int threads, CancellationToken cancel, byte[] glimpse = null)
+            int scale, float gridPixels, int threads, CancellationToken cancel, byte[] glimpse = null, byte[] fog = null)
         {
             int left = region.x, top = region.y, width = region.width, height = region.height;
             int w = width * scale, h = height * scale;
@@ -33,7 +33,7 @@ namespace Atlas
             TileGrid grid = TileGrid.Build(cache, world.m_waterLevel, scatter.xMin - margin, scatter.yMin - margin, scatter.xMax + margin, scatter.yMax + margin,
                 level, threads, cancel);
             var canvas = new InkCanvas(w, h, left, top, scale);
-            InkPainter.PaintTile(world, record, grid, canvas, region, scatter, lod, scale, cancel);
+            InkPainter.PaintTile(world, record, grid, canvas, region, scatter, lod, scale, cancel, glimpse, fog);
             cancel.ThrowIfCancellationRequested();
 
             int paper = Paper.FogSize;

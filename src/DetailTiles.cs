@@ -22,10 +22,11 @@ namespace Atlas
         private static readonly int[] s_scales = { 2, 4, 8 };
         // Screen pixels per sheet pixel from which tiles are shown; below it the sheet is sharp
         // enough, and at the finest level a wider view would take hundreds of tiles.
-        private const float DetailFrom = 1.5f;
+        private const float DetailFrom = 1.25f;
         // The most tiles a view may take before close-ups start: a 1080p view at DetailFrom takes
-        // about 225 at the 4x level; above 1080p the 8x level starts at about 2.25 of the zoom.
-        private const int MaxVisible = 400;
+        // about 340 at the 4x level; at 1440p the 8x level starts at about 2.6 screen pixels a
+        // sheet pixel, at 4K about 4 (the user asked for close-ups a little earlier).
+        private const int MaxVisible = 520;
         // Ground samples every GridPixels tile pixels (the nearest SampleCache spacing).
         private const float GridPixels = 3f;
         // At about 340 KB a tile with its mipmaps, about 110 MB of textures; the least recently
@@ -85,12 +86,15 @@ namespace Atlas
         }
 
         // The glimpse's bare parchment (Paper.Fog's glimpse, RGBA at FogSize), which tiles lay
-        // over their wash; null for none. A new one drops every tile drawn with the old.
+        // over their wash, and the fog (Paper.Fog's RGBA), whose torn edge their trees keep
+        // whole; null for none. A new one drops every tile drawn with the old.
         private byte[] m_glimpse;
+        private byte[] m_fog;
 
-        public void SetGlimpse(byte[] glimpse)
+        public void SetGlimpse(byte[] glimpse, byte[] fog)
         {
             m_glimpse = glimpse;
+            m_fog = fog;
             DropTiles();
         }
 
@@ -105,6 +109,7 @@ namespace Atlas
             m_world = null;
             m_samples = null;
             m_glimpse = null;
+            m_fog = null;
         }
 
         private void DropTiles()
@@ -240,8 +245,8 @@ namespace Atlas
                 SampleCache samples = m_samples;
                 int scale = s_scales[level];
                 CancellationToken cancel = m_cancel.Token;
-                byte[] glimpse = m_glimpse;
-                m_running[key] = Workers.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel, glimpse)), cancel);
+                byte[] glimpse = m_glimpse, fog = m_fog;
+                m_running[key] = Workers.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel, glimpse, fog)), cancel);
                 m_runningRegion[key] = region;
             }
             foreach (long key in m_wanted)

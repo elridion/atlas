@@ -420,6 +420,17 @@ namespace Atlas
 
         public static void PinsChanged() => s_pinsChanged = true;
 
+        // Where the Sacrificial Stones stand (AtlasMap.KeepPins), once known. They are always
+        // drawn into the sheet, so the game's own pin there is never also a marker: when its
+        // sprite is not matched to the stone circle (DrawnIcons), it was traced into a second,
+        // parchment-filled sign over them.
+        public static Vector2? s_temple;
+        private const float TempleReach = 30f;
+
+        private static bool IsTemple(Snapshot.Pin pin) =>
+            pin.m_type == Minimap.PinType.None && s_temple.HasValue
+            && (new Vector2(pin.m_position.x, pin.m_position.z) - s_temple.Value).sqrMagnitude < TempleReach * TempleReach;
+
         // Whether the pin settings let a pin show: the player's own pins always do, the game's
         // own marks by kind. Location pins (PinType.None) are traders when drawn as one, and other
         // places otherwise.
@@ -471,7 +482,7 @@ namespace Atlas
                 if (drawn.TryGetValue(pin.m_icon, out glyph)) textures = Textures(glyph, null);
                 else if (sprites.TryGetValue(pin.m_icon, out Sprite sprite) && sprite) textures = Textures(glyph = PinGlyph.Traced, sprite);
                 else continue;
-                if (textures == null || !Shown(pin, glyph) || InSheet(snapshot, pin, glyph)) continue;
+                if (textures == null || !Shown(pin, glyph) || InSheet(snapshot, pin, glyph) || IsTemple(pin)) continue;
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);

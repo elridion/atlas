@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using BepInEx;
+using UnityEngine;
 
 namespace Atlas
 {
@@ -16,19 +17,23 @@ namespace Atlas
     internal static class InkCache
     {
         private const int Magic = 0x534C5441; // "ATLS"
-        private const int Version = 4;
+        private const int Version = 5;
         // A file never holds more sea illustrations than this; more means it is damaged.
         private const int MostSeaMarks = 256;
+        // Nor more trees than this.
+        private const int MostTrees = 1 << 22;
 
         private static string FilePath(long worldUid) =>
             Path.Combine(Paths.CachePath, AtlasPlugin.PluginGuid, $"{worldUid}.ink");
 
         // Worker thread. Returns null when there is no matching sheet; marks gets the sheet's sea
         // illustrations (InkRecord.m_seaMarks), which the fog needs before the world is painted,
-        // and pinsKey the key of the pins it was drawn with (SheetPin.Key).
-        public static byte[] Load(long worldUid, int seed, out SeaMark[] marks, out long pinsKey)
+        // pinsKey the key of the pins it was drawn with (SheetPin.Key), and trees its trees'
+        // footprints (InkRecord.m_trees).
+        public static byte[] Load(long worldUid, int seed, out SeaMark[] marks, out long pinsKey, out Vector4[] trees)
         {
             marks = null;
+            trees = null;
             pinsKey = 0L;
             string path = FilePath(worldUid);
             if (!File.Exists(path)) return null;
@@ -53,6 +58,11 @@ namespace Atlas
                         };
                         if (read[i].m_kind < 0 || read[i].m_kind >= SeaGlyphs.Names.Length) return null;
                     }
+                    int treeCount = reader.ReadInt32();
+                    if (treeCount < 0 || treeCount > MostTrees) return null;
+                    var boxes = new Vector4[treeCount];
+                    for (int i = 0; i < treeCount; i++)
+                        boxes[i] = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
                     // Ink coverage, then the body masks (InkPainter.Paint).
                     var ink = new byte[InkPainter.CanvasSize * InkPainter.CanvasSize * InkPainter.SheetPlanes];
                     using (var zip = new GZipStream(file, CompressionMode.Decompress))
@@ -67,6 +77,7 @@ namespace Atlas
                     }
                     marks = read;
                     pinsKey = key;
+                    trees = boxes;
                     return ink;
                 }
             }
@@ -78,7 +89,7 @@ namespace Atlas
         }
 
         // Worker thread.
-        public static void Save(long worldUid, int seed, byte[] ink, IList<SeaMark> marks, long pinsKey)
+        public static void Save(long worldUid, int seed, byte[] ink, IList<SeaMark> marks, long pinsKey, IList<Vector4> trees)
         {
             string path = FilePath(worldUid);
             try
@@ -107,8 +118,16 @@ namespace Atlas
                             writer.Write(mark.m_scale);
                             writer.Write(mark.m_mirror);
                         }
+                        writer.Write(trees.Count);
+                        foreach (Vector4 tree in trees)
+                        {
+                            writer.Write(tree.x);
+                            writer.Write(tree.y);
+                            writer.Write(tree.z);
+                            writer.Write(tree.w);
+                        }
                     }
-                    using (var zip = new GZipStream(file, CompressionLevel.Fastest))
+                    using (var zip = new GZipStream(file, System.IO.Compression.CompressionLevel.Fastest))
                         zip.Write(ink, 0, ink.Length);
                 }
                 if (File.Exists(path)) File.Delete(path);

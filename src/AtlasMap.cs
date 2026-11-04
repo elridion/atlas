@@ -212,8 +212,8 @@ namespace Atlas
                 int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
                 s_cacheTask = Workers.Run(() =>
                 {
-                    byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks, out long key);
-                    return ink == null ? null : new CachedSheet { m_sheet = ink, m_marks = marks, m_density = InkDensity.FromSheet(ink), m_key = key };
+                    byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks, out long key, out Vector4[] trees);
+                    return ink == null ? null : new CachedSheet { m_sheet = ink, m_marks = marks, m_trees = trees, m_density = InkDensity.FromSheet(ink), m_key = key };
                 });
             }
             if (s_cacheTask != null && s_cacheTask.IsCompleted)
@@ -222,7 +222,7 @@ namespace Atlas
                 else if (s_cacheTask.Result != null && s_sheet == null)
                 {
                     CachedSheet cached = s_cacheTask.Result;
-                    SetSheet(cached.m_sheet, cached.m_marks, cached.m_density, cached.m_key);
+                    SetSheet(cached.m_sheet, cached.m_marks, cached.m_trees, cached.m_density, cached.m_key);
                     s_cachedKey = cached.m_key;
                     s_hasCachedKey = true;
                 }
@@ -293,7 +293,7 @@ namespace Atlas
                     bool saved = false;
                     if ((!hasCache || cachedKey != key) && source.m_grove != null)
                     {
-                        InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks, key);
+                        InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks, key, record.m_trees);
                         saved = true;
                     }
                     return new PaintResult { m_ink = ink, m_record = record, m_density = InkDensity.FromSheet(ink), m_key = key, m_saved = saved };
@@ -324,15 +324,16 @@ namespace Atlas
             s_record = result.m_record;
             s_tiles.Clear();
             if (s_sheet != null && result.m_key == s_rawKey) return;
-            SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_density, result.m_key);
+            SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_record.m_trees.ToArray(), result.m_density, result.m_key);
         }
 
         // A painted (or cached) sheet's planes, kept for the session so its ink texture can be
         // laid again when the glimpse changes (Paper.InkWithMips), with its sea illustrations,
         // density and pins key. The fog is laid again for its sea illustrations.
-        private static void SetSheet(byte[] sheet, SeaMark[] marks, InkDensity density, long key)
+        private static void SetSheet(byte[] sheet, SeaMark[] marks, Vector4[] trees, InkDensity density, long key)
         {
             s_sheet = sheet;
+            s_trees = trees;
             s_sheetMarks = marks;
             s_sheetDensity = density;
             s_rawKey = key;
@@ -379,6 +380,8 @@ namespace Atlas
         // uploaded ink and the ink being laid were made from.
         private static byte[] s_sheet;
         private static SeaMark[] s_sheetMarks;
+        // The sheet's trees' footprints, so the fog hides those its torn edge would cut.
+        private static Vector4[] s_trees;
         private static InkDensity s_sheetDensity;
         private static long s_rawKey;
         private static byte[] s_inkSheet;
@@ -405,6 +408,7 @@ namespace Atlas
         {
             public byte[] m_sheet;
             public SeaMark[] m_marks;
+            public Vector4[] m_trees;
             public InkDensity m_density;
             public long m_key;
         }
@@ -422,6 +426,8 @@ namespace Atlas
             {
                 s_templeFound = true;
                 s_temple = new Vector2(temple.x, temple.z);
+                AtlasView.s_temple = s_temple;
+                AtlasView.PinsChanged();
                 s_pinsDirty = true;
             }
             if (!s_pinsDirty) return;
@@ -525,12 +531,13 @@ namespace Atlas
             byte[] parchment = s_parchment;
             SeaMark[] marks = s_fogTaskMarks = s_seaMarks;
             Vector2[] glimpses = s_glimpses;
+            Vector4[] trees = s_trees;
             Task<byte[]> parchmentTask = Parchment(seed);
             // The task hands the parchment back instead of storing it, so a task still running
             // when the world changes cannot leave its paper behind for the next world.
             Func<byte[], byte[]> lay = paper =>
             {
-                Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses);
+                Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, trees);
                 return paper;
             };
             // Chained rather than waiting on the parchment: a worker blocked on a task queued
@@ -634,7 +641,7 @@ namespace Atlas
             // glimpse, so they are laid again for the new fog (KeepMips).
             s_glimpseCopy = (byte[])s_glimpsePixels.Clone();
             s_glimpseSerial++;
-            s_tiles.SetGlimpse(s_glimpseCopy);
+            s_tiles.SetGlimpse(s_glimpseCopy, (byte[])s_fogPixels.Clone());
             if (s_view.IsOpen) s_view.Refresh(s_fog, s_snapshot);
         }
 
@@ -678,6 +685,7 @@ namespace Atlas
             s_mipsDensity = null;
             s_decodeFailed = false;
             s_templeFound = false;
+            AtlasView.s_temple = null;
             s_worldStart = Time.realtimeSinceStartup;
             s_tiles.Clear();
             s_sparkles.Clear();
@@ -701,6 +709,7 @@ namespace Atlas
             s_glimpses = new Vector2[0];
             s_sheet = null;
             s_sheetMarks = null;
+            s_trees = null;
             s_sheetDensity = null;
             s_rawKey = 0L;
             s_inkSheet = null;

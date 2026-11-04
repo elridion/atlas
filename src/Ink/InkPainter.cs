@@ -963,6 +963,9 @@ namespace Atlas
                 if (!tree) m_canvas.BeginGroup(Order(glyph));
                 DrawGlyph(glyph);
                 if (!tree) m_canvas.EndGroup();
+                // The fog hides a tree its torn edge would cut (Paper.Fog), so it needs every
+                // tree's footprint.
+                else m_record?.m_trees.Add(GlyphBox(glyph));
             }
             DrawGrassOverMarks();
             MarkWideLakes();

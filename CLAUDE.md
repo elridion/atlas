@@ -372,8 +372,15 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   pass over a glyph shows half a monster). The fog's edge is torn paper, not a fade (the user's
   design): the explored cover is blurred over `RipBlur` passes and fBm and fine noise move its
   middle within that band (ragged bays and tongues with fibres), crisp over half a fog pixel,
-  with a paler rim just inside (the paper's torn core) and a faint ink-coloured shadow a fog
-  pixel to the south-east, the light coming from the north-west as on the map's own shading.
+  with a paler rim just inside (the paper's torn core), the parchment's own hue brightened, never
+  white, and no shadow (the user's call: white and an ink-brown shadow read as chalk and pencil).
+  A tree the tear would cut is hidden whole (the user's design): the sheet keeps every tree's
+  footprint (InkRecord.m_trees, also in the disk cache) and Paper.HideCutTrees lays the fog's
+  parchment over each one beyond the explored land that the tear covers in part (CutByFog),
+  judged against the tear alone (judged against the patches too, each patch cut its neighbours
+  and the glimpse's woods were eaten from the tear inwards). Over the glimpse's same parchment it
+  reads as never drawn; about 40 ms for the sheet's 25,000 trees. Close-ups leave such trees of
+  their own out (RunTile, given the fog by DetailTiles.SetGlimpse).
   The fog is 2048² (10.5 m a pixel), so close in the tear softens; a finer fog would cost a
   four times bigger upload per recording. Since the box lies far out in open water, only water
   is shown or hidden; a pass along its edge shows as a rounded bulge or bite in the explored
@@ -731,16 +738,16 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   edge, and three round crowns on a stick read as lollipops.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
-- Zoomed in past 1.5 screen pixels per sheet pixel, close-ups come from fixed 256² tiles
+- Zoomed in past 1.25 screen pixels per sheet pixel, close-ups come from fixed 256² tiles
   (`DetailTiles`) at one level only, at every zoom: the finest the view reaches (4x, 8x above
   1080p or with a UI scale over 1), mipmapped on the worker and faded in over 0.2 s, laid over
   the sheet (opaque, under the fog). Do not pick the level by zoom: each level draws at its own
   level of detail, so trees and marks change as the zoom crosses levels. Do not show coarser
   levels while fine ones load either: levels replacing each other look scratchy. Close-ups
-  start at `DetailFrom` or once the view takes at most `MaxVisible` 400 tiles, whichever is
+  start at `DetailFrom` 1.25 or once the view takes at most `MaxVisible` 520 tiles, whichever is
   later (from the viewport's screen size, so panning never toggles them): above 1080p the 8x
   level has four times the tiles of 1080p's 4x over the same view, thousands at `DetailFrom`,
-  so there they start at about 2.25 of the zoom. Tiles are drawn ahead of need, one per worker (half the cores, at most 4): the view
+  so there they start at about 2.6 screen pixels a sheet pixel at 1440p, 4 at 4K (lowered from 1.5 and 400 when the user asked for close-ups a little earlier). Tiles are drawn ahead of need, one per worker (half the cores, at most 4): the view
   from the pointer outward and a ring of one tile round it; zoomed out, up to 48 tiles round the
   pointer, where a zoom lands. At most 3 textures are uploaded a frame and 320 kept (about
   110 MB with mips), or the tiles wanted plus 160 when that is more. Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs

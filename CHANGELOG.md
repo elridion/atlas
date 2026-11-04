@@ -6,7 +6,8 @@
   and the map key unrolls it: a hand-inked map in the style of a classic fantasy novel, with
   unexplored lands left as blank parchment, torn away with a ragged edge a little beyond where
   you have explored: in that band the map shows on bare, untinted parchment in a paler, greyer
-  ink, with no colour in its woods and peaks, a glimpse past what you know. The game's own marks out in unexplored land, such as a boss a Vegvisir showed
+  ink, with no colour in its woods and peaks, a glimpse past what you know. A tree the torn
+  edge would cut in two is left out whole. The game's own marks out in unexplored land, such as a boss a Vegvisir showed
   you, are drawn into the map with such a glimpse round them. Golden sparkles rise from the table while the atlas
   is being updated and burst once it is done.
 - Every biome has a faint colour wash of its own under the ink, so biomes read apart at any zoom,
@@ -75,5 +76,6 @@
   default; your own pins always show.
 - The atlas is drawn once per world in the background and kept, so opening it never stalls the game.
 - Zooming in redraws the part in view at that zoom from the world itself: coasts and wood edges
-  follow the land to within a few metres, and woods fill with more, finer trees. Close-ups are drawn
+  follow the land to within a few metres, and woods fill with more, finer trees. Close-ups take
+  over a little sooner as you zoom in. Close-ups are drawn
   ahead of time in small tiles around the pointer, so zooming in rarely waits.

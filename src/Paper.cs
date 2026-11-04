@@ -54,10 +54,8 @@ namespace Atlas
         // middle within that band: RipTear by a slow fBm every RipGrain pixels for bays and
         // tongues, RipFibres by fine noise every RipFibre pixels for the fibres. The edge is
         // crisp over RipEdge of the cover (about half a pixel), with a paler rim RipRim deep
-        // (the torn paper's core) and a shadow RipShadow pixels to the south-east on the map. Both
-        // keep the parchment's own hue: the rim brightens it by RipRimLight and the shadow is the
-        // parchment darkened to RipShadowTone, since white and the ink's brown read as a chalk
-        // line and a pencil stroke along the tear.
+        // (the torn paper's core), brightening the parchment's own hue by RipRimLight: white read as
+        // a chalk line along the tear. No shadow: it read as a pencil stroke (the user's call).
         private const int RipBlur = 5;
         private const float RipGrain = 9f;
         private const float RipTear = 0.85f;
@@ -66,9 +64,6 @@ namespace Atlas
         private const float RipEdge = 0.04f;
         private const float RipRim = 0.12f;
         private const float RipRimLight = 0.08f;
-        private const int RipShadow = 1;
-        private const float RipShadowStrength = 0.3f;
-        private const float RipShadowTone = 0.55f;
         private const int RipSeed = 4127;
         // The glimpse past the explored land, in metres, and the distance field's steps a pixel
         // (its bytes reach 255 / GlimpseSteps pixels, past the band and the tear).
@@ -892,8 +887,10 @@ namespace Atlas
         // parchment's colours) gets that band, explored land excepted, as opacity: laid over the
         // paper's wash and under the ink, it shows the map there on bare, untinted parchment, a
         // glimpse past what was explored. marks are the sheet's sea illustrations, each shown or
-        // hidden whole (null when not known).
-        public static void Fog(byte[] rgba, byte[] glimpse, byte[] parchment, Snapshot snapshot, IList<SeaMark> marks, IList<Vector2> glimpses)
+        // hidden whole (null when not known); trees are the sheet's trees' footprints, and those
+        // the torn edge would cut are hidden (HideCutTrees; null for none).
+        public static void Fog(byte[] rgba, byte[] glimpse, byte[] parchment, Snapshot snapshot, IList<SeaMark> marks, IList<Vector2> glimpses,
+            IList<Vector4> trees = null)
         {
             int n = FogSize;
             float metres = 2f * InkPainter.HalfExtent / n;
@@ -969,49 +966,97 @@ namespace Atlas
                     rgba[o + 1] = ToByte(parchment[p + 1] * (1f + rim));
                     rgba[o + 2] = ToByte(parchment[p + 2] * (1f + rim));
                     rgba[o + 3] = ToByte(a * 255f);
-                    if (a >= 1f) continue;
-                }
-                // The torn sheet lies on the map and casts a faint shadow away from the light in
-                // the north-west, as the map's own shading has it: rows run north, so the sheet
-                // throwing it lies up and to the left.
-                int sx = Math.Max(0, x - RipShadow), sy = Math.Min(n - 1, y + RipShadow);
-                float shadow = Smooth(0.5f - RipEdge, 0.5f + RipEdge, cover[sy * n + sx]) * (1f - a) * RipShadowStrength;
-                if (shadow <= 0f)
-                {
-                    if (a > 0f) continue;
-                    // Clear, but still paper-coloured: filtering blends a clear pixel's colour
-                    // into the edge beside it.
-                    rgba[o] = parchment[p];
-                    rgba[o + 1] = parchment[p + 1];
-                    rgba[o + 2] = parchment[p + 2];
-                    rgba[o + 3] = 0;
                     continue;
                 }
-                // Paper over shadow, by their coverage, as one colour and opacity.
-                float total = a + shadow;
-                float share = a / total;
-                float sr = parchment[p] * RipShadowTone, sg = parchment[p + 1] * RipShadowTone, sb = parchment[p + 2] * RipShadowTone;
-                rgba[o] = ToByte(rgba[o] * share + sr * (1f - share));
-                rgba[o + 1] = ToByte(rgba[o + 1] * share + sg * (1f - share));
-                rgba[o + 2] = ToByte(rgba[o + 2] * share + sb * (1f - share));
-                if (a <= 0f)
-                {
-                    rgba[o] = ToByte(sr);
-                    rgba[o + 1] = ToByte(sg);
-                    rgba[o + 2] = ToByte(sb);
-                }
-                rgba[o + 3] = ToByte(Mathf.Min(1f, total) * 255f);
+                // Clear, but still paper-coloured: filtering blends a clear pixel's colour into
+                // the edge beside it.
+                rgba[o] = parchment[p];
+                rgba[o + 1] = parchment[p + 1];
+                rgba[o + 2] = parchment[p + 2];
+                rgba[o + 3] = 0;
             }
             // The glimpse's bare parchment: wherever the land is not explored (softened at the
-            // explored edge); the fog lies over all of it but the band.
-            if (glimpse == null) return;
+            // explored edge); the fog lies over all of it but the band. The trees need it too.
+            byte[] beyond = glimpse ?? new byte[n * n * 4];
             for (int i = 0; i < n * n; i++)
             {
                 int o = i * 4, p = i * 3;
-                glimpse[o] = parchment[p];
-                glimpse[o + 1] = parchment[p + 1];
-                glimpse[o + 2] = parchment[p + 2];
-                glimpse[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
+                beyond[o] = parchment[p];
+                beyond[o + 1] = parchment[p + 1];
+                beyond[o + 2] = parchment[p + 2];
+                beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
+            }
+            if (trees != null) HideCutTrees(rgba, beyond, parchment, trees);
+        }
+
+        // A tree the fog's torn edge would cut is hidden whole, as a sea illustration is: the fog's
+        // parchment is laid over its footprint, over the glimpse's same bare parchment, so it reads
+        // as never drawn. Only trees standing beyond the explored land are hidden.
+        // A tree is cut where the fog's opacity over its footprint spans these.
+        private const float TreeCutLeast = 0.1f;
+        private const float TreeCutMost = 0.9f;
+        // The patch laid over a hidden tree, as a share of the ellipse in its footprint.
+        private const float TreeCutGrow = 0.9f;
+
+        private static void HideCutTrees(byte[] fog, byte[] glimpse, byte[] parchment, IList<Vector4> trees)
+        {
+            // Every tree is judged against the torn edge alone, then the cut ones are covered:
+            // judged against the patches too, each patch cut the trees round it in turn and a wood
+            // in the glimpse was eaten away from the tear inwards.
+            var cut = new List<Vector4>();
+            foreach (Vector4 tree in trees)
+                if (CutByFog(fog, glimpse, tree)) cut.Add(tree);
+            foreach (Vector4 tree in cut) CoverTree(fog, parchment, tree);
+        }
+
+        // Whether the fog (Fog's RGBA) would cut a tree's footprint (left, top, right, bottom in
+        // sheet pixels) standing beyond the explored land (glimpse, Fog's): it covers part of it
+        // but not all. Close-ups leave such trees out (InkPainter.RunTile).
+        public static bool CutByFog(byte[] fog, byte[] glimpse, Vector4 box)
+        {
+            float canvas = InkPainter.CanvasSize;
+            float footX = (box.x + box.z) * 0.5f;
+            if (GlimpseAt(glimpse, footX, canvas - box.w) < 0.5f) return false;
+            float least = 1f, most = 0f;
+            const int Samples = 4;
+            for (int sy = 0; sy < Samples; sy++)
+            {
+                float y = box.y + (box.w - box.y) * (sy + 0.5f) / Samples;
+                for (int sx = 0; sx < Samples; sx++)
+                {
+                    float x = box.x + (box.z - box.x) * (sx + 0.5f) / Samples;
+                    float a = GlimpseAt(fog, x, canvas - y);
+                    least = Math.Min(least, a);
+                    most = Math.Max(most, a);
+                }
+            }
+            return most > TreeCutLeast && least < TreeCutMost;
+        }
+
+        // Lays the fog's parchment, opaque, over the ellipse in a tree's footprint.
+        private static void CoverTree(byte[] fog, byte[] parchment, Vector4 box)
+        {
+            int n = FogSize;
+            float scale = n / (float)InkPainter.CanvasSize;
+            float cx = (box.x + box.z) * 0.5f * scale, cy = (InkPainter.CanvasSize - (box.y + box.w) * 0.5f) * scale;
+            float rx = (box.z - box.x) * 0.5f * scale * TreeCutGrow, ry = (box.w - box.y) * 0.5f * scale * TreeCutGrow;
+            float soft = Math.Max(1f, Math.Min(rx, ry));
+            int x0 = Math.Max(0, (int)(cx - rx - 1f)), x1 = Math.Min(n - 1, (int)(cx + rx + 1f));
+            int y0 = Math.Max(0, (int)(cy - ry - 1f)), y1 = Math.Min(n - 1, (int)(cy + ry + 1f));
+            for (int y = y0; y <= y1; y++)
+            {
+                for (int x = x0; x <= x1; x++)
+                {
+                    float dx = (x + 0.5f - cx) / rx, dy = (y + 0.5f - cy) / ry;
+                    float cover = Mathf.Clamp01((1f - Mathf.Sqrt(dx * dx + dy * dy)) * soft + 0.5f);
+                    if (cover <= 0f) continue;
+                    int o = (y * n + x) * 4, p = (y * n + x) * 3;
+                    float a = fog[o + 3] / 255f;
+                    float total = a + cover * (1f - a);
+                    for (int c = 0; c < 3; c++)
+                        fog[o + c] = ToByte((fog[o + c] * a + parchment[p + c] * cover * (1f - a)) / total);
+                    fog[o + 3] = ToByte(total * 255f);
+                }
             }
         }
 

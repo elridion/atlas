@@ -321,7 +321,17 @@ internal static class Program
                 var glimpseRgba = new byte[fog * fog * 4];
                 // :gx:gz opens a glimpse round a game mark there, out in the unexplored.
                 Vector2[] glimpses = p.Length >= 9 ? new[] { new Vector2(float.Parse(p[7]), float.Parse(p[8])) } : new Vector2[0];
-                paper.GetMethod("Fog", All).Invoke(null, new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses });
+                MethodInfo fogOf = paper.GetMethod("Fog", All);
+                var fogTime = System.Diagnostics.Stopwatch.StartNew();
+                if (fogOf.GetParameters().Length >= 7)
+                {
+                    // The sheet's trees, so those the torn edge would cut are hidden as in game;
+                    // fogNAMEnotrees leaves them, for timing the difference.
+                    object trees = p[0].EndsWith("notrees") ? null : Get(record, "m_trees");
+                    fogOf.Invoke(null, new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses, trees });
+                    System.Console.WriteLine($"fog laid in {fogTime.ElapsedMilliseconds} ms over {((System.Collections.ICollection)Get(record, "m_trees")).Count} trees");
+                }
+                else fogOf.Invoke(null, new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses });
                 // The glimpse's bare parchment over the wash, under the ink, as the game lays it.
                 var glimpsed = (byte[])washed.Clone();
                 for (int i = 0; i < fog * fog; i++)

@@ -25,9 +25,9 @@ namespace Atlas
 
         // Worker thread. Draws into canvas, which shows region (sheet pixels) at its magnification.
         public static void PaintTile(WorldSource world, InkRecord record, TileGrid grid, InkCanvas canvas, RectInt region, Rect scatter,
-            float lod, int scale, CancellationToken cancel)
+            float lod, int scale, CancellationToken cancel, byte[] glimpse = null, byte[] fog = null)
         {
-            var painter = new InkPainter(world, canvas, grid, lod, region, cancel) { m_scatter = scatter };
+            var painter = new InkPainter(world, canvas, grid, lod, region, cancel) { m_scatter = scatter, m_glimpse = glimpse, m_fog = fog };
             // The sheet's pins, so the tile's trees and ground marks keep the same clearings.
             painter.FindMarks(record.m_pins);
             painter.TakeMarkOrders(record);
@@ -62,6 +62,9 @@ namespace Atlas
             record.Peaks(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, peaks);
             foreach (Vector3 peak in peaks) AddPeakBase(peak);
             PlaceTrees();
+            // Trees the fog's torn edge would cut are left out, as the sheet's are hidden whole.
+            if (m_fog != null && m_glimpse != null)
+                m_glyphs.RemoveAll(g => IsTree(g.m_kind) && Paper.CutByFog(m_fog, m_glimpse, GlyphBox(g)));
             // The scarps keep off the tile's own trees and the sheet's other glyphs, as on the
             // sheet, on the background under every glyph.
             foreach (Glyph glyph in m_glyphs) AddFootprint(glyph);
@@ -96,6 +99,9 @@ namespace Atlas
                 record.Replay(m_canvas, group);
             record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Frame), null);
         }
+
+        // The glimpse and fog a tile is drawn under (Paper.Fog), or null.
+        private byte[] m_glimpse, m_fog;
 
         private static int Layers(params InkLayer[] layers)
         {

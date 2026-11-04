@@ -140,6 +140,10 @@ namespace Atlas
         public void Pin(InkLayer layer, PinGlyph glyph, float left, float top, float size, bool struck) =>
             m_calls.Add(new Call { m_op = Op.Pin, m_layer = layer, m_group = m_group, m_a = left, m_b = top, m_c = size, m_d = (int)glyph, m_e = struck ? 1f : 0f });
 
+        // Every tree on the sheet as its footprint (left, top, right, bottom, sheet pixels), for
+        // the fog to hide those its torn edge would cut (Paper.Fog); kept in the disk cache.
+        public List<Vector4> m_trees = new List<Vector4>(1 << 16);
+
         // The pins the sheet was drawn with, so close-ups keep the same clearings round them.
         public SheetPin[] m_pins = new SheetPin[0];
         // Per pin, in the same order: where it stands in the drawing order and how much of its

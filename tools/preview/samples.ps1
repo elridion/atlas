@@ -5,7 +5,7 @@ $shots = (Resolve-Path "$s\..\..").Path + "\screenshots"
 Remove-Item "$s\img\*.png" -Force -ErrorAction SilentlyContinue
 # Velen's start island with the Sacrificial Stones and a set of pins drawn into the sheet, one in
 # the mountains to its south (the preview has no location icons or snapshot of its own).
-$pins = 'House:205:-119','Fire:158:-158','Bed:-210:0','Portal:-527:316','Hammer:738:-527','Point:-1265:422:x','Death:0:-1001','Boss:120:-1180','Tower:250:150','Trader:-60:-120'
+$pins = 'House:205:-119','Fire:158:-158','Bed:-210:0','Portal:-527:316','Hammer:738:-527','Point:-1265:422:x','Death:0:-1001','Boss:120:-1180','Tower:-240:359','Trader:-60:-120'
 & "$s\run.ps1" -Temple '-111:263' -Pin $pins -Views overview,wide:0:0:1000:1,start:0:0:600:1,tilesbMeadows4:-48:192:4,tilesbMeadows2:-48:192:2,tilesbBlackForest4:1872:4992:4,tilesbBlackForest2:1872:4992:2,tilesbSwamp4:-4128:3552:4,tilesbSwamp2:-4128:3552:2,tilesbMountain4:-3408:-1008:4,tilesbMountain2:-3408:-1008:2,tilesbPlains4:-2688:2112:4,tilesbPlains2:-2688:2112:2,tilesbMistlands4:5712:-5088:4,tilesbMistlands2:5712:-5088:2,tilesbAshlands4:672:-8928:4,tilesbAshlands2:672:-8928:2,tilesbDeepNorth4:5952:7152:4,tilesbDeepNorth2:5952:7152:2,tilesbOcean4:-1250:-350:4,tilesbOcean2:-1250:-350:2,tilesPinsStart4:0:60:4,tilesPinsMountain2:60:-1090:2 2>&1 | Select-Object -Last 2
 & "$s\run.ps1" -Views tilesClearcut2:1872:4992:2,tilesClearcut4:1872:4992:4 -Alt 'Kalhygge Black Forest:1872:4992:900' 2>&1 | Select-Object -Last 2
 # The other variants that change woods, each forced over its own biome's view in one run (an

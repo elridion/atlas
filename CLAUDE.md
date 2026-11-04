@@ -45,14 +45,18 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   server). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, part of the map
   (the user's design): sized for what it stands for against a tree of about 13 sheet pixels
   (`PinSheetSize`: campfire, bed and circle 10, a longhouse or tent about a tree at 16, a boss
-  altar 18, a barrow 20, a cave or tower 22), standing on its place by `PinGlyphs.Lift`, inked
+  altar 18, a barrow 20, a cave or tower 22, the Sacrificial Stones 26), standing on its place by `PinGlyphs.Lift`, inked
   by `InkCanvas.Pin` with the map's own pen (every line `Pen` thinned as the canvas thins it,
   passed to `PinGlyphs.Draw` in pin units) and a hand-drawn waver (`PinGlyphs.Waver`: every
   point moved by a smooth noise seeded by the pin's place, straight lines and outlines cut
   into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
   so the ground's own wash fills it; checked pins are struck through. Recorded as `Op.Pin`, so
-  close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so a
-  tree in front may cover part of one: only a glyph drawn after it whose footprint reaches its
+  close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so
+  trees in front may cover part of one, up to `MarkCover` 45% of its box (the user's rule;
+  `LimitMarkCover`: the trees drawn after a pin that overlap its box, taken north first, each
+  adding its box overlap, the rest left out). A close-up decides alike because it scatters
+  every tree that can reach a pin near it (`ScatterArea`, `PinInfluence` round each pin, the
+  ground sampled that far too). Any other glyph drawn after a pin whose footprint reaches its
   core (`MarkCore` 0.3 of its box in from each side) is left out (`ClearOfMarks` in `Add`, the
   rest removed after placement; cores filed in `PeakCell` squares). A broad clearing round
   every pin was too aggressive. Relief (peaks, hills, crags, volcanoes, `IsRelief`) is never
@@ -66,10 +70,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   traced icons (other mods') stay markers over the fog in `AtlasView`. Names are left off for
   now (`s_showNames`), to be given another pass. The preview takes `-Temple wx:wz` and
   `-Pin GLYPH:wx:wz[:checked]`.
-  The Sacrificial Stones are a glyph of their own rather than their pin: `Glyphs.Stones`,
-  a ring of standing stones round a low altar in the map's oblique view, each a block with a lit
-  front, a solid east face and a thin top, drawn back to front, `TempleRadius` 9 G either side
-  (the size of a large peak; the real ring would be under 7 sheet pixels).
+  The Sacrificial Stones are a pin like the others (the user's call), `PinGlyphs.StoneCircle`
+  in a 26 px box: a ring of standing stones round a low altar in the map's oblique view, each a
+  block with a lit front, a solid east face and a thin top, drawn back to front, the ring's
+  middle on the place.
   Anything else is traced from its sprite (other locations such as the Forge of Potential, other
   mods' pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
   parts inked); every body reaches `Gap` past the lines, the engraver's break that keeps trees

@@ -378,6 +378,8 @@ namespace Atlas
         // A detail tile's ground and the sheet rectangle it covers; null on the sheet.
         private readonly TileGrid m_grid;
         private readonly float m_left, m_top, m_right, m_bottom;
+        // A close-up's scatter beyond its own rectangle (ScatterArea); empty on the sheet.
+        private Rect m_scatter;
         private readonly List<Vector2> m_points = new List<Vector2>(16);
         private readonly List<bool> m_pathInside = new List<bool>(32);
         // Canvas pixels covered by peaks and spires, which the mist banks drawn later must not cut.
@@ -432,21 +434,19 @@ namespace Atlas
             Crag,
             Mist,
             IceFloe,
-            Stones,
             // A pin (PinGlyphs), its glyph in the seed's low byte and PinStruck set when checked.
             Pin,
         }
 
-        // Pins and the Sacrificial Stones are drawn into the sheet as glyphs of their own, part of
-        // the map: the Stones (Glyphs.Stones) a ring of standing stones TempleRadius wide either
-        // side of its centre (the real ring is about 35 m, under 7 sheet pixels), a pin a box
-        // sized for what it stands for (PinSheetSize), against a tree of about 13 pixels: a
-        // campfire or a bed smaller, a longhouse about a tree, a tower or a cave larger. They are sorted in with the trees and other
-        // glyphs by their feet, so a tree in front may cover part of one; only a glyph in front
-        // whose footprint reaches its core (the middle, MarkCore of its box in from each side) is
-        // left out, so none is ever hidden. Ground marks under one are scraped by its body.
-        private const float TempleRadius = 9f * G;
+        // Pins (the Sacrificial Stones among them) are drawn into the sheet as glyphs of their own,
+        // part of the map: a box sized for what each stands for (PinSheetSize), against a tree of
+        // about 13 pixels: a campfire or a bed smaller, a longhouse about a tree, a tower, a cave
+        // or the Stones larger. They are sorted in with the trees and other glyphs by their feet,
+        // so trees in front may cover part of one, up to MarkCover of its box (LimitMarkCover);
+        // any other glyph in front whose footprint reaches its core (the middle, MarkCore of its
+        // box in from each side) is left out. Ground marks under one are scraped by its body.
         private const float MarkCore = 0.3f;
+        private const float MarkCover = 0.45f;
 
         // A pin's box on the sheet, in sheet pixels; the glyph fills about 0.8 of it.
         private static float PinSheetSize(PinGlyph glyph)
@@ -467,6 +467,7 @@ namespace Atlas
                 case PinGlyph.Tomb: return 20f;
                 case PinGlyph.Cavern:
                 case PinGlyph.Tower: return 22f;
+                case PinGlyph.StoneCircle: return 26f;
                 default: return 13f;
             }
         }
@@ -489,9 +490,7 @@ namespace Atlas
             foreach (SheetPin pin in pins)
             {
                 float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
-                Glyph g = pin.m_glyph == PinGlyph.StoneCircle
-                    ? new Glyph { m_x = x, m_y = y + TempleRadius * StonesTilt, m_size = TempleRadius, m_kind = Kind.Stones, m_seed = m_world.m_seed }
-                    : new Glyph { m_x = x, m_y = y, m_size = PinSheetSize(pin.m_glyph), m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
+                var g = new Glyph { m_x = x, m_y = y, m_size = PinSheetSize(pin.m_glyph), m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
                 g.m_order = g.m_y;
                 m_marks.Add(g);
                 Vector4 box = GlyphBox(g);
@@ -509,7 +508,71 @@ namespace Atlas
             }
         }
 
-        private static bool IsMark(Kind kind) => kind == Kind.Stones || kind == Kind.Pin;
+        private static bool IsMark(Kind kind) => kind == Kind.Pin;
+
+        // Leaves out the trees in front of each pin beyond MarkCover of its box: those drawn after
+        // it (feet further south) whose footprints overlap it are taken in order of their feet,
+        // north first, each adding its overlap, and the rest are left out. Overlaps are added up,
+        // so crowns covering each other count twice and the pin shows a little more. A close-up
+        // decides alike, as it scatters every tree that can reach a pin it draws (m_markReach).
+        private void LimitMarkCover(int first)
+        {
+            if (m_marks.Count == 0) return;
+            var dropped = new HashSet<int>();
+            var candidates = new List<int>();
+            foreach (Glyph mark in m_marks)
+            {
+                Vector4 pin = GlyphBox(mark);
+                float area = (pin.z - pin.x) * (pin.w - pin.y);
+                candidates.Clear();
+                for (int i = first; i < m_glyphs.Count; i++)
+                {
+                    Glyph g = m_glyphs[i];
+                    if (g.m_y <= mark.m_y || dropped.Contains(i)) continue;
+                    if (Overlap(GlyphBox(g), pin) > 0f) candidates.Add(i);
+                }
+                candidates.Sort((a, b) =>
+                {
+                    int byFoot = m_glyphs[a].m_y.CompareTo(m_glyphs[b].m_y);
+                    return byFoot != 0 ? byFoot : m_glyphs[a].m_x.CompareTo(m_glyphs[b].m_x);
+                });
+                float covered = 0f;
+                foreach (int i in candidates)
+                {
+                    float overlap = Overlap(GlyphBox(m_glyphs[i]), pin);
+                    if (covered + overlap <= MarkCover * area) covered += overlap;
+                    else dropped.Add(i);
+                }
+            }
+            if (dropped.Count == 0) return;
+            int write = first;
+            for (int i = first; i < m_glyphs.Count; i++)
+                if (!dropped.Contains(i)) m_glyphs[write++] = m_glyphs[i];
+            m_glyphs.RemoveRange(write, m_glyphs.Count - write);
+        }
+
+        // How far round a pin's place a close-up scatters trees, in sheet pixels: the largest pin's
+        // box (PinSheetSize, lifted) and the tallest tree that can stand in front of it.
+        public const float PinInfluence = 44f;
+
+        // The part of the sheet a close-up of region scatters its glyphs over beyond its own
+        // reach: every pin near it, with PinInfluence round it, so the trees in front of a pin are
+        // the same whichever tile draws it (LimitMarkCover).
+        public static Rect ScatterArea(InkRecord record, RectInt region, float reach)
+        {
+            var area = new Rect(region.x, region.y, region.width, region.height);
+            foreach (SheetPin pin in record.m_pins)
+            {
+                float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
+                var near = new Rect(x - PinInfluence, y - PinInfluence, 2f * PinInfluence, 2f * PinInfluence);
+                if (near.xMax < region.xMin - reach || near.xMin > region.xMax + reach || near.yMax < region.yMin - reach || near.yMin > region.yMax + reach) continue;
+                area = Rect.MinMaxRect(Math.Min(area.xMin, near.xMin), Math.Min(area.yMin, near.yMin), Math.Max(area.xMax, near.xMax), Math.Max(area.yMax, near.yMax));
+            }
+            return area;
+        }
+
+        private static float Overlap(Vector4 a, Vector4 b) =>
+            Math.Max(0f, Math.Min(a.z, b.z) - Math.Max(a.x, b.x)) * Math.Max(0f, Math.Min(a.w, b.w) - Math.Max(a.y, b.y));
 
         // The land's own shape: peaks, hills, crags and volcanoes are never left out for a pin, as
         // a range must still read as one; a pin among them is drawn in front instead (OrderMarks).
@@ -541,10 +604,11 @@ namespace Atlas
         }
 
         // Whether a glyph may stand where it is: one drawn after a mark (its foot further south)
-        // must not reach the mark's core. Relief always may (OrderMarks).
+        // must not reach the mark's core. Relief always may (OrderMarks); trees are limited by
+        // how much of the pin they cover together instead (LimitMarkCover).
         private bool ClearOfMarks(Glyph g)
         {
-            if (m_markCells.Count == 0 || IsMark(g.m_kind) || IsRelief(g.m_kind)) return true;
+            if (m_markCells.Count == 0 || IsMark(g.m_kind) || IsRelief(g.m_kind) || IsTree(g.m_kind)) return true;
             Vector4 box = GlyphBox(g);
             int x0 = (int)Math.Floor(box.x / PeakCell), x1 = (int)Math.Floor(box.z / PeakCell);
             int y0 = (int)Math.Floor(box.y / PeakCell), y1 = (int)Math.Floor(box.w / PeakCell);
@@ -990,8 +1054,10 @@ namespace Atlas
             // A tile also visits cells around it, far enough for any glyph standing outside it to
             // reach in, so glyphs carry on unbroken across tile edges.
             float reach = m_grid != null ? GlyphReach / m_lod : 0f;
-            int gx0 = Math.Max(0, (int)((m_left - reach) / spacingX) - 1), gx1 = Math.Min(columns, (int)((m_right + reach) / spacingX) + 2);
-            int gy0 = Math.Max(0, (int)((m_top - reach) / spacingY) - 1), gy1 = Math.Min(rows, (int)((m_bottom + reach) / spacingY) + 2);
+            float left = Math.Min(m_left, m_scatter.xMin), right = Math.Max(m_right, m_scatter.xMax);
+            float top = Math.Min(m_top, m_scatter.yMin), bottom = Math.Max(m_bottom, m_scatter.yMax);
+            int gx0 = Math.Max(0, (int)((left - reach) / spacingX) - 1), gx1 = Math.Min(columns, (int)((right + reach) / spacingX) + 2);
+            int gy0 = Math.Max(0, (int)((top - reach) / spacingY) - 1), gy1 = Math.Min(rows, (int)((bottom + reach) / spacingY) + 2);
             float edge = EdgeRadius / MetresPerPixel;
             float centre = CanvasSize * 0.5f;
             // Level 1 hashes as the sheet does, so a tile at that level places the sheet's glyphs.
@@ -1457,12 +1523,6 @@ namespace Atlas
                     Vector3 pin = PinBox(g);
                     return new Vector4(pin.x, pin.y, pin.x + pin.z, pin.y + pin.z);
                 }
-                case Kind.Stones:
-                    // The ring and its stones' east faces; from the foot (the ring's near edge)
-                    // up over its far edge and the stones standing there.
-                    half = s * (1f + StonesWidth * (1f + StonesSide));
-                    height = s * (2f * StonesTilt + StonesHeight + StonesSide * StonesWidth);
-                    break;
                 default:
                     // Broadleaf and plains trees.
                     half = 3.6f * s;
@@ -2057,6 +2117,7 @@ namespace Atlas
             // wood, as the Black Forest's pines do, off the steep ground where the spires stand.
             ScatterTrees(7f * m_t, 29, 0.9f, Kind.GiantTree, s => s.m_slope < SpireSlope && InWood(s, Land.Mistlands, 13f * m_t));
             HideCoveredCrowns(first);
+            LimitMarkCover(first);
         }
 
         // One biome's trees: a candidate on each cell of a spacing grid, kept with odds, where

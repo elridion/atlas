@@ -24,10 +24,10 @@ namespace Atlas
         public static float TileMargin(float lod) => (GlyphReach + 8f) / lod;
 
         // Worker thread. Draws into canvas, which shows region (sheet pixels) at its magnification.
-        public static void PaintTile(WorldSource world, InkRecord record, TileGrid grid, InkCanvas canvas, RectInt region,
+        public static void PaintTile(WorldSource world, InkRecord record, TileGrid grid, InkCanvas canvas, RectInt region, Rect scatter,
             float lod, int scale, CancellationToken cancel)
         {
-            var painter = new InkPainter(world, canvas, grid, lod, region, cancel);
+            var painter = new InkPainter(world, canvas, grid, lod, region, cancel) { m_scatter = scatter };
             // The sheet's pins, so the tile's trees and ground marks keep the same clearings.
             painter.FindMarks(record.m_pins);
             painter.RunTile(record);

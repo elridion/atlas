@@ -438,7 +438,7 @@ internal static class Program
         MethodInfo draw = T("Atlas.PinGlyphs").GetMethod("Draw", All);
         MethodInfo sheetSize = T("Atlas.InkPainter").GetMethod("PinSheetSize", All);
         MethodInfo bodyColor = T("Atlas.Paper").GetMethod("PinBodyColor", All);
-        int largest = 22, bigCell = largest * bigScale + 16;
+        int largest = 26, bigCell = largest * bigScale + 16;
         var rows = new[]
         {
             new[] { "Fire", "Fire (Icon0)", "campfire" },
@@ -452,6 +452,7 @@ internal static class Program
             new[] { "Tomb", "Hildir 1", "Smouldering Tombs: barrow" },
             new[] { "Cavern", "Hildir 2", "Howling Caverns: cave mouth" },
             new[] { "Tower", "Hildir 3", "Sealed Towers: tower" },
+            new[] { "StoneCircle", "Sacrificial Stones", "location: stone circle" },
             new[] { "Trader", "Haldor", "location: bag" },
             new[] { "Tent", "Hildir's camp", "location: tent" },
             new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
@@ -549,8 +550,8 @@ internal static class Program
                 }
             }
             int foot = header + rowHeight * rows.Length + 10;
-            g.DrawString("The Sacrificial Stones are drawn on the map as a ring of standing stones (see the start island samples).", small, ink, 8, foot);
-            g.DrawString("Other locations the game marks and other mods' pins: traced from their sprites in game, as markers (not shown offline).", small, ink, 8, foot + 18);
+            g.DrawString("Other locations the game marks (the Forge of Potential, new ones) and other mods' pins:", small, ink, 8, foot);
+            g.DrawString("traced from their own sprites in game, as markers over the map (not shown offline).", small, ink, 8, foot + 18);
             bitmap.Save(path, ImageFormat.Png);
         }
         return 0;

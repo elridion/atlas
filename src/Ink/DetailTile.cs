@@ -27,10 +27,13 @@ namespace Atlas
             float metres = gridPixels / scale * InkPainter.MetresPerPixel;
             int level = Mathf.Clamp(Mathf.RoundToInt(Mathf.Log(metres, 2f)), 0, SampleCache.Levels - 1);
             float margin = InkPainter.TileMargin(lod);
-            TileGrid grid = TileGrid.Build(cache, world.m_waterLevel, left - margin, top - margin, left + width + margin, top + height + margin,
+            // Round a pin near the tile, the ground is sampled far enough for every tree that may
+            // stand in front of it, so each tile decides its trees alike.
+            Rect scatter = InkPainter.ScatterArea(record, region, margin);
+            TileGrid grid = TileGrid.Build(cache, world.m_waterLevel, scatter.xMin - margin, scatter.yMin - margin, scatter.xMax + margin, scatter.yMax + margin,
                 level, threads, cancel);
             var canvas = new InkCanvas(w, h, left, top, scale);
-            InkPainter.PaintTile(world, record, grid, canvas, region, lod, scale, cancel);
+            InkPainter.PaintTile(world, record, grid, canvas, region, scatter, lod, scale, cancel);
             cancel.ThrowIfCancellationRequested();
 
             int paper = Paper.FogSize;

@@ -57,13 +57,13 @@
   camp and a cauldron for the Bog Witch; other places the game marks, such as the Forge of
   Potential, are traced in outline. Pins are inked into the map itself in its own wavering pen,
   each as large as what it stands for beside the trees (a campfire smaller than a tree, a
-  longhouse about one, a tower or a cave larger): standing on its place among the trees, which
-  may cover part of it but never all, drawn over the peaks in the mountains, filled in the
+  longhouse about one, a tower, a cave or the Sacrificial Stones larger): standing on its place
+  among the trees, which may cover part of it but never more than about half, drawn over the peaks in the mountains, filled in the
   colour of the ground it stands on, and sharp at every zoom; checked pins are struck through. Pins out in land you have not explored, and other mods' icons, stay
   markers over the parchment. When your pins change, the atlas is drawn again in the
   background. Pin names are left off for now.
-- The Sacrificial Stones are drawn into the map itself, as a ring of standing stones in a
-  clearing among the trees round them, instead of a pin.
+- The Sacrificial Stones are always on the atlas, drawn as a ring of standing stones round a
+  low altar.
 - Settings choose which of the game's own marks the atlas shows: your bed, your last death,
   boss altars, the traders, Hildir's dungeons and other places the game marks. All are on by
   default; your own pins always show.

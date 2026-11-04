@@ -27,8 +27,8 @@ namespace Atlas
         Traced,
     }
 
-    // A pin drawn into the sheet itself (InkPainter), at its place in world metres. StoneCircle
-    // stands for the Sacrificial Stones, drawn as their own glyph (Glyphs.Stones).
+    // A pin drawn into the sheet itself (InkPainter), at its place in world metres. The
+    // Sacrificial Stones are one too (StoneCircle), from the game's location icons.
     internal struct SheetPin
     {
         public float m_x, m_z;
@@ -106,8 +106,8 @@ namespace Atlas
 
         // How far a glyph is lifted off its pin's place, as a share of the pin's size: a pin drawn
         // in elevation stands on its place as a tree or a peak does, its foot (the ground line it
-        // is drawn on, in pin units) on the spot; signs seen from above (the open circle, the
-        // stone circle) and icons traced from sprites stay centred on it.
+        // is drawn on, in pin units) on the spot; the open circle and icons traced from sprites
+        // stay centred on it, and the stone circle has the middle of its ring there.
         public static float Lift(PinGlyph glyph) => (FootOf(glyph) - PinUnits * 0.5f) / PinUnits;
 
         private static float FootOf(PinGlyph glyph)
@@ -127,6 +127,7 @@ namespace Atlas
                 case PinGlyph.Trader: return 22.6f;
                 case PinGlyph.Tent: return 21.6f;
                 case PinGlyph.Cauldron: return 23.4f;
+                case PinGlyph.StoneCircle: return StonesCentreY;
                 default: return PinUnits * 0.5f;
             }
         }
@@ -419,18 +420,54 @@ namespace Atlas
             ink.Stroke(4.4f, 21.8f, 21.6f, 21.8f, Pen);
         }
 
-        // The Sacrificial Stones, where every Viking wakes: a stone circle as survey maps draw one,
-        // a ring of stones seen from above, the large stone at its heart in the middle.
+        // The Sacrificial Stones, where every Viking wakes: a ring of standing stones round a low
+        // altar in the map's oblique view, as its peaks and trees are drawn. Each stone is a block
+        // with a lit front, a solid east face and a thin top, drawn from the back of the ring to
+        // the front, each scraping what lies behind it. Its place is the ring's middle.
+        private const float StonesCentreY = 15f;
+        private const float StonesRadius = 9f;
+        private const float StonesTilt = 0.42f;
+        private const int StonesCount = 7;
+
         private static void StoneCircle(InkCanvas ink, InkCanvas body)
         {
-            const float Centre = 13f, Radius = 8.2f;
-            body.EraseEllipse(Centre, Centre, Radius + 1.7f, Radius + 1.7f);
-            for (int i = 0; i < 8; i++)
+            float ry = StonesRadius * StonesTilt;
+            const float Height = 5.8f, Width = 2.1f;
+            var order = new List<Vector3>(StonesCount + 1);
+            for (int k = 0; k < StonesCount; k++)
             {
-                float a = (i * 45f + 22.5f) * Mathf.Deg2Rad;
-                ink.Dot(Centre + Mathf.Cos(a) * Radius, Centre + Mathf.Sin(a) * Radius, 1.7f);
+                float angle = 0.35f + Mathf.PI * 2f * k / StonesCount;
+                order.Add(new Vector3(13f + Mathf.Cos(angle) * StonesRadius, StonesCentreY + Mathf.Sin(angle) * ry, k));
             }
-            ink.Ring(Centre, Centre, 2.4f, 2.4f, Pen);
+            order.Add(new Vector3(13f, StonesCentreY, -1f));
+            order.Sort((a, b) => a.y.CompareTo(b.y));
+            body.EraseEllipse(13f, StonesCentreY, StonesRadius + Width, ry + Width * 0.8f);
+            ink.Ring(13f, StonesCentreY, StonesRadius, ry, FinePen);
+            foreach (Vector3 stone in order)
+            {
+                int k = (int)stone.z;
+                if (k < 0) StoneBlock(ink, body, stone.x, stone.y, Width * 2.2f, Height * 0.3f, Width, 0f, 0f);
+                else StoneBlock(ink, body, stone.x, stone.y, Width * (0.9f + 0.2f * ((k * 37) % 5) / 4f), Height * (0.85f + 0.3f * ((k * 53) % 7) / 6f), Width,
+                    ((k * 29) % 5 - 2) * 0.12f * Width, 0.12f * Width);
+            }
+        }
+
+        // One stone as a block: its front face from the foot up, its east face drawn back and up
+        // by depth, its top between them, leaning and tapering a little.
+        private static void StoneBlock(InkCanvas ink, InkCanvas body, float x, float y, float width, float height, float depth, float lean, float taper)
+        {
+            var back = new Vector2(depth * 0.5f, -depth * 0.3f);
+            var bottomLeft = new Vector2(x - width * 0.5f, y);
+            var bottomRight = new Vector2(x + width * 0.5f, y);
+            var topLeft = new Vector2(x - width * 0.5f + taper + lean, y - height);
+            var topRight = new Vector2(x + width * 0.5f - taper + lean, y - height);
+            var outline = new List<Vector2> { bottomLeft, bottomRight, bottomRight + back, topRight + back, topLeft + back, topLeft };
+            body.EraseOutline(outline, Pen * 0.5f);
+            ink.EraseOutline(outline, 0f);
+            ink.Fill(new[] { bottomRight, bottomRight + back, topRight + back, topRight });
+            Loop(ink, outline, Pen);
+            ink.Stroke(topLeft.x, topLeft.y, topRight.x, topRight.y, Pen);
+            ink.Stroke(topRight.x, topRight.y, bottomRight.x, bottomRight.y, Pen);
         }
 
         // Haldor the trader: a plain tied bag.

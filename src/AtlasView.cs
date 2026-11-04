@@ -266,6 +266,12 @@ namespace Atlas
         // Where close-up tiles go: over the ink, under the fog. Null before the window is built.
         public RectTransform DetailLayer => m_root ? m_detailLayer : null;
 
+        // The most screen pixels per sheet pixel the view zooms to.
+        public float MaxOnScreen => MaxScale * (m_canvas ? m_canvas.scaleFactor : 1f);
+
+        // The view's size in screen pixels.
+        public Vector2 ViewPixels => m_viewport ? m_viewport.rect.size * (m_canvas ? m_canvas.scaleFactor : 1f) : Vector2.zero;
+
         // The part of the sheet in view (sheet pixels, y running south), the screen pixels per
         // sheet pixel, and the sheet point under the pointer (the view's centre when the pointer
         // is outside it), where a zoom would centre.

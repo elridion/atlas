@@ -46,6 +46,10 @@ namespace Atlas
         private const int RipShadow = 1;
         private const float RipShadowStrength = 0.22f;
         private const int RipSeed = 4127;
+        // The glimpse past the explored land, in metres, and the distance field's steps a pixel
+        // (its bytes reach 255 / GlimpseSteps pixels, past the band and the tear).
+        private const float GlimpseBand = 160f;
+        private const float GlimpseSteps = 4f;
         // A sea illustration is shown or hidden whole (SeaMarkFog): the fog is lifted over its box
         // when at least SeaMarkShown of the box is explored and laid over it when less is, out to
         // SeaMarkMargin metres round it, past the torn edge (which stays within RipBlur pixels,
@@ -845,13 +849,19 @@ namespace Atlas
         }
 
         // Fills the alpha of an RGBA fog buffer whose colours are the parchment: opaque where the
-        // snapshot shows nothing explored, clear where it does, with a soft edge between. marks
-        // are the sheet's sea illustrations, each shown or hidden whole (null when not known).
-        public static void Fog(byte[] rgba, byte[] parchment, Snapshot snapshot, IList<SeaMark> marks)
+        // snapshot shows nothing explored, clear where it does, with a torn edge between. The
+        // edge lies GlimpseBand metres out from the explored land, and round each of glimpses
+        // (world x, z: the game's marks out in the unexplored), and glimpse (RGBA, the
+        // parchment's colours) gets that band, explored land excepted, as opacity: laid over the
+        // paper's wash and under the ink, it shows the map there on bare, untinted parchment, a
+        // glimpse past what was explored. marks are the sheet's sea illustrations, each shown or
+        // hidden whole (null when not known).
+        public static void Fog(byte[] rgba, byte[] glimpse, byte[] parchment, Snapshot snapshot, IList<SeaMark> marks, IList<Vector2> glimpses)
         {
             int n = FogSize;
             float metres = 2f * InkPainter.HalfExtent / n;
             var cover = new float[n * n];
+            var inside = new bool[n * n];
             float edge = InkPainter.EdgeRadius - FrameBand;
             for (int y = 0; y < n; y++)
             {
@@ -860,12 +870,37 @@ namespace Atlas
                     float wx = (x + 0.5f) * metres - InkPainter.HalfExtent;
                     float wz = (y + 0.5f) * metres - InkPainter.HalfExtent;
                     if (wx * wx + wz * wz > edge * edge) continue;
+                    inside[y * n + x] = true;
                     int seen = 0;
                     for (int sy = -1; sy <= 1; sy++)
                         for (int sx = -1; sx <= 1; sx++)
                             if (snapshot != null && snapshot.IsExplored(wx + sx * metres / 3f, wz + sy * metres / 3f)) seen++;
                     cover[y * n + x] = 1f - seen / 9f;
                 }
+            }
+            // The glimpse: the explored land's own edge, softened, is where the bare parchment
+            // starts; the fog's torn edge lies GlimpseBand further out, and round every glimpse.
+            var unexplored = (float[])cover.Clone();
+            Blur(unexplored, n);
+            Blur(unexplored, n);
+            var seeds = new bool[n * n];
+            for (int i = 0; i < n * n; i++) seeds[i] = inside[i] && cover[i] < 0.5f;
+            if (glimpses != null)
+            {
+                foreach (Vector2 at in glimpses)
+                {
+                    int gx = Mathf.Clamp((int)((at.x + InkPainter.HalfExtent) / metres), 0, n - 1);
+                    int gy = Mathf.Clamp((int)((at.y + InkPainter.HalfExtent) / metres), 0, n - 1);
+                    seeds[gy * n + gx] = true;
+                }
+            }
+            var distance = new byte[n * n];
+            new DistanceField(n).Compute(i => seeds[i], distance, GlimpseSteps);
+            float band = GlimpseBand / metres;
+            for (int i = 0; i < n * n; i++)
+            {
+                if (!inside[i]) continue;
+                cover[i] = Mathf.Clamp01(distance[i] / GlimpseSteps - band + 0.5f);
             }
             if (snapshot != null && marks != null)
                 foreach (SeaMark mark in marks) SeaMarkFog(cover, n, metres, snapshot, mark);
@@ -928,6 +963,17 @@ namespace Atlas
                     rgba[o + 2] = InkColor.b;
                 }
                 rgba[o + 3] = ToByte(Mathf.Min(1f, total) * 255f);
+            }
+            // The glimpse's bare parchment: wherever the land is not explored (softened at the
+            // explored edge); the fog lies over all of it but the band.
+            if (glimpse == null) return;
+            for (int i = 0; i < n * n; i++)
+            {
+                int o = i * 4, p = i * 3;
+                glimpse[o] = parchment[p];
+                glimpse[o + 1] = parchment[p + 1];
+                glimpse[o + 2] = parchment[p + 2];
+                glimpse[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
             }
         }
 

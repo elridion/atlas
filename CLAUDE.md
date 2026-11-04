@@ -91,8 +91,19 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Close-ups take the list from `InkRecord.m_pins` and decide the same. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
   a different key paints the world again in the background (about 6 s offline), the old sheet
   showing until the new one is uploaded and the table sparkling meanwhile; the close-up tiles
-  start over with the new record. Pins in unexplored land (a boss a Vegvisir revealed) and
-  traced icons (other mods') stay markers over the fog in `AtlasView`. Names are left off for
+  start over with the new record. The game's own marks are drawn into the sheet wherever they
+  are (`AtlasView.InSheet`, `IsGameMark`); out in unexplored land the fog opens a glimpse round
+  them (`Glimpsed`, `AtlasMap.s_glimpses`). The player's own pins in unexplored land and traced
+  icons (other mods') stay markers in `AtlasView`, sized as the sheet's pins in sheet units
+  (`InkPainter.PinSheetSize`), scaling with the map, not kept at a screen size.
+  The glimpse (the user's design): `Paper.Fog` lays its torn edge `GlimpseBand` 160 m out from
+  the explored land and round every glimpsed mark (a distance field from the explored pixels and
+  the marks), and writes a second texture, the glimpse, bare parchment whose opacity is the
+  unexplored land softened at the explored edge. `AtlasView` lays it over the paper's wash and
+  under the ink, so the band shows the map on untinted parchment; close-ups lay it over their
+  wash before the glyphs' bodies (`DetailTile.Render`, `DetailTiles.SetGlimpse`, which drops
+  every tile drawn with the old fog). The glyphs' own bodies (crowns, peaks) keep their fills
+  there, as the sheet's ink texture carries them. Names are left off for
   now (`s_showNames`), to be given another pass. The preview takes `-Temple wx:wz` and
   `-Pin GLYPH:wx:wz[:checked]`.
   The Sacrificial Stones are a pin like the others (the user's call), `PinGlyphs.StoneCircle`

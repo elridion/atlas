@@ -84,8 +84,30 @@ namespace Atlas
             m_samples = samples;
         }
 
+        // The glimpse's bare parchment (Paper.Fog's glimpse, RGBA at FogSize), which tiles lay
+        // over their wash; null for none. A new one drops every tile drawn with the old.
+        private byte[] m_glimpse;
+
+        public void SetGlimpse(byte[] glimpse)
+        {
+            m_glimpse = glimpse;
+            DropTiles();
+        }
+
         // Forgets everything, for a new world. Running tiles are cancelled and their results dropped.
         public void Clear()
+        {
+            DropTiles();
+            m_parent = null;
+            m_broken = false;
+            m_record = null;
+            m_paper = null;
+            m_world = null;
+            m_samples = null;
+            m_glimpse = null;
+        }
+
+        private void DropTiles()
         {
             m_cancel.Cancel();
             m_cancel.Dispose();
@@ -95,12 +117,6 @@ namespace Atlas
             m_running.Clear();
             m_runningRegion.Clear();
             m_ready.Clear();
-            m_parent = null;
-            m_broken = false;
-            m_record = null;
-            m_paper = null;
-            m_world = null;
-            m_samples = null;
         }
 
         public void Update(AtlasView view)
@@ -224,7 +240,8 @@ namespace Atlas
                 SampleCache samples = m_samples;
                 int scale = s_scales[level];
                 CancellationToken cancel = m_cancel.Token;
-                m_running[key] = Workers.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel)), cancel);
+                byte[] glimpse = m_glimpse;
+                m_running[key] = Workers.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel, glimpse)), cancel);
                 m_runningRegion[key] = region;
             }
             foreach (long key in m_wanted)

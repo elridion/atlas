@@ -376,7 +376,12 @@ namespace Atlas
             if (!minimap) return;
             s_pinsDirty = false;
             var pins = new System.Collections.Generic.List<SheetPin>();
-            if (s_templeFound) pins.Add(new SheetPin { m_x = s_temple.x, m_z = s_temple.y, m_glyph = PinGlyph.StoneCircle });
+            var glimpses = new System.Collections.Generic.List<Vector2>();
+            if (s_templeFound)
+            {
+                pins.Add(new SheetPin { m_x = s_temple.x, m_z = s_temple.y, m_glyph = PinGlyph.StoneCircle });
+                if (s_snapshot != null && !s_snapshot.IsExplored(s_temple.x, s_temple.y)) glimpses.Add(s_temple);
+            }
             if (s_snapshot != null)
             {
                 System.Collections.Generic.Dictionary<string, PinGlyph> drawn = AtlasView.DrawnIcons(minimap);
@@ -384,10 +389,28 @@ namespace Atlas
                 {
                     if (!drawn.TryGetValue(pin.m_icon, out PinGlyph glyph) || !AtlasView.InSheet(s_snapshot, pin, glyph)) continue;
                     pins.Add(new SheetPin { m_x = pin.m_position.x, m_z = pin.m_position.z, m_glyph = glyph, m_checked = pin.m_checked });
+                    if (AtlasView.Glimpsed(s_snapshot, pin, glyph)) glimpses.Add(new Vector2(pin.m_position.x, pin.m_position.z));
                 }
             }
             s_pins = pins.ToArray();
             s_pinsKey = SheetPin.Key(s_pins);
+            // The fog opens a glimpse round each of them (Paper.Fog).
+            if (!SameGlimpses(glimpses))
+            {
+                s_glimpses = glimpses.ToArray();
+                s_fogDirty = true;
+            }
+        }
+
+        // The game's marks out in unexplored land, round which the fog opens a glimpse.
+        private static Vector2[] s_glimpses = new Vector2[0];
+
+        private static bool SameGlimpses(System.Collections.Generic.List<Vector2> glimpses)
+        {
+            if (glimpses.Count != s_glimpses.Length) return false;
+            for (int i = 0; i < glimpses.Count; i++)
+                if (glimpses[i] != s_glimpses[i]) return false;
+            return true;
         }
 
         // A pin setting changed: the pins are chosen again, and the sheet painted again if they differ.
@@ -444,15 +467,17 @@ namespace Atlas
             int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
             int size = Paper.FogSize;
             if (s_fogPixels == null) s_fogPixels = new byte[size * size * 4];
-            byte[] pixels = s_fogPixels;
+            if (s_glimpsePixels == null) s_glimpsePixels = new byte[size * size * 4];
+            byte[] pixels = s_fogPixels, glimpse = s_glimpsePixels;
             byte[] parchment = s_parchment;
             SeaMark[] marks = s_fogTaskMarks = s_seaMarks;
+            Vector2[] glimpses = s_glimpses;
             Task<byte[]> parchmentTask = Parchment(seed);
             // The task hands the parchment back instead of storing it, so a task still running
             // when the world changes cannot leave its paper behind for the next world.
             Func<byte[], byte[]> lay = paper =>
             {
-                Paper.Fog(pixels, paper, snapshot, marks);
+                Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses);
                 return paper;
             };
             // Chained rather than waiting on the parchment: a worker blocked on a task queued
@@ -540,8 +565,28 @@ namespace Atlas
             }
             s_fog.LoadRawTextureData(s_fogPixels);
             s_fog.Apply(updateMipmaps: false);
+            if (!s_glimpse)
+            {
+                s_glimpse = new Texture2D(size, size, TextureFormat.RGBA32, mipChain: false)
+                {
+                    name = "Atlas glimpse",
+                    wrapMode = TextureWrapMode.Clamp,
+                    filterMode = FilterMode.Bilinear,
+                };
+            }
+            s_glimpse.LoadRawTextureData(s_glimpsePixels);
+            s_glimpse.Apply(updateMipmaps: false);
+            s_view.SetGlimpse(s_glimpse);
+            // Close-ups lay the same bare parchment over their wash in the glimpse, so they are
+            // drawn again for the new fog.
+            s_tiles.SetGlimpse((byte[])s_glimpsePixels.Clone());
             if (s_view.IsOpen) s_view.Refresh(s_fog, s_snapshot);
         }
+
+        // The glimpse round the explored land and the game's marks out in the unexplored:
+        // bare parchment with no wash over the paper, under the ink (Paper.Fog).
+        private static byte[] s_glimpsePixels;
+        private static Texture2D s_glimpse;
 
         // Forgets everything of the last world. Tasks still running are simply dropped: their
         // results were only ever reachable through the fields cleared here.
@@ -595,6 +640,10 @@ namespace Atlas
             if (s_ink) UnityEngine.Object.Destroy(s_ink);
             if (s_paper) UnityEngine.Object.Destroy(s_paper);
             if (s_fog) UnityEngine.Object.Destroy(s_fog);
+            if (s_glimpse) UnityEngine.Object.Destroy(s_glimpse);
+            s_glimpse = null;
+            s_glimpsePixels = null;
+            s_glimpses = new Vector2[0];
             if (s_dirt) UnityEngine.Object.Destroy(s_dirt);
             s_dirt = null;
             s_ink = null;

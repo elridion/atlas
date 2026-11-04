@@ -450,7 +450,7 @@ namespace Atlas
         private const float MarkCover = 0.45f;
 
         // A pin's box on the sheet, in sheet pixels; the glyph fills about 0.8 of it.
-        private static float PinSheetSize(PinGlyph glyph)
+        internal static float PinSheetSize(PinGlyph glyph)
         {
             switch (glyph)
             {
@@ -492,7 +492,8 @@ namespace Atlas
             foreach (SheetPin pin in pins)
             {
                 float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
-                var g = new Glyph { m_x = x, m_y = y, m_size = PinSheetSize(pin.m_glyph), m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
+                // A close-up's pins are smaller by its level of detail, as its trees (InkCanvas.Pin).
+                var g = new Glyph { m_x = x, m_y = y, m_size = PinSheetSize(pin.m_glyph) / m_lod, m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
                 g.m_order = g.m_y;
                 m_marks.Add(g);
                 Vector4 box = GlyphBox(g);

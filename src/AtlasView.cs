@@ -66,6 +66,8 @@ namespace Atlas
         private RectTransform m_pinLayer;
         private RawImage m_paper;
         private RawImage m_ink;
+        private RawImage m_glimpse;
+        private Texture m_glimpseTexture;
         private RectTransform m_detailLayer;
         private RawImage m_dirt;
         private RawImage m_fog;
@@ -133,6 +135,15 @@ namespace Atlas
             m_pinLifts.Clear();
             m_pinSnapshot = null;
             m_density = null;
+        }
+
+        // The glimpse's bare parchment (AtlasMap.UploadFog), kept for a window built later.
+        public void SetGlimpse(Texture glimpse)
+        {
+            m_glimpseTexture = glimpse;
+            if (!m_glimpse) return;
+            m_glimpse.texture = glimpse;
+            m_glimpse.enabled = glimpse;
         }
 
         // The sheet's stains and patina, over everything else; none until they are made.
@@ -248,9 +259,14 @@ namespace Atlas
             if (m_scale == m_appliedScale) return;
             m_appliedScale = m_scale;
             m_content.localScale = new Vector3(m_scale, m_scale, 1f);
-            var counter = new Vector3(1f / m_scale, 1f / m_scale, 1f);
-            foreach (RectTransform pin in m_pins)
-                if (pin) pin.localScale = counter;
+            // Markers scale with the sheet, as the pins drawn into it do; only names (when shown)
+            // keep their size on screen.
+            if (s_showNames)
+            {
+                var counter = new Vector3(1f / m_scale, 1f / m_scale, 1f);
+                foreach (PinLabel label in m_labels)
+                    if (label.m_rect) label.m_rect.localScale = counter;
+            }
             if (m_layoutScale < 0f || Mathf.Abs(m_scale / m_layoutScale - 1f) > LayoutStep)
             {
                 m_layoutScale = m_scale;
@@ -335,6 +351,11 @@ namespace Atlas
             m_content.sizeDelta = new Vector2(InkPainter.CanvasSize, InkPainter.CanvasSize);
 
             m_paper = NewLayer("Paper");
+            // Bare parchment over the paper's wash in the glimpse round the explored land, under
+            // the ink, so the map shows there untinted (Paper.Fog).
+            m_glimpse = NewLayer("Glimpse");
+            m_glimpse.texture = m_glimpseTexture;
+            m_glimpse.enabled = m_glimpseTexture;
             m_ink = NewLayer("Ink");
             m_detailLayer = NewRect("Detail", m_content);
             Stretch(m_detailLayer, 0f);
@@ -372,12 +393,23 @@ namespace Atlas
         private static readonly bool s_showNames = false;
 
         // Whether a pin is drawn into the sheet itself (AtlasMap.KeepPins) rather than as a
-        // marker: every pen-drawn pin the settings show, on explored ground. A pin out in
-        // unexplored land (a boss a Vegvisir revealed) stays a marker over the fog, and traced
-        // icons (other mods' pins) stay markers too.
+        // marker: every pen-drawn pin the settings show, on explored ground, and the game's own
+        // marks anywhere (a boss a Vegvisir revealed), which the fog shows through a glimpse
+        // round them (Glimpsed). The player's own pins out in unexplored land and traced icons
+        // (other mods' pins) stay markers.
         internal static bool InSheet(Snapshot snapshot, Snapshot.Pin pin, PinGlyph glyph) =>
             glyph != PinGlyph.Traced && glyph != PinGlyph.StoneCircle && Shown(pin, glyph)
-            && snapshot.IsExplored(pin.m_position.x, pin.m_position.z);
+            && (snapshot.IsExplored(pin.m_position.x, pin.m_position.z) || IsGameMark(pin));
+
+        // A mark the game placed itself rather than the player (Icon0 to Icon4).
+        internal static bool IsGameMark(Snapshot.Pin pin) =>
+            pin.m_type != Minimap.PinType.Icon0 && pin.m_type != Minimap.PinType.Icon1 && pin.m_type != Minimap.PinType.Icon2
+            && pin.m_type != Minimap.PinType.Icon3 && pin.m_type != Minimap.PinType.Icon4;
+
+        // Whether the fog opens a glimpse round a pin: a game mark drawn into the sheet out in
+        // unexplored land.
+        internal static bool Glimpsed(Snapshot snapshot, Snapshot.Pin pin, PinGlyph glyph) =>
+            InSheet(snapshot, pin, glyph) && !snapshot.IsExplored(pin.m_position.x, pin.m_position.z);
 
         // A sheet painted again with new pins, in an open atlas too.
         public void SetSheet(Texture ink, InkDensity density)
@@ -443,12 +475,16 @@ namespace Atlas
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
-                holder.sizeDelta = new Vector2(PinSize, PinSize);
+                // A marker has the size the pin has drawn into the sheet (InkPainter.PinSheetSize),
+                // in sheet units, so it keeps its size on the map at every zoom as the sheet's
+                // pins do.
+                float pinSize = InkPainter.PinSheetSize(glyph);
+                holder.sizeDelta = new Vector2(pinSize, pinSize);
                 // The holder sits on the pin's place; the glyph stands on it (PinGlyphs.Lift).
-                float lift = PinGlyphs.Lift(glyph) * PinSize;
-                AddBody(holder, textures.m_body, pin.m_position, lift);
-                AddImage(holder, "Ink", textures.m_ink, lift);
-                if (pin.m_checked && check != null) AddImage(holder, "Checked", check.m_ink, lift);
+                float lift = PinGlyphs.Lift(glyph) * pinSize;
+                AddBody(holder, textures.m_body, pin.m_position, lift, pinSize);
+                AddImage(holder, "Ink", textures.m_ink, lift, pinSize);
+                if (pin.m_checked && check != null) AddImage(holder, "Checked", check.m_ink, lift, pinSize);
                 string label = Localization.instance.Localize(pin.m_name);
                 if (s_showNames && font && !string.IsNullOrEmpty(label))
                 {
@@ -614,21 +650,21 @@ namespace Atlas
         // The pin's body: filled in the wash of the biome the pin stands in, as a peak's body is
         // filled in the mountains', so terrain ink stops at the pin's own outline, and browned by
         // the paper's patina there. Before the world is decoded, plain paper.
-        private void AddBody(RectTransform holder, Texture body, Vector3 position, float lift)
+        private void AddBody(RectTransform holder, Texture body, Vector3 position, float lift, float size)
         {
             Color32 colour = Paper.PaperColor;
             if (m_world != null)
                 colour = Paper.AgedPin(Paper.PinBodyColor(m_world.LandAt(position.x, position.z), m_world.IsWaterAt(position.x, position.z)),
                     position.x, position.z, m_world.m_seed);
-            AddImage(holder, "Body", body, lift).color = colour;
+            AddImage(holder, "Body", body, lift, size).color = colour;
         }
 
-        private static RawImage AddImage(RectTransform holder, string name, Texture texture, float lift)
+        private static RawImage AddImage(RectTransform holder, string name, Texture texture, float lift, float size)
         {
             var rect = NewRect(name, holder, typeof(RawImage));
             rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
             rect.anchoredPosition = new Vector2(0f, lift);
-            rect.sizeDelta = new Vector2(PinSize, PinSize);
+            rect.sizeDelta = new Vector2(size, size);
             var image = rect.GetComponent<RawImage>();
             image.texture = texture;
             image.raycastTarget = false;

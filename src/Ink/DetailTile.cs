@@ -18,7 +18,7 @@ namespace Atlas
         // sharper): trees true to scale at 8x pack into a uniform texture, so glyphs are let to
         // grow a little on screen instead.
         public static byte[] Render(InkRecord record, Paper.Wash wash, WorldSource world, SampleCache cache, RectInt region,
-            int scale, float gridPixels, int threads, CancellationToken cancel)
+            int scale, float gridPixels, int threads, CancellationToken cancel, byte[] glimpse = null)
         {
             int left = region.x, top = region.y, width = region.width, height = region.height;
             int w = width * scale, h = height * scale;
@@ -76,6 +76,19 @@ namespace Atlas
                         lg += (wg - lg) * water;
                         lb += (wb - lb) * water;
                     }
+                    // The glimpse round the explored land: bare parchment over the ground's wash
+                    // and the water, as the sheet's Glimpse layer lays it under its ink; the
+                    // glyphs' bodies are laid over it, as the sheet's ink texture carries them.
+                    if (glimpse != null)
+                    {
+                        float g = GlimpseAt(glimpse, paper, px, py);
+                        if (g > 0f)
+                        {
+                            lr += (PaperAt(wash.m_parchment, paper, px, py, 0) - lr) * g;
+                            lg += (PaperAt(wash.m_parchment, paper, px, py, 1) - lg) * g;
+                            lb += (PaperAt(wash.m_parchment, paper, px, py, 2) - lb) * g;
+                        }
+                    }
                     // A peak's or spire's body takes its kind's glaze strictly, over the stained
                     // paper (Paper.BodyGlaze), as the sheet fills it with BodyColor.
                     for (var kind = BodyKind.Mountain; kind <= BodyKind.Mist; kind++)
@@ -122,6 +135,20 @@ namespace Atlas
             return rgba;
         }
 
+
+        // Bilinear sample of the glimpse's opacity (RGBA rows from the south, as the parchment's).
+        private static float GlimpseAt(byte[] glimpse, int size, float x, float y)
+        {
+            x = Mathf.Clamp(x, 0f, size - 1.001f);
+            y = Mathf.Clamp(y, 0f, size - 1.001f);
+            int x0 = (int)x, y0 = (int)y;
+            float fx = x - x0, fy = y - y0;
+            int i = (y0 * size + x0) * 4 + 3;
+            int right = 4, down = size * 4;
+            float bottom = glimpse[i] + (glimpse[i + right] - glimpse[i]) * fx;
+            float topRow = glimpse[i + down] + (glimpse[i + down + right] - glimpse[i + down]) * fx;
+            return (bottom + (topRow - bottom) * fy) / 255f;
+        }
 
         // Bilinear parchment sample, so the paper's grain stays smooth at any magnification.
         private static float PaperAt(byte[] parchment, int size, float x, float y, int channel)

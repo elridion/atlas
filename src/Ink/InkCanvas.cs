@@ -251,6 +251,15 @@ namespace Atlas
         public void Pin(PinGlyph glyph, float left, float top, float size, bool struck)
         {
             m_record?.Pin(m_layer, glyph, left, top, size, struck);
+            // A close-up draws its pins smaller by its level of detail, as it draws its trees, so a
+            // pin keeps its size beside the trees at every zoom; its foot stays on its place.
+            if (m_penScale != 1f)
+            {
+                float footX = left + size * 0.5f, footY = top + (0.5f + PinGlyphs.Lift(glyph)) * size;
+                size *= m_penScale;
+                left = footX - size * 0.5f;
+                top = footY - (0.5f + PinGlyphs.Lift(glyph)) * size;
+            }
             int pixels = Mathf.Max(4, Mathf.RoundToInt(size * m_scale));
             // The map's own pen (1 sheet pixel, thinned in close-ups as every line is) in pin
             // units, and a waver seeded by the pin's place, the same on the sheet and in tiles.

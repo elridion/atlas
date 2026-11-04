@@ -38,6 +38,23 @@ namespace Atlas
         private static bool s_stopped;
         // Whether the atlas was opened in this world, which starts painting behind a cached sheet.
         private static bool s_opened;
+        // The pins to draw into the sheet and their key (KeepPins), the key of the uploaded sheet,
+        // of the sheet on disk and of the painting under way, and pins whose painting failed.
+        private static SheetPin[] s_pins = new SheetPin[0];
+        private static long s_pinsKey;
+        private static bool s_pinsDirty = true;
+        private static long s_sheetKey;
+        private static long s_cachedKey;
+        private static bool s_hasCachedKey;
+        private static long s_paintKey;
+        private static long s_failedKey;
+        private static bool s_hasFailedKey;
+        private static long s_mipsKey;
+        private static InkDensity s_mipsDensity;
+        private static bool s_decodeFailed;
+        private static bool s_templeFound;
+        private static Vector2 s_temple;
+        private static float s_worldStart;
         private static Texture2D s_ink;
         // The sea illustrations on the uploaded sheet, those the uploaded fog showed or hid whole,
         // and those the fog being laid does. The atlas opens only once the first two agree, so a
@@ -113,8 +130,10 @@ namespace Atlas
                 s_playerId = player.GetPlayerID();
                 s_snapshot = Snapshot.Load(player, worldUid);
                 s_fogDirty = true;
+                s_pinsDirty = true;
             }
 
+            KeepPins();
             KeepInk(worldUid);
             KeepFog();
             KeepPaper();
@@ -122,8 +141,10 @@ namespace Atlas
             if (!s_tiles.Ready && s_record != null && s_wash != null && s_samples != null)
                 s_tiles.SetSource(s_record, s_wash, s_source, s_samples);
             s_tiles.Update(s_view);
-            // The atlas is up to date once its fog is laid and its sheet is there (or failed).
-            s_sparkles.Update(s_fogDirty || s_fogTask != null || (!s_ink && !s_inkFailed));
+            // The atlas is up to date once its fog is laid and its sheet is there with the current
+            // pins (or failed).
+            bool pinsBehind = s_ink && s_sheetKey != s_pinsKey && !(s_hasFailedKey && s_failedKey == s_pinsKey);
+            s_sparkles.Update(s_fogDirty || s_fogTask != null || (!s_ink && !s_inkFailed) || pinsBehind);
 
             if (!s_view.IsOpen && s_view.ClosedFrames > 2 && OpenPressed() && CanOpen(player)) Open(player);
             s_view.Update();
@@ -139,6 +160,7 @@ namespace Atlas
             s_snapshot = Snapshot.Take(minimap);
             s_snapshot.Save(player, ZNet.instance.GetWorldUID());
             s_fogDirty = true;
+            s_pinsDirty = true;
             // The snapshot is still saved for the next session, but nothing would end the sparkles.
             if (!s_stopped) s_sparkles.Begin(table);
         }
@@ -190,8 +212,8 @@ namespace Atlas
                 int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
                 s_cacheTask = Workers.Run(() =>
                 {
-                    byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks);
-                    return ink == null ? null : new CachedSheet { m_mips = Paper.InkWithMips(ink, marks), m_marks = marks, m_density = InkDensity.FromSheet(ink) };
+                    byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks, out long key);
+                    return ink == null ? null : new CachedSheet { m_mips = Paper.InkWithMips(ink, marks), m_marks = marks, m_density = InkDensity.FromSheet(ink), m_key = key };
                 });
             }
             if (s_cacheTask != null && s_cacheTask.IsCompleted)
@@ -199,8 +221,9 @@ namespace Atlas
                 if (s_cacheTask.IsFaulted) Jotunn.Logger.LogWarning($"The cached atlas could not be loaded: {s_cacheTask.Exception?.GetBaseException()}");
                 else if (s_cacheTask.Result != null && !s_ink)
                 {
-                    UploadInk(s_cacheTask.Result.m_mips, s_cacheTask.Result.m_marks);
-                    s_density = s_cacheTask.Result.m_density;
+                    UploadInk(s_cacheTask.Result.m_mips, s_cacheTask.Result.m_marks, s_cacheTask.Result.m_density, s_cacheTask.Result.m_key);
+                    s_cachedKey = s_cacheTask.Result.m_key;
+                    s_hasCachedKey = true;
                 }
                 s_cacheTask = null;
                 // Painting failed while the cache was loading, and the cache had no sheet either.
@@ -208,13 +231,18 @@ namespace Atlas
             }
             if (s_mipsTask != null && s_mipsTask.IsCompleted)
             {
-                if (s_mipsTask.IsFaulted) Fail(s_mipsTask.Exception);
-                else if (!s_ink) UploadInk(s_mipsTask.Result, s_record.m_seaMarks.ToArray());
+                if (s_mipsTask.IsFaulted)
+                {
+                    if (!s_ink) Fail(s_mipsTask.Exception);
+                    else Jotunn.Logger.LogWarning($"The atlas could not lay its new pins: {s_mipsTask.Exception?.GetBaseException()}");
+                }
+                else UploadInk(s_mipsTask.Result, s_record.m_seaMarks.ToArray(), s_mipsDensity, s_mipsKey);
                 s_mipsTask = null;
             }
 
             if (s_paintTask == null)
             {
+                if (s_decodeFailed) return;
                 if (s_source == null)
                 {
                     if (s_decodeTask == null)
@@ -237,7 +265,7 @@ namespace Atlas
                         s_paintError = decoded.Exception;
                         if (!s_ink && s_cacheTask == null) Fail(decoded.Exception);
                         else Jotunn.Logger.LogWarning($"The atlas could not read the world: {decoded.Exception?.GetBaseException()}");
-                        s_paintTask = Task.FromResult<PaintResult>(null);
+                        s_decodeFailed = true;
                         return;
                     }
                     WorldSource decodedSource = decoded.Result;
@@ -247,44 +275,68 @@ namespace Atlas
                     s_washTask = Workers.Then(Parchment(decodedSource.m_seed), parchment => Paper.Washed(parchment, decodedSource));
                 }
 
-                // With a cached sheet, painting only yields the record close-ups are drawn from, so
-                // it waits until the atlas is first opened: most sessions never zoom in, and painting
-                // beside the cache load doubled the work right after login.
-                if (s_cacheTask != null) return;
-                bool cached = s_ink;
-                if (cached && !s_opened) return;
+                // The sheet is painted when there is none, when its pins are not the current ones
+                // (pins are drawn into it), and, behind a cached sheet with the right pins, once the
+                // atlas is first opened, for the record close-ups are drawn from: most sessions
+                // never zoom in, and painting beside the cache load doubled the work after login.
+                if (s_cacheTask != null || s_mipsTask != null) return;
+                bool stale = !s_ink || s_sheetKey != s_pinsKey;
+                if (!stale && (s_record != null || !s_opened)) return;
+                // The Sacrificial Stones are drawn too; a client gets their place from the server
+                // shortly after joining, so a first painting waits a little for it.
+                if (!s_templeFound && Time.realtimeSinceStartup - s_worldStart < TempleWait) return;
+                if (s_hasFailedKey && s_failedKey == s_pinsKey) return;
                 WorldSource source = s_source;
                 CancellationToken cancel = s_cancel.Token;
+                SheetPin[] pins = s_pins;
+                long key = s_pinsKey, cachedKey = s_cachedKey;
+                bool hasCache = s_hasCachedKey;
+                s_paintKey = key;
                 s_paintTask = Workers.Run(() =>
                 {
                     var record = new InkRecord();
-                    byte[] ink = InkPainter.Paint(source, cancel, record);
-                    // The cache already holds this sheet when it came from there. A sheet drawn without
-                    // the alt biomes' groves or the Sacrificial Stones is not cached: the cache is
-                    // keyed by seed alone, so it would stand in for them in every later session.
-                    if (!cached && source.m_grove != null && source.m_hasTemple) InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
-                    return new PaintResult { m_ink = ink, m_record = record, m_density = cached ? null : InkDensity.FromSheet(ink) };
+                    byte[] ink = InkPainter.Paint(source, cancel, record, pins);
+                    // A sheet drawn without the alt biomes' groves is not cached: the cache is keyed
+                    // by seed, so it would stand in for the variants in every later session.
+                    bool saved = false;
+                    if ((!hasCache || cachedKey != key) && source.m_grove != null)
+                    {
+                        InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks, key);
+                        saved = true;
+                    }
+                    return new PaintResult { m_ink = ink, m_record = record, m_density = InkDensity.FromSheet(ink), m_key = key, m_saved = saved };
                 });
                 return;
             }
             if (!s_paintTask.IsCompleted) return;
             Task<PaintResult> painted = s_paintTask;
+            s_paintTask = null;
             if (painted.IsFaulted)
             {
-                // Without a sheet there is nothing to show; with one, only detail tiles are lost.
+                // Without a sheet there is nothing to show; with one, only its new pins and the
+                // detail tiles are lost. The same pins are not tried again.
                 s_paintError = painted.Exception;
+                s_hasFailedKey = true;
+                s_failedKey = s_paintKey;
                 if (!s_ink && s_cacheTask == null) Fail(painted.Exception);
-                else Jotunn.Logger.LogWarning($"The atlas could not prepare its close-up detail: {painted.Exception?.GetBaseException()}");
-                s_paintTask = Task.FromResult<PaintResult>(null);
+                else Jotunn.Logger.LogWarning($"The atlas could not be drawn again: {painted.Exception?.GetBaseException()}");
                 return;
             }
-            if (painted.Result == null) return;
-            s_record = painted.Result.m_record;
-            if (s_density == null) s_density = painted.Result.m_density;
-            byte[] sheet = painted.Result.m_ink;
-            InkRecord record = painted.Result.m_record;
-            s_paintTask = Task.FromResult<PaintResult>(null);
-            if (!s_ink && s_mipsTask == null) s_mipsTask = Workers.Run(() => Paper.InkWithMips(sheet, record.m_seaMarks));
+            PaintResult result = painted.Result;
+            if (result.m_saved)
+            {
+                s_cachedKey = result.m_key;
+                s_hasCachedKey = true;
+            }
+            // Close-ups are drawn from the new record from now on.
+            s_record = result.m_record;
+            s_tiles.Clear();
+            if (s_ink && result.m_key == s_sheetKey) return;
+            byte[] sheet = result.m_ink;
+            InkRecord record = result.m_record;
+            s_mipsKey = result.m_key;
+            s_mipsDensity = result.m_density;
+            s_mipsTask = Workers.Run(() => Paper.InkWithMips(sheet, record.m_seaMarks));
         }
 
         private sealed class PaintResult
@@ -292,6 +344,8 @@ namespace Atlas
             public byte[] m_ink;
             public InkRecord m_record;
             public InkDensity m_density;
+            public long m_key;
+            public bool m_saved;
         }
 
         private sealed class CachedSheet
@@ -299,7 +353,45 @@ namespace Atlas
             public byte[] m_mips;
             public SeaMark[] m_marks;
             public InkDensity m_density;
+            public long m_key;
         }
+
+        // How long a first painting waits for the Sacrificial Stones' place, in seconds.
+        private const float TempleWait = 15f;
+
+        // The pins drawn into the sheet (SheetPin), rebuilt when the snapshot, the pin settings or
+        // the Stones' place change: the snapshot's pins with a pen glyph, shown by the settings,
+        // on explored ground (pins in unexplored land stay markers over the fog, AtlasView), and
+        // the Sacrificial Stones from the game's location icons.
+        private static void KeepPins()
+        {
+            if (!s_templeFound && ZoneSystem.instance && ZoneSystem.instance.GetLocationIcon("StartTemple", out Vector3 temple))
+            {
+                s_templeFound = true;
+                s_temple = new Vector2(temple.x, temple.z);
+                s_pinsDirty = true;
+            }
+            if (!s_pinsDirty) return;
+            Minimap minimap = Minimap.instance;
+            if (!minimap) return;
+            s_pinsDirty = false;
+            var pins = new System.Collections.Generic.List<SheetPin>();
+            if (s_templeFound) pins.Add(new SheetPin { m_x = s_temple.x, m_z = s_temple.y, m_glyph = PinGlyph.StoneCircle });
+            if (s_snapshot != null)
+            {
+                System.Collections.Generic.Dictionary<string, PinGlyph> drawn = AtlasView.DrawnIcons(minimap);
+                foreach (Snapshot.Pin pin in s_snapshot.m_pins)
+                {
+                    if (!drawn.TryGetValue(pin.m_icon, out PinGlyph glyph) || !AtlasView.InSheet(s_snapshot, pin, glyph)) continue;
+                    pins.Add(new SheetPin { m_x = pin.m_position.x, m_z = pin.m_position.z, m_glyph = glyph, m_checked = pin.m_checked });
+                }
+            }
+            s_pins = pins.ToArray();
+            s_pinsKey = SheetPin.Key(s_pins);
+        }
+
+        // A pin setting changed: the pins are chosen again, and the sheet painted again if they differ.
+        public static void PinsChanged() => s_pinsDirty = true;
 
         private static void Fail(AggregateException error)
         {
@@ -307,11 +399,15 @@ namespace Atlas
             Jotunn.Logger.LogError($"The atlas could not be drawn: {error?.GetBaseException()}");
         }
 
-        // The fog is laid again for the sheet's sea illustrations before the atlas opens.
-        private static void UploadInk(byte[] data, SeaMark[] marks)
+        // The fog is laid again for the sheet's sea illustrations before the atlas opens. A sheet
+        // painted again for new pins replaces the old one, in an open atlas too.
+        private static void UploadInk(byte[] data, SeaMark[] marks, InkDensity density, long key)
         {
             s_seaMarks = marks;
             s_fogDirty = true;
+            s_density = density;
+            s_sheetKey = key;
+            Texture2D old = s_ink;
             s_ink = new Texture2D(InkPainter.CanvasSize, InkPainter.CanvasSize, TextureFormat.RGBA32, mipChain: true)
             {
                 name = "Atlas ink",
@@ -320,8 +416,10 @@ namespace Atlas
                 anisoLevel = 4,
             };
             s_ink.LoadRawTextureData(data);
-            // Uploads once and drops the CPU copy; the sheet never changes for this world.
+            // Uploads once and drops the CPU copy; a new sheet is a new texture.
             s_ink.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            s_view.SetSheet(s_ink, s_density);
+            if (old) UnityEngine.Object.Destroy(old);
         }
 
         private static void KeepFog()
@@ -469,6 +567,18 @@ namespace Atlas
             s_inkFailed = false;
             s_paintError = null;
             s_opened = false;
+            s_pins = new SheetPin[0];
+            s_pinsKey = 0L;
+            s_pinsDirty = true;
+            s_sheetKey = 0L;
+            s_cachedKey = 0L;
+            s_hasCachedKey = false;
+            s_paintKey = 0L;
+            s_hasFailedKey = false;
+            s_mipsDensity = null;
+            s_decodeFailed = false;
+            s_templeFound = false;
+            s_worldStart = Time.realtimeSinceStartup;
             s_tiles.Clear();
             s_sparkles.Clear();
             s_source = null;

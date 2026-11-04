@@ -58,6 +58,7 @@ namespace Atlas
             Erase,
             Tint,
             EraseOutline,
+            Pin,
         }
 
         // One call: for strokes a..d are the ends, e the width; for ellipses and rings a, b the
@@ -133,6 +134,14 @@ namespace Atlas
             m_calls.Add(new Call { m_op = Op.EraseOutline, m_layer = layer, m_group = m_group, m_body = body, m_land = land, m_a = m_points.Count, m_b = outline.Count, m_c = grow });
             for (int i = 0; i < outline.Count; i++) m_points.Add(outline[i]);
         }
+
+        // A pin glyph (InkCanvas.Pin): its box's top left in a, b, its size in c, the glyph in d
+        // and whether it is struck through in e.
+        public void Pin(InkLayer layer, PinGlyph glyph, float left, float top, float size, bool struck) =>
+            m_calls.Add(new Call { m_op = Op.Pin, m_layer = layer, m_group = m_group, m_a = left, m_b = top, m_c = size, m_d = (int)glyph, m_e = struck ? 1f : 0f });
+
+        // The pins the sheet was drawn with, so close-ups keep the same clearings round them.
+        public SheetPin[] m_pins = new SheetPin[0];
 
         // Calls visit with the ends and width of every stroke of a layer touching the sheet
         // rectangle (each once). Scrapes are left out.
@@ -376,6 +385,7 @@ namespace Atlas
                     canvas.EraseOutline(polygon, c.m_c);
                     canvas.m_markBody = BodyKind.None;
                     break;
+                case Op.Pin: canvas.Pin((PinGlyph)(int)c.m_d, c.m_a, c.m_b, c.m_c, c.m_e > 0f); break;
             }
         }
 
@@ -418,6 +428,12 @@ namespace Atlas
                     maxY += margin;
                     return;
                 }
+                case Op.Pin:
+                    minX = c.m_a - 1f;
+                    minY = c.m_b - 1f;
+                    maxX = c.m_a + c.m_c + 1f;
+                    maxY = c.m_b + c.m_c + 1f;
+                    return;
                 default:
                 {
                     float grow = c.m_e * 0.5f + 1f;

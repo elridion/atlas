@@ -8,15 +8,16 @@ namespace Atlas
 {
     /// <summary>
     /// Keeps each world's inked canvas on disk (BepInEx/cache/elridion.atlas), so a world is only
-    /// drawn once. Files are named by world id and checked against the world seed and the drawing
-    /// version; bump Version whenever the drawing changes, so old sheets are drawn again. The sea's
+    /// drawn again when its pins change. Files are named by world id and checked against the world
+    /// seed and the drawing version, and carry the key of the pins drawn in; bump Version whenever the drawing changes, so old sheets are drawn again. The sea's
     /// illustrations (their boxes, for the fog, and the glyph drawn, for its wash) are kept in the
     /// header, ahead of the sheet.
     /// </summary>
     internal static class InkCache
     {
         private const int Magic = 0x534C5441; // "ATLS"
-        private const int Version = 23;
+        // 24 added the pins' key to the header (the pins are drawn into the sheet).
+        private const int Version = 24;
         // A file never holds more sea illustrations than this; more means it is damaged.
         private const int MostSeaMarks = 256;
 
@@ -24,10 +25,12 @@ namespace Atlas
             Path.Combine(Paths.CachePath, AtlasPlugin.PluginGuid, $"{worldUid}.ink");
 
         // Worker thread. Returns null when there is no matching sheet; marks gets the sheet's sea
-        // illustrations (InkRecord.m_seaMarks), which the fog needs before the world is painted.
-        public static byte[] Load(long worldUid, int seed, out SeaMark[] marks)
+        // illustrations (InkRecord.m_seaMarks), which the fog needs before the world is painted,
+        // and pinsKey the key of the pins it was drawn with (SheetPin.Key).
+        public static byte[] Load(long worldUid, int seed, out SeaMark[] marks, out long pinsKey)
         {
             marks = null;
+            pinsKey = 0L;
             string path = FilePath(worldUid);
             if (!File.Exists(path)) return null;
             try
@@ -37,6 +40,7 @@ namespace Atlas
                 {
                     if (reader.ReadInt32() != Magic || reader.ReadInt32() != Version) return null;
                     if (reader.ReadInt32() != seed || reader.ReadInt32() != InkPainter.CanvasSize) return null;
+                    long key = reader.ReadInt64();
                     int count = reader.ReadInt32();
                     if (count < 0 || count > MostSeaMarks) return null;
                     var read = new SeaMark[count];
@@ -63,6 +67,7 @@ namespace Atlas
                         }
                     }
                     marks = read;
+                    pinsKey = key;
                     return ink;
                 }
             }
@@ -74,7 +79,7 @@ namespace Atlas
         }
 
         // Worker thread.
-        public static void Save(long worldUid, int seed, byte[] ink, IList<SeaMark> marks)
+        public static void Save(long worldUid, int seed, byte[] ink, IList<SeaMark> marks, long pinsKey)
         {
             string path = FilePath(worldUid);
             try
@@ -89,6 +94,7 @@ namespace Atlas
                         writer.Write(Version);
                         writer.Write(seed);
                         writer.Write(InkPainter.CanvasSize);
+                        writer.Write(pinsKey);
                         writer.Write(marks.Count);
                         foreach (SeaMark mark in marks)
                         {

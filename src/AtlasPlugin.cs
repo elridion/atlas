@@ -43,8 +43,13 @@ namespace Atlas
             TraderPins = Config.Bind("Pins", "TraderPins", true, "Show the traders (Haldor, Hildir, the Bog Witch) on the atlas.");
             HildirPins = Config.Bind("Pins", "HildirPins", true, "Show the dungeons of Hildir's requests on the atlas.");
             PlacePins = Config.Bind("Pins", "PlacePins", true, "Show other places the game marks itself, such as the Forge of Potential or other mods' locations, on the atlas.");
-            // Applied the next time the atlas opens.
-            Config.SettingChanged += (sender, args) => AtlasView.PinsChanged();
+            // Pins drawn into the sheet change once it is painted again; markers the next time the
+            // atlas opens.
+            Config.SettingChanged += (sender, args) =>
+            {
+                AtlasView.PinsChanged();
+                AtlasMap.PinsChanged();
+            };
             AddLocalizations();
             _harmony.PatchAll(typeof(AtlasPlugin).Assembly);
         }

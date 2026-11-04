@@ -193,6 +193,44 @@ namespace Atlas
             Polygon(polygon, strength, erase: false);
         }
 
+        // A pin glyph (PinGlyphs) in the box of size sheet pixels from (left, top): its body
+        // scrapes the ink and every body mask, so the ground's own wash shows inside it, then its
+        // lines are inked, struck through when checked. Drawn at this canvas's resolution, so a
+        // close-up gets a sharp pin.
+        public void Pin(PinGlyph glyph, float left, float top, float size, bool struck)
+        {
+            m_record?.Pin(m_layer, glyph, left, top, size, struck);
+            int pixels = Mathf.Max(4, Mathf.RoundToInt(size * m_scale));
+            PinMark mark = PinGlyphs.Draw(glyph, pixels);
+            PinMark strike = struck ? PinGlyphs.Draw(PinGlyph.Checked, pixels) : null;
+            int x0 = Mathf.RoundToInt(X(left)), y0 = Mathf.RoundToInt(Y(top));
+            for (int y = 0; y < pixels; y++)
+            {
+                int py = y0 + y;
+                if (py < 0 || py >= m_height) continue;
+                for (int x = 0; x < pixels; x++)
+                {
+                    int px = x0 + x;
+                    if (px < 0 || px >= m_width) continue;
+                    int i = py * m_width + px, j = y * pixels + x;
+                    float keep = 1f - mark.m_body[j] / 255f;
+                    if (keep < 1f)
+                    {
+                        m_ink[i] = (byte)(m_ink[i] * keep);
+                        m_body[i] = (byte)(m_body[i] * keep);
+                        m_bodyNorth[i] = (byte)(m_bodyNorth[i] * keep);
+                        m_bodyMist[i] = (byte)(m_bodyMist[i] * keep);
+                        byte wood = m_bodyWood[i];
+                        if (wood != 0) m_bodyWood[i] = PackWood(WoodCover(wood) * keep, wood >> 5);
+                        if (m_scraped != null) m_scraped[i] = Math.Max(m_scraped[i], mark.m_body[j]);
+                    }
+                    byte ink = mark.m_ink[j];
+                    if (strike != null) ink = Math.Max(ink, strike.m_ink[j]);
+                    if (ink > m_ink[i]) m_ink[i] = ink;
+                }
+            }
+        }
+
         public void Erase(IList<Vector2> polygon)
         {
             m_record?.Polygon(m_layer, polygon, 1f, erase: true, body: m_markBody, land: m_woodLand);

@@ -58,6 +58,12 @@ namespace Atlas
                 case Kind.Mist: MistBank(g.m_x, g.m_y - MistFoot(g.m_seed), g.m_seed); break;
                 case Kind.IceFloe: IceFloe(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Stones: Stones(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+                case Kind.Pin:
+                {
+                    Vector3 box = PinBox(g);
+                    m_canvas.Pin((PinGlyph)(g.m_seed & 0xFF), box.x, box.y, box.z, (g.m_seed & PinStruck) != 0);
+                    break;
+                }
             }
         }
 

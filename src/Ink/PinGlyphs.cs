@@ -27,6 +27,39 @@ namespace Atlas
         Traced,
     }
 
+    // A pin drawn into the sheet itself (InkPainter), at its place in world metres. StoneCircle
+    // stands for the Sacrificial Stones, drawn as their own glyph (Glyphs.Stones).
+    internal struct SheetPin
+    {
+        public float m_x, m_z;
+        public PinGlyph m_glyph;
+        public bool m_checked;
+
+        // A key for a list of pins, the same for the same pins in any order: the disk cache keeps
+        // it with the sheet, and a sheet drawn with other pins is painted again.
+        public static long Key(IList<SheetPin> pins)
+        {
+            var parts = new List<long>(pins.Count);
+            foreach (SheetPin pin in pins)
+            {
+                long x = (long)Math.Round(pin.m_x * 10f), z = (long)Math.Round(pin.m_z * 10f);
+                parts.Add(((x & 0xFFFFFF) << 32) ^ ((z & 0xFFFFFF) << 8) ^ ((long)pin.m_glyph << 1) ^ (pin.m_checked ? 1L : 0L));
+            }
+            parts.Sort();
+            unchecked
+            {
+                long hash = (long)14695981039346656037UL;
+                foreach (long part in parts)
+                    for (int b = 0; b < 8; b++)
+                    {
+                        hash ^= (part >> (8 * b)) & 0xFF;
+                        hash *= 1099511628211L;
+                    }
+                return hash;
+            }
+        }
+    }
+
     // One pin as drawn: ink coverage and the body it scrapes (0 to 255 each), size x size pixels,
     // rows running south as on the sheet.
     internal sealed class PinMark

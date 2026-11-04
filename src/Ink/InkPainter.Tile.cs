@@ -28,6 +28,8 @@ namespace Atlas
             float lod, int scale, CancellationToken cancel)
         {
             var painter = new InkPainter(world, canvas, grid, lod, region, cancel);
+            // The sheet's pins, so the tile's trees and ground marks keep the same clearings.
+            painter.FindMarks(record.m_pins);
             painter.RunTile(record);
         }
 

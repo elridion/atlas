@@ -37,15 +37,30 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   pins by `LocationSpriteData.m_name`: `StartTemple` a stone circle seen from above (survey-map
   sign, never shown: the Stones are drawn on the sheet, below), vendor/Haldor a plain tied bag,
   Hildir a tent with pennant, BogWitch a cauldron.
-  The Sacrificial Stones are a glyph on the sheet, not a pin (the user's design): `Glyphs.Stones`,
+  **Pins are drawn into the sheet** (the user's design), at a fixed size like every other glyph:
+  `AtlasMap.KeepPins` builds the list (`SheetPin`: place, glyph, checked) from the snapshot's
+  pen-drawn pins the settings show on explored ground (`AtlasView.InSheet`), plus the
+  Sacrificial Stones from `ZoneSystem.GetLocationIcon("StartTemple")` (polled until found; a
+  first painting waits up to `TempleWait` 15 s for it, as a client gets the icons from the
+  server). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, a
+  `PinSheetSize` 32 px box standing on its place by `PinGlyphs.Lift`, inked by
+  `InkCanvas.Pin` (the `PinGlyphs` mark drawn at the canvas's resolution: its body scrapes the
+  ink and body masks so the ground's own wash fills it, then its lines, struck through when
+  checked), recorded as `Op.Pin` so close-ups redraw it sharp. Every scatter mark and glyph keeps
+  `MarkClear` off each pin's footprint (`ClearOfMarks` in `Add`, `InMarkClearing` in `Scatter`,
+  the rest removed after placement; cleared boxes filed in `PeakCell` squares), so pins stand in
+  clearings among the trees; close-ups take the list from `InkRecord.m_pins` and keep the same
+  clearings. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
+  a different key paints the world again in the background (about 6 s offline), the old sheet
+  showing until the new one is uploaded and the table sparkling meanwhile; the close-up tiles
+  start over with the new record. Pins in unexplored land (a boss a Vegvisir revealed) and
+  traced icons (other mods') stay markers over the fog in `AtlasView`. Names are left off for
+  now (`s_showNames`), to be given another pass. The preview takes `-Temple wx:wz` and
+  `-Pin GLYPH:wx:wz[:checked]`.
+  The Sacrificial Stones are a glyph of their own rather than their pin: `Glyphs.Stones`,
   a ring of standing stones round a low altar in the map's oblique view, each a block with a lit
   front, a solid east face and a thin top, drawn back to front, `TempleRadius` 9 G either side
-  (the size of a large peak; the real ring would be under 7 sheet pixels). Its place comes from
-  `ZoneSystem.GetLocationIcon("StartTemple")` at `WorldSource.Capture`; a sheet painted before
-  the icons arrived has no Stones and is not cached. Every scatter mark and glyph keeps
-  `TempleClear` off its footprint (`ClearOfTemple` in `Add`, `InTempleClearing` in `Scatter`,
-  the rest removed after placement), so it stands in a clearing among the trees; close-ups
-  test the same and replay the glyph from the record. The preview places it with `-Temple wx:wz`.
+  (the size of a large peak; the real ring would be under 7 sheet pixels).
   Anything else is traced from its sprite (other locations such as the Forge of Potential, other
   mods' pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
   parts inked); every body reaches `Gap` past the lines, the engraver's break that keeps trees
@@ -109,7 +124,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - **Deterministic drawing.** Glyph placement hashes the world seed, a per-rule salt and the grid
   cell (`Noise`), never a shared `System.Random`, so tuning one rule never moves another's glyphs.
   Any change to the drawing bumps `InkCache.Version`, or players keep the old cached sheet;
-  until the first release it stays at 23, since no player has a cached sheet yet.
+  until the first release it stays at 24 for drawing changes, since no player has a cached
+  sheet yet (24 added the pins' key to the header, a format change).
 - **Persisted config.** Section and key names (`Pins`, `BedPin`, `DeathPin`, `BossPins`,
   `TraderPins`, `HildirPins`, `PlacePins`): renaming one resets players' settings.
 - **Docs follow code.** `package/README.md` keeps the settings table in sync with
@@ -673,8 +689,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   tile pixels; everything else is replayed from the `InkRecord` (every pen call of the painting
   with its `InkLayer`, about 720k calls, 20 MB, indexed in 64 px cells). Because only painting
   yields the record, the world is painted once per session in the background even when the
-  sheet came from the disk cache, but then only after the cache has loaded and the atlas has
-  first been opened, and that painting does not write the cache again.
+  sheet came from the disk cache with the current pins, but then only after the cache has
+  loaded and the atlas has first been opened, and that painting does not write the cache again.
 - Tiles sample the world generator (`GeneratorSampler`: `GetBiome`, `GetBiomeHeight` and the
   forest factor, exactly what vanilla's minimap is built from), which vanilla itself calls off
   the main thread from `HeightmapBuilder`; `Mathf.PerlinNoise` underneath means the offline

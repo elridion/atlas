@@ -17,7 +17,8 @@ using UnityEngine;
 //   tilesNAME:wx:wz:scale          3x3 separately rendered 256 px tiles at scale, stitched
 // --layers also writes the biome map, land wash and body masks of the whole sheet.
 // --alt NAME:wx:wz:radiusMetres forces an alt biome's effect on the woods there (ForceAltBiomes).
-// --temple wx:wz places the Sacrificial Stones there.
+// --temple wx:wz places the Sacrificial Stones there; --pin GLYPH:wx:wz[:checked] (repeatable)
+// draws a pin into the sheet.
 internal static class Program
 {
     const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -158,14 +159,25 @@ internal static class Program
             return 0;
         }
         ForceAltBiomes(args, source, wsType, land, size);
-        // --temple wx:wz stands in for the Sacrificial Stones the game's location icons give.
-        int templeArg = Array.IndexOf(args, "--temple");
-        if (templeArg >= 0)
+        // --temple wx:wz stands in for the Sacrificial Stones the game's location icons give, and
+        // --pin GLYPH:wx:wz[:checked] (repeatable) for a pin drawn into the sheet.
+        Type pinType = T("Atlas.SheetPin"), glyphType = T("Atlas.PinGlyph");
+        var sheetPins = new System.Collections.Generic.List<object>();
+        for (int a = 2; a < args.Length - 1; a++)
         {
-            string[] t = args[templeArg + 1].Split(':');
-            Set(source, "m_hasTemple", true);
-            Set(source, "m_temple", new Vector2(float.Parse(t[0]), float.Parse(t[1])));
+            if (args[a] != "--temple" && args[a] != "--pin") continue;
+            string[] t = args[a + 1].Split(':');
+            string glyphName = args[a] == "--temple" ? "StoneCircle" : t[0];
+            int at = args[a] == "--temple" ? 0 : 1;
+            object pin = Activator.CreateInstance(pinType);
+            pinType.GetField("m_x").SetValue(pin, float.Parse(t[at]));
+            pinType.GetField("m_z").SetValue(pin, float.Parse(t[at + 1]));
+            pinType.GetField("m_glyph").SetValue(pin, Enum.Parse(glyphType, glyphName));
+            pinType.GetField("m_checked").SetValue(pin, t.Length > at + 2);
+            sheetPins.Add(pin);
         }
+        Array pinArray = Array.CreateInstance(pinType, sheetPins.Count);
+        for (int k = 0; k < sheetPins.Count; k++) pinArray.SetValue(sheetPins[k], k);
         System.Console.WriteLine($"decode {sw.ElapsedMilliseconds} ms");
         sw.Restart();
 
@@ -190,7 +202,7 @@ internal static class Program
         sw.Restart();
 
         object record = Activator.CreateInstance(T("Atlas.InkRecord"), true);
-        byte[] sheet = (byte[])T("Atlas.InkPainter").GetMethod("Paint", All).Invoke(null, new object[] { source, CancellationToken.None, record });
+        byte[] sheet = (byte[])T("Atlas.InkPainter").GetMethod("Paint", All).Invoke(null, new object[] { source, CancellationToken.None, record, pinArray });
         System.Console.WriteLine($"paint {sw.ElapsedMilliseconds} ms");
         sw.Restart();
         // The game's own composite: the sheet's ink and its sea illustrations' wash (when this
@@ -232,7 +244,7 @@ internal static class Program
         const float half = 10800f, mpp = 2f * half / canvas;
         for (int a = 2; a < args.Length; a++)
         {
-            if (args[a].StartsWith("--") || args[a - 1] == "--alt" || args[a - 1] == "--temple") continue;
+            if (args[a].StartsWith("--") || args[a - 1] == "--alt" || args[a - 1] == "--temple" || args[a - 1] == "--pin") continue;
             string[] p = args[a].Split(':');
             sw.Restart();
             if (p[0].StartsWith("tiles"))

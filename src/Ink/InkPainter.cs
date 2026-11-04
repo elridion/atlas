@@ -433,40 +433,84 @@ namespace Atlas
             Mist,
             IceFloe,
             Stones,
+            // A pin (PinGlyphs), its glyph in the seed's low byte and PinStruck set when checked.
+            Pin,
         }
 
-        // The Sacrificial Stones (Glyphs.Stones): a ring of standing stones seen from the map's
-        // oblique view, TempleRadius wide either side of its centre, the size of a large peak so it
-        // reads at the opening zoom (the real ring is about 35 m, under 7 sheet pixels). Every
-        // glyph, tree and ground mark keeps TempleClear off its footprint, so it stands in a
-        // clearing among the trees round it.
+        // Pins and the Sacrificial Stones are drawn into the sheet as glyphs of their own: the
+        // Stones (Glyphs.Stones) a ring of standing stones TempleRadius wide either side of its
+        // centre, the size of a large peak so it reads at the opening zoom (the real ring is about
+        // 35 m, under 7 sheet pixels), a pin a PinSheetSize box, about a peak's size. Every
+        // glyph, tree and ground mark keeps MarkClear off their footprints, so they stand in
+        // clearings among the trees round them and stay readable.
         private const float TempleRadius = 9f * G;
-        private const float TempleClear = 3f * G;
-        private bool m_hasTemple;
-        private Vector2 m_templeFoot;
-        private Vector4 m_templeBox;
+        public const float PinSheetSize = 32f;
+        private const float MarkClear = 3f * G;
+        private const int PinStruck = 0x100;
+        private readonly List<Glyph> m_marks = new List<Glyph>();
+        // The marks' cleared boxes, filed in PeakCell squares.
+        private readonly Dictionary<int, List<Vector4>> m_markCells = new Dictionary<int, List<Vector4>>();
 
-        // Finds the Stones on the sheet, for the sheet and every close-up alike.
-        private void FindTemple()
+        // The pins' glyphs and their clearings, for the sheet and every close-up alike.
+        private void FindMarks(IList<SheetPin> pins)
         {
-            if (m_world == null || !m_world.m_hasTemple) return;
-            float cx = (m_world.m_temple.x + HalfExtent) / MetresPerPixel, cy = (HalfExtent - m_world.m_temple.y) / MetresPerPixel;
-            m_hasTemple = true;
-            m_templeFoot = new Vector2(cx, cy + TempleRadius * StonesTilt);
-            Vector4 box = GlyphBox(new Glyph { m_x = m_templeFoot.x, m_y = m_templeFoot.y, m_size = TempleRadius, m_kind = Kind.Stones });
-            m_templeBox = new Vector4(box.x - TempleClear, box.y - TempleClear, box.z + TempleClear, box.w + TempleClear);
+            if (pins == null) return;
+            foreach (SheetPin pin in pins)
+            {
+                float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
+                Glyph g = pin.m_glyph == PinGlyph.StoneCircle
+                    ? new Glyph { m_x = x, m_y = y + TempleRadius * StonesTilt, m_size = TempleRadius, m_kind = Kind.Stones, m_seed = m_world.m_seed }
+                    : new Glyph { m_x = x, m_y = y, m_size = PinSheetSize, m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
+                m_marks.Add(g);
+                Vector4 box = GlyphBox(g);
+                box = new Vector4(box.x - MarkClear, box.y - MarkClear, box.z + MarkClear, box.w + MarkClear);
+                int x0 = (int)Math.Floor(box.x / PeakCell), x1 = (int)Math.Floor(box.z / PeakCell);
+                int y0 = (int)Math.Floor(box.y / PeakCell), y1 = (int)Math.Floor(box.w / PeakCell);
+                for (int cy = y0; cy <= y1; cy++)
+                    for (int cx = x0; cx <= x1; cx++)
+                    {
+                        int key = PeakCellKey(cx, cy);
+                        if (!m_markCells.TryGetValue(key, out List<Vector4> cell)) m_markCells[key] = cell = new List<Vector4>(4);
+                        cell.Add(box);
+                    }
+            }
         }
 
-        // Whether a glyph keeps clear of the Stones' clearing.
-        private bool ClearOfTemple(Glyph g)
+        private static bool IsMark(Kind kind) => kind == Kind.Stones || kind == Kind.Pin;
+
+        // Whether a glyph keeps clear of every pin's clearing.
+        private bool ClearOfMarks(Glyph g)
         {
-            if (!m_hasTemple || g.m_kind == Kind.Stones) return true;
+            if (m_markCells.Count == 0 || IsMark(g.m_kind)) return true;
             Vector4 box = GlyphBox(g);
-            return !(box.x < m_templeBox.z && m_templeBox.x < box.z && box.y < m_templeBox.w && m_templeBox.y < box.w);
+            int x0 = (int)Math.Floor(box.x / PeakCell), x1 = (int)Math.Floor(box.z / PeakCell);
+            int y0 = (int)Math.Floor(box.y / PeakCell), y1 = (int)Math.Floor(box.w / PeakCell);
+            for (int cy = y0; cy <= y1; cy++)
+                for (int cx = x0; cx <= x1; cx++)
+                {
+                    if (!m_markCells.TryGetValue(PeakCellKey(cx, cy), out List<Vector4> cell)) continue;
+                    foreach (Vector4 c in cell)
+                        if (box.x < c.z && c.x < box.z && box.y < c.w && c.y < box.w) return false;
+                }
+            return true;
         }
 
-        private bool InTempleClearing(float x, float y) =>
-            m_hasTemple && x > m_templeBox.x && x < m_templeBox.z && y > m_templeBox.y && y < m_templeBox.w;
+        private bool InMarkClearing(float x, float y)
+        {
+            if (m_markCells.Count == 0) return false;
+            if (!m_markCells.TryGetValue(PeakCellKey((int)Math.Floor(x / PeakCell), (int)Math.Floor(y / PeakCell)), out List<Vector4> cell)) return false;
+            foreach (Vector4 c in cell)
+                if (x > c.x && x < c.z && y > c.y && y < c.w) return true;
+            return false;
+        }
+
+        // A pin's box (left, top, size): its glyph stands on its place (PinGlyphs.Lift).
+        private static Vector3 PinBox(Glyph g)
+        {
+            float size = g.m_size;
+            float centre = g.m_y - PinGlyphs.Lift((PinGlyph)(g.m_seed & 0xFF)) * size;
+            return new Vector3(g.m_x - size * 0.5f, centre - size * 0.5f, size);
+        }
 
         private struct Glyph
         {
@@ -501,7 +545,6 @@ namespace Atlas
             m_cancel = cancel;
             m_canvas = new InkCanvas(CanvasSize);
             m_right = m_bottom = CanvasSize;
-            FindTemple();
         }
 
         // A painter for one detail tile: draws into canvas from grid, at the given level of detail.
@@ -520,16 +563,21 @@ namespace Atlas
             m_top = region.yMin;
             m_right = region.xMax;
             m_bottom = region.yMax;
-            FindTemple();
         }
 
         // Throws OperationCanceledException between stages once cancel is set, so a drawing for a
         // world the player already left stops instead of holding its memory to the end. When record
         // is given, every pen call is kept in it (and indexed) for sharp detail tiles.
-        public static byte[] Paint(WorldSource world, CancellationToken cancel, InkRecord record)
+        // pins are drawn in as glyphs of their own, in clearings (FindMarks).
+        public static byte[] Paint(WorldSource world, CancellationToken cancel, InkRecord record, IList<SheetPin> pins)
         {
             var painter = new InkPainter(world, cancel);
-            if (record != null) painter.m_canvas.Record(record);
+            painter.FindMarks(pins);
+            if (record != null)
+            {
+                painter.m_canvas.Record(record);
+                if (pins != null) record.m_pins = new List<SheetPin>(pins).ToArray();
+            }
             painter.m_record = record;
             painter.Run();
             record?.Seal(CanvasSize);
@@ -901,7 +949,7 @@ namespace Atlas
                     // Inside the frame's inner ring, with room for the glyph above its foot.
                     float limit = edge * EdgeFraction;
                     if (dx * dx + dy * dy > limit * limit) continue;
-                    if (InTempleClearing(x, y)) continue;
+                    if (InMarkClearing(x, y)) continue;
                     Spot spot = Look(x, y);
                     spot.m_roll = Unit(seed, 3);
                     spot.m_seed = seed;
@@ -1091,7 +1139,7 @@ namespace Atlas
         private void Add(Spot spot, Kind kind, float size)
         {
             var glyph = new Glyph { m_x = spot.m_x, m_y = spot.m_y, m_size = size, m_kind = kind, m_seed = spot.m_seed };
-            if (ClearOfTemple(glyph)) m_glyphs.Add(glyph);
+            if (ClearOfMarks(glyph)) m_glyphs.Add(glyph);
         }
 
         private static float Unit(int seed, int k) => Atlas.Noise.Unit(seed, k);
@@ -1346,6 +1394,11 @@ namespace Atlas
                     half = 5f * s;
                     height = 14f * s;
                     break;
+                case Kind.Pin:
+                {
+                    Vector3 pin = PinBox(g);
+                    return new Vector4(pin.x, pin.y, pin.x + pin.z, pin.y + pin.z);
+                }
                 case Kind.Stones:
                     // The ring and its stones' east faces; from the foot (the ring's near edge)
                     // up over its far edge and the stones standing there.
@@ -2175,12 +2228,12 @@ namespace Atlas
                 if (!WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
                 m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
-            // The Sacrificial Stones in their clearing: glyphs placed without Add (summits, hills,
-            // spires) give way to them too.
-            if (m_hasTemple)
+            // The pins and the Sacrificial Stones in their clearings: glyphs placed without Add
+            // (summits, hills, spires) give way to them too.
+            if (m_marks.Count > 0)
             {
-                m_glyphs.RemoveAll(g => !ClearOfTemple(g));
-                m_glyphs.Add(new Glyph { m_x = m_templeFoot.x, m_y = m_templeFoot.y, m_size = TempleRadius, m_kind = Kind.Stones, m_seed = m_world.m_seed });
+                m_glyphs.RemoveAll(g => !ClearOfMarks(g));
+                m_glyphs.AddRange(m_marks);
             }
         }
 

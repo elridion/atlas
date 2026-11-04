@@ -368,12 +368,30 @@ namespace Atlas
         // Set when a pin setting changes, so the next opening rebuilds the markers.
         private static bool s_pinsChanged;
 
+        // Names are left off the atlas for now (the user's call, to be given another pass).
+        private static readonly bool s_showNames = false;
+
+        // Whether a pin is drawn into the sheet itself (AtlasMap.KeepPins) rather than as a
+        // marker: every pen-drawn pin the settings show, on explored ground. A pin out in
+        // unexplored land (a boss a Vegvisir revealed) stays a marker over the fog, and traced
+        // icons (other mods' pins) stay markers too.
+        internal static bool InSheet(Snapshot snapshot, Snapshot.Pin pin, PinGlyph glyph) =>
+            glyph != PinGlyph.Traced && glyph != PinGlyph.StoneCircle && Shown(pin, glyph)
+            && snapshot.IsExplored(pin.m_position.x, pin.m_position.z);
+
+        // A sheet painted again with new pins, in an open atlas too.
+        public void SetSheet(Texture ink, InkDensity density)
+        {
+            m_density = density;
+            if (m_ink) m_ink.texture = ink;
+        }
+
         public static void PinsChanged() => s_pinsChanged = true;
 
         // Whether the pin settings let a pin show: the player's own pins always do, the game's
         // own marks by kind. Location pins (PinType.None) are traders when drawn as one, and other
         // places otherwise.
-        private static bool Shown(Snapshot.Pin pin, PinGlyph glyph)
+        internal static bool Shown(Snapshot.Pin pin, PinGlyph glyph)
         {
             switch (pin.m_type)
             {
@@ -421,7 +439,7 @@ namespace Atlas
                 if (drawn.TryGetValue(pin.m_icon, out glyph)) textures = Textures(glyph, null);
                 else if (sprites.TryGetValue(pin.m_icon, out Sprite sprite) && sprite) textures = Textures(glyph = PinGlyph.Traced, sprite);
                 else continue;
-                if (textures == null || !Shown(pin, glyph)) continue;
+                if (textures == null || !Shown(pin, glyph) || InSheet(snapshot, pin, glyph)) continue;
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
@@ -432,7 +450,7 @@ namespace Atlas
                 AddImage(holder, "Ink", textures.m_ink, lift);
                 if (pin.m_checked && check != null) AddImage(holder, "Checked", check.m_ink, lift);
                 string label = Localization.instance.Localize(pin.m_name);
-                if (font && !string.IsNullOrEmpty(label))
+                if (s_showNames && font && !string.IsNullOrEmpty(label))
                 {
                     PinLabel placed = AddLabel(holder, label, font);
                     placed.m_lift = lift;
@@ -618,7 +636,7 @@ namespace Atlas
         }
 
         // The vanilla pin icons the atlas draws itself, by sprite name; any other icon is traced.
-        private static Dictionary<string, PinGlyph> DrawnIcons(Minimap minimap)
+        internal static Dictionary<string, PinGlyph> DrawnIcons(Minimap minimap)
         {
             var drawn = new Dictionary<string, PinGlyph>();
             foreach (Minimap.SpriteData data in minimap.m_icons)

@@ -60,12 +60,13 @@ Mistlands have denser woods, and bog Swamps more dead trees.
 
 ## Settings
 
-Atlas uses your map key and the game's own fonts; your pins are redrawn in the atlas's
-pen (the game's five pin icons and the death marker in their own hand-drawn form, any other icon
-traced in outline, each filled in the colour of its biome), their names lettered beside them on
-the clearest ground, and always show. The game's own marks are drawn as map signs too, each kind
-switched on or off in `BepInEx/config/elridion.atlas.cfg` (or a config manager); a change shows
-the next time the atlas opens.
+Atlas uses your map key. Your pins are inked into the atlas itself in its own pen (the game's
+five pin icons and the death marker in their own hand-drawn form), each in a clearing among the
+trees and filled in the colour of its ground, and always show; pins in land you have not
+explored and other mods' icons stay markers over the parchment. Pin names are left off for now.
+The game's own marks are drawn as map signs too, each kind switched on or off in
+`BepInEx/config/elridion.atlas.cfg` (or a config manager); a change redraws the atlas in the
+background.
 
 | Key | Default | Description |
 | --- | --- | --- |
@@ -79,8 +80,9 @@ the next time the atlas opens.
 ## Notes
 
 - Client-side: install it on your own game; the server and other players do not need it.
-- The atlas for a world is drawn once, in the background, the first time you play there with
-  Atlas, and kept in `BepInEx/cache/elridion.atlas`. Until it is ready, the map key says so.
+- The atlas for a world is drawn in the background the first time you play there with Atlas,
+  and again whenever your pins change, and kept in `BepInEx/cache/elridion.atlas`. Until it is
+  ready, the map key says so.
 - Your recorded discoveries and pins are saved on your character, per world. Removing Atlas leaves
   them unused; nothing in the world is changed.
 - Other map mods that also change the cartography table or open a map in nomap worlds (such as

@@ -226,7 +226,8 @@ namespace Atlas
             Log(ink, body, 5.5f, 22.2f, 20.5f, 17.2f);
             Log(ink, body, 5.5f, 17.2f, 20.5f, 22.2f);
             body.EraseOutline(flame, Pen * 0.5f);
-            SolidInFront(ink, flame);
+            // A narrower line of paper round the flame than elsewhere, so it stays on its logs.
+            SolidInFront(ink, flame, PaperPen * 0.5f);
             PaperLine(ink, Curve(new[] { new Vector2(13f, 15.2f), new Vector2(11.6f, 12.4f), new Vector2(12.6f, 9.6f) }, closed: false), PaperPen);
         }
 
@@ -237,8 +238,7 @@ namespace Atlas
             ink.Stroke(x0, y0, x1, y1, LogWidth);
         }
 
-        // A longhouse: solid walls under a gable roof with crossed ridge ends, a line of paper
-        // under the eaves and a paper door.
+        // A longhouse: solid walls under a gable roof with crossed ridge ends and a paper door.
         private static void House(InkCanvas ink, InkCanvas body)
         {
             var outline = new List<Vector2>
@@ -250,8 +250,6 @@ namespace Atlas
             Solid(ink, outline);
             ink.Stroke(13f, 4.4f, 11.2f, 2.2f, FinePen);
             ink.Stroke(13f, 4.4f, 14.8f, 2.2f, FinePen);
-            // The eaves' line stops short of the walls, so the roof stays on them.
-            ink.Scrape(6.8f, 14f, 19.2f, 14f, PaperPen);
             ink.Erase(new[] { new Vector2(11.6f, 16.8f), new Vector2(14.4f, 16.8f), new Vector2(14.4f, 23f), new Vector2(11.6f, 23f) });
         }
 
@@ -295,10 +293,11 @@ namespace Atlas
         // size the outlined one had.
         private static void Solid(InkCanvas ink, IList<Vector2> outline) => FillSolid(ink, outline, Pen * 0.5f);
 
-        // A part inked solid in front of what is already drawn, a line of paper apart from it.
-        private static void SolidInFront(InkCanvas ink, IList<Vector2> outline)
+        // A part inked solid in front of what is already drawn, a line of paper apart from it,
+        // gap pin units wide (PaperPen when not given).
+        private static void SolidInFront(InkCanvas ink, IList<Vector2> outline, float gap = -1f)
         {
-            ink.EraseOutline(outline, Pen * 0.5f + PaperPen);
+            ink.EraseOutline(outline, Pen * 0.5f + (gap >= 0f ? gap : PaperPen));
             Solid(ink, outline);
         }
 
@@ -328,37 +327,73 @@ namespace Atlas
             Solid(ink, Circle(13f, 13f, 4.8f));
         }
 
-        // A dolmen, two standing stones under a capstone, for the rune icon players set on
-        // portals; the gap between the stones stays open ground.
+        // The portal, for the rune icon players set on portals: Valheim's stone portal, a round
+        // arch of stacked stones standing on two piers, the stones parted by lines of paper; the
+        // ground under the arch stays open.
+        private const float PortalCentreY = 12.2f;
+        private const float PortalOuter = 9.2f;
+        private const float PortalInner = 5.4f;
+        private const float PortalGround = 21.8f;
+        private const int PortalArchStones = 4;
+
         private static void Portal(InkCanvas ink, InkCanvas body)
         {
-            var cap = new List<Vector2> { new Vector2(4.6f, 7.4f), new Vector2(21.6f, 6.4f), new Vector2(21f, 10.4f), new Vector2(5f, 10.8f) };
-            var west = new List<Vector2> { new Vector2(6.4f, 10.8f), new Vector2(10.2f, 10.7f), new Vector2(10.6f, 21.6f), new Vector2(6f, 21.6f) };
-            var east = new List<Vector2> { new Vector2(15.8f, 10.6f), new Vector2(19.6f, 10.5f), new Vector2(20.2f, 21.6f), new Vector2(15.6f, 21.6f) };
-            foreach (List<Vector2> stone in new[] { cap, west, east }) body.EraseOutline(stone, Pen * 0.5f);
-            body.Scrape(3.6f, 21.8f, 22.4f, 21.8f, Pen);
-            Solid(ink, west);
-            Solid(ink, east);
-            SolidInFront(ink, cap);
-            ink.Stroke(3.6f, 21.8f, 22.4f, 21.8f, Pen);
+            const float Cx = 13f;
+            // Round the outside from the western pier's foot over the top to the eastern one's,
+            // then back round the inside.
+            var outline = new List<Vector2> { new Vector2(Cx - PortalOuter, PortalGround) };
+            const int Steps = 24;
+            for (int k = 0; k <= Steps; k++)
+            {
+                float a = Mathf.PI * (1f - k / (float)Steps);
+                outline.Add(new Vector2(Cx + Mathf.Cos(a) * PortalOuter, PortalCentreY - Mathf.Sin(a) * PortalOuter));
+            }
+            outline.Add(new Vector2(Cx + PortalOuter, PortalGround));
+            outline.Add(new Vector2(Cx + PortalInner, PortalGround));
+            for (int k = 0; k <= Steps; k++)
+            {
+                float a = Mathf.PI * k / Steps;
+                outline.Add(new Vector2(Cx + Mathf.Cos(a) * PortalInner, PortalCentreY - Mathf.Sin(a) * PortalInner));
+            }
+            outline.Add(new Vector2(Cx - PortalInner, PortalGround));
+            body.EraseOutline(outline, Pen * 0.5f);
+            Solid(ink, outline);
+            // The joints, a little finer than other paper lines, as many lines read as noise at a
+            // pin's size: radial between the arch's stones, level where the arch meets the piers and
+            // once across each pier, alternating in height so the piers read as stacked.
+            for (int k = 1; k < PortalArchStones; k++)
+            {
+                float a = Mathf.PI * k / PortalArchStones;
+                float cos = Mathf.Cos(a), sin = Mathf.Sin(a);
+                ink.Scrape(Cx + cos * (PortalInner - 1f), PortalCentreY - sin * (PortalInner - 1f),
+                    Cx + cos * (PortalOuter + 1f), PortalCentreY - sin * (PortalOuter + 1f), PaperPen * 0.8f);
+            }
+            float span = PortalGround - PortalCentreY;
+            foreach (float side in new[] { -1f, 1f })
+            {
+                float inner = Cx + side * (PortalInner - 1f), outer = Cx + side * (PortalOuter + 1f);
+                ink.Scrape(inner, PortalCentreY, outer, PortalCentreY, PaperPen * 0.8f);
+                float joint = PortalCentreY + span * (side < 0f ? 0.45f : 0.55f);
+                ink.Scrape(inner, joint, outer, joint, PaperPen * 0.8f);
+            }
         }
 
-        // Where a player died, their grave: a Norse memorial stone (bautasten) on a low mound,
+        // Where a player died, their grave: a Norse memorial stone (bautasten) on a low slab,
         // carved with the yr rune, the Younger Futhark's rune of the yew and of death, not a
         // cross, which has no place in a Norse afterlife.
         private static void Death(InkCanvas ink, InkCanvas body)
         {
             List<Vector2> stone = Curve(new[]
             {
-                new Vector2(7.8f, 20.6f), new Vector2(7.6f, 11.6f), new Vector2(9.6f, 5.4f), new Vector2(13.4f, 3.2f),
-                new Vector2(17f, 5.8f), new Vector2(18.6f, 12f), new Vector2(18.2f, 20.6f),
+                new Vector2(7.8f, 19.4f), new Vector2(7.6f, 11.6f), new Vector2(9.6f, 5.4f), new Vector2(13.4f, 3.2f),
+                new Vector2(17f, 5.8f), new Vector2(18.6f, 12f), new Vector2(18.2f, 19.4f),
             }, closed: false);
-            List<Vector2> mound = Curve(new[] { new Vector2(4.2f, 22f), new Vector2(8.6f, 19.6f), new Vector2(17.4f, 19.6f), new Vector2(21.8f, 22f) }, closed: false);
+            var slab = new List<Vector2> { new Vector2(5.4f, 20.2f), new Vector2(20.6f, 20.2f), new Vector2(20.6f, 22f), new Vector2(5.4f, 22f) };
             body.EraseOutline(stone, Pen * 0.5f);
-            body.EraseOutline(mound, Pen * 0.5f);
-            Solid(ink, mound);
-            ink.Stroke(4.2f, 22f, 21.8f, 22f, FinePen);
-            SolidInFront(ink, stone);
+            body.EraseOutline(slab, Pen * 0.5f);
+            Solid(ink, slab);
+            // A narrower line of paper than elsewhere between the stone and its slab.
+            SolidInFront(ink, stone, PaperPen * 0.5f);
             ink.Scrape(13f, 7f, 13f, 15.4f, PaperPen);
             ink.Scrape(13f, 11.2f, 10.6f, 14.9f, PaperPen);
             ink.Scrape(13f, 11.2f, 15.4f, 14.9f, PaperPen);
@@ -446,7 +481,7 @@ namespace Atlas
             };
             body.EraseOutline(outline, Pen * 0.5f);
             Solid(ink, outline);
-            ink.EraseOutline(Doorway(8.8f, 17.2f, 16.8f, 14.6f, 21.6f), 0f);
+            ink.EraseOutline(Doorway(10.4f, 15.6f, 18.4f, 16.6f, 21.6f), 0f);
         }
 
         // Hildir's third, the Sealed Towers: a plain flat-topped solid tower with a window slit

@@ -471,7 +471,7 @@ internal static class Program
             new[] { "House", "House (Icon1)", "longhouse" },
             new[] { "Hammer", "Hammer (Icon2)", "Mjolnir pendant" },
             new[] { "Point", "Circle (Icon3)", "dot" },
-            new[] { "Portal", "Portal (Icon4)", "dolmen" },
+            new[] { "Portal", "Portal (Icon4)", "stone portal" },
             new[] { "Death", "Death (tombstone)", "memorial stone, yr rune" },
             new[] { "Bed", "Bed (spawn point)", "game's pin: bed" },
             new[] { "Boss", "Boss (Vegvisir)", "game's pin: horned skull" },

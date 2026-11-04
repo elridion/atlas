@@ -30,7 +30,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (dot, stone circle) and traced sprites stay centred.
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, house: longhouse,
   the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer, not a work hammer;
-  circle: dot; portal: dolmen; death: memorial stone with the yr rune on a mound, never a
+  circle: dot; portal: the stone portal, a round arch of stacked stones; death: memorial stone with the yr rune on a slab, never a
   cross; checked: struck through with paper, `InkCanvas.Pin`, a red strike vanishing on a solid glyph). The game's own pins get map signs too: bed (spawn point), a
   solid horned skull in the language of the game's boss icon (Boss, from Vegvisirs), Hildir1-3
   as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and tower (Sealed Towers); location

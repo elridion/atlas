@@ -53,8 +53,8 @@
   never cut in half by the edge of the unexplored parchment.
 - "Read map" at a cartography table opens the game's own interactive map, where you can place and
   edit pins. Your pins appear on the atlas the next time you record your discoveries, drawn with
-  the map's own pen: a campfire, a longhouse, Thor's hammer Mjolnir, a dot, a dolmen for
-  the portal icon, a rune-carved memorial stone where you died, and boss, trader and other icons
+  the map's own pen: a campfire, a longhouse, Thor's hammer Mjolnir, a dot, a round arch of stacked stones, the stone portal, for
+  the portal icon, a rune-carved memorial stone on a slab where you died, and boss, trader and other icons
   traced in outline. The game's own marks are drawn as map signs too: your bed, your last
   death, a horned skull for a boss's altar, a barrow, a cave mouth and a tower for Hildir's
   requests, a bag for Haldor, a tent for Hildir's

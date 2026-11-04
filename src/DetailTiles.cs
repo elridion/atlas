@@ -9,8 +9,7 @@ namespace Atlas
 {
     /// <summary>
     /// Close-ups as fixed tiles, as web maps do: TilePixels squared tiles at the finest
-    /// magnification the view reaches (4x, or 8x above 1080p or with a larger UI scale), the one
-    /// level at every zoom, mipmapped so they stay clean when zoomed out, each drawn on its own
+    /// magnification the view reaches, at most 4x, the one level at every zoom, mipmapped so they stay clean when zoomed out, each drawn on its own
     /// worker (DetailTile.Render) and kept as a
     /// texture. The view fills in piece by piece, each tile fading in, panning back is instant,
     /// and tiles are drawn ahead of need: a ring round the view, and round the pointer before the
@@ -19,13 +18,16 @@ namespace Atlas
     internal sealed class DetailTiles
     {
         private const int TilePixels = 256;
-        private static readonly int[] s_scales = { 2, 4, 8 };
+        // No 8x level: above 1080p it took four times the tiles of 4x for the same view, and in game
+        // a view of them filled in 6 to 15 s (timing build, 1440p, the user's call). There 4x tiles
+        // are magnified a little at the deepest zoom.
+        private static readonly int[] s_scales = { 2, 4 };
         // Screen pixels per sheet pixel from which tiles are shown; below it the sheet is sharp
         // enough, and at the finest level a wider view would take hundreds of tiles.
         private const float DetailFrom = 1.25f;
         // The most tiles a view may take before close-ups start: a 1080p view at DetailFrom takes
-        // about 340 at the 4x level; at 1440p the 8x level starts at about 2.6 screen pixels a
-        // sheet pixel, at 4K about 4 (the user asked for close-ups a little earlier).
+        // about 340; at 1440p close-ups start at about 1.3 screen pixels a sheet pixel, at 4K
+        // about 2 (the user asked for close-ups a little earlier).
         private const int MaxVisible = 520;
         // Ground samples every GridPixels tile pixels (the nearest SampleCache spacing).
         private const float GridPixels = 3f;
@@ -64,7 +66,7 @@ namespace Atlas
         private readonly List<long> m_wanted = new List<long>(256);
         private readonly HashSet<long> m_wantedSet = new HashSet<long>();
         private readonly List<long> m_finished = new List<long>();
-        private readonly RectTransform[] m_layers = new RectTransform[3];
+        private readonly RectTransform[] m_layers = new RectTransform[s_scales.Length];
         private RectTransform m_parent;
         private CancellationTokenSource m_cancel = new CancellationTokenSource();
         private long m_frame;

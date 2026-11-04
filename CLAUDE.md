@@ -48,8 +48,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   altar 18, a barrow 20, a cave or tower 22, the Sacrificial Stones 26), standing on its place by `PinGlyphs.Lift`. That
   size is levelled to the trees: close-ups draw pins smaller by their level of detail as they
   draw their trees (`InkCanvas.Pin` scales the box about the pin's foot by the canvas's pen
-  scale, `FindMarks` sizes a tile's marks by `1 / lod`), so on a screen above 1080p, whose
-  close-ups are 8x (lod 2), pins keep their size beside the trees. Inked by `InkCanvas.Pin` in red (`Paper.PinInkColor`, a dulled vermilion, as places were rubricated
+  scale, `FindMarks` sizes a tile's marks by `1 / lod`), so at the 4x close-ups (lod 1.41)
+  pins keep their size beside the trees. Inked by `InkCanvas.Pin` in red (`Paper.PinInkColor`, a dulled vermilion, as places were rubricated
   on maps of the period; black pins in the terrain's ink were lost in woods and ranges and at
   the opening zoom), on a plane of its own (`InkCanvas.m_pinInk`, the sheet's sixth plane,
   scraped by glyphs drawn in front like black ink), with the map's own pen for inner lines and
@@ -740,15 +740,16 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   grey in the ink mips at the opening zoom. The Ashlands hatch is the one deliberate grey tone.
 - Close-ups need the painted record, so the world is painted in the background right after login even behind a cached sheet (about 15 s in game; started only on the first opening, close-ups came 30 s after joining, the user's call). In game a 256² close-up took about 85 ms on a worker (timing build, 1440p, 8x tiles): sampling 14, ink 15 (80+ in dense woods), colour 42, mipmaps 1. The colour pass now reads each paper value once per pixel (`DetailTile.Render`), pixel for pixel the same. Skipping trees whose footprint misses the tile saved nothing (clipped strokes are cheap); the ink cost is in the trees on the tile.
 - Zoomed in past 1.25 screen pixels per sheet pixel, close-ups come from fixed 256² tiles
-  (`DetailTiles`) at one level only, at every zoom: the finest the view reaches (4x, 8x above
-  1080p or with a UI scale over 1), mipmapped on the worker and faded in over 0.2 s, laid over
+  (`DetailTiles`) at one level only, at every zoom: the finest the view reaches, at most 4x (an 8x level above
+  1080p took four times the tiles for a view and filled in 6 to 15 s in game, so it was dropped,
+  the user's call; there 4x tiles are magnified a little at the deepest zoom), mipmapped on the worker and faded in over 0.2 s, laid over
   the sheet (opaque, under the fog). Do not pick the level by zoom: each level draws at its own
   level of detail, so trees and marks change as the zoom crosses levels. Do not show coarser
   levels while fine ones load either: levels replacing each other look scratchy. Close-ups
   start at `DetailFrom` 1.25 or once the view takes at most `MaxVisible` 520 tiles, whichever is
-  later (from the viewport's screen size, so panning never toggles them): above 1080p the 8x
-  level has four times the tiles of 1080p's 4x over the same view, thousands at `DetailFrom`,
-  so there they start at about 2.6 screen pixels a sheet pixel at 1440p, 4 at 4K (lowered from 1.5 and 400 when the user asked for close-ups a little earlier). Tiles are drawn ahead of need, one per worker (half the cores, at most 4): the view
+  later (from the viewport's screen size, so panning never toggles them): above 1080p the view
+  takes more tiles than at 1080p,
+  so there they start at about 1.3 screen pixels a sheet pixel at 1440p, 2 at 4K (lowered from 1.5 and 400 when the user asked for close-ups a little earlier). Tiles are drawn ahead of need, one per worker (half the cores, at most 4): the view
   from the pointer outward and a ring of one tile round it; zoomed out, up to 48 tiles round the
   pointer, where a zoom lands. At most 3 textures are uploaded a frame and 320 kept (about
   110 MB with mips), or the tiles wanted plus 160 when that is more. Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs

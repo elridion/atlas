@@ -530,9 +530,13 @@ internal static class Program
                 g.DrawString(rows[row][2], small, ink, 8, top + rowHeight / 2 - 6);
                 g.DrawString($"{box:0} sheet px box", small, ink, 8, top + rowHeight / 2 + 10);
                 foreach (string part in parts) Stamp(part, box, nameWidth + bigCell / 2, top + rowHeight / 2, bigScale, parts.Length > 1 && part == "Checked" ? (System.Drawing.Color?)null : paperColor);
+                // The game's own pins stand on land: beds, altars, dungeons, traders and the
+                // Stones never lie in water. The player's pins and deaths can.
+                bool onWater = row < 6 || parts.Length > 1;
                 for (int c = 0; c < lands.Length; c++)
                 {
                     bool water = lands[c] == "Ocean";
+                    if (water && !onWater) continue;
                     var colour = (Color32)bodyColor.Invoke(null, new object[] { Enum.Parse(land, lands[c]), water });
                     var fill = System.Drawing.Color.FromArgb(colour.r, colour.g, colour.b);
                     int x0 = nameWidth + bigCell + c * cell, y0 = top + (rowHeight - cell) / 2;

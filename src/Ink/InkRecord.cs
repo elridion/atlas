@@ -142,6 +142,11 @@ namespace Atlas
 
         // The pins the sheet was drawn with, so close-ups keep the same clearings round them.
         public SheetPin[] m_pins = new SheetPin[0];
+        // Per pin, in the same order: where it stands in the drawing order and how much of its
+        // box the relief in front of it covers (InkPainter.OrderMarks), so close-ups give its
+        // trees the same share.
+        public float[] m_pinOrders;
+        public float[] m_pinCovers;
 
         // Calls visit with the ends and width of every stroke of a layer touching the sheet
         // rectangle (each once). Scrapes are left out.

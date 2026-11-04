@@ -58,7 +58,7 @@
   Potential, are traced in outline. Pins are inked into the map itself in its own wavering pen,
   each as large as what it stands for beside the trees (a campfire smaller than a tree, a
   longhouse about one, a tower, a cave or the Sacrificial Stones larger): standing on its place
-  among the trees, which may cover part of it but never more than about half, drawn over the peaks in the mountains, filled in the
+  among the trees and peaks, which may cover part of it but never more than about half, filled in the
   colour of the ground it stands on, and sharp at every zoom; checked pins are struck through. Pins out in land you have not explored, and other mods' icons, stay
   markers over the parchment. When your pins change, the atlas is drawn again in the
   background. Pin names are left off for now.

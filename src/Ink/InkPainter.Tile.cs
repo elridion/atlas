@@ -30,6 +30,7 @@ namespace Atlas
             var painter = new InkPainter(world, canvas, grid, lod, region, cancel) { m_scatter = scatter };
             // The sheet's pins, so the tile's trees and ground marks keep the same clearings.
             painter.FindMarks(record.m_pins);
+            painter.TakeMarkOrders(record);
             painter.RunTile(record);
         }
 

@@ -93,8 +93,13 @@ namespace Atlas
         private static float LogWidth => s_pen > 0f ? s_pen * 1.6f : MarkerLogWidth;
         private static float RunePen => s_pen > 0f ? s_pen * 1.2f : MarkerRunePen;
         // The engraver's gap: terrain ink stops this far short of the pin's lines, as pen lines
-        // break off round a symbol on a hand-drawn map, so trees do not run into its outline.
-        private const float Gap = 1.2f;
+        // break off round a symbol on a hand-drawn map, so trees do not run into its outline. A
+        // pin drawn into the sheet keeps the halo a tree's crown scrapes round its own line, half
+        // a pen past the ink (a crown's erase reaches 0.7 pen past its line's middle), so pins and
+        // trees stand off each other alike.
+        private const float MarkerGap = 1.2f;
+        private const float SheetGap = 0.5f;
+        private static float Gap => s_pen > 0f ? s_pen * SheetGap : MarkerGap;
         // A pin drawn into the sheet wavers as a hand-drawn line does: every point is moved by a
         // smooth noise of its place, up to Waver pin units, over WaverGrain units.
         private const float Waver = 0.45f;
@@ -417,7 +422,6 @@ namespace Atlas
             Loop(ink, outline, Pen);
             ink.Stroke(13f, 8.6f, 13f, 11.6f, Pen);
             FillSolid(ink, Curve(new[] { new Vector2(11.4f, 21.8f), new Vector2(11.4f, 18f), new Vector2(13f, 16.4f), new Vector2(14.6f, 18f), new Vector2(14.6f, 21.8f) }, closed: false));
-            ink.Stroke(4.4f, 21.8f, 21.6f, 21.8f, Pen);
         }
 
         // The Sacrificial Stones, where every Viking wakes: a ring of standing stones round a low

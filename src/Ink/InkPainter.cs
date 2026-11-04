@@ -510,11 +510,26 @@ namespace Atlas
 
         private static bool IsMark(Kind kind) => kind == Kind.Pin;
 
-        // Leaves out the trees in front of each pin beyond MarkCover of its box: those drawn after
-        // it (feet further south) whose footprints overlap it are taken in order of their feet,
-        // north first, each adding its overlap, and the rest are left out. Overlaps are added up,
-        // so crowns covering each other count twice and the pin shows a little more. A close-up
-        // decides alike, as it scatters every tree that can reach a pin it draws (m_markReach).
+        // A close-up's marks take the sheet's order and relief cover (OrderMarks).
+        private void TakeMarkOrders(InkRecord record)
+        {
+            if (record.m_pinOrders == null || record.m_pinOrders.Length != m_marks.Count) return;
+            for (int i = 0; i < m_marks.Count; i++)
+            {
+                Glyph mark = m_marks[i];
+                mark.m_order = record.m_pinOrders[i];
+                mark.m_cover = record.m_pinCovers[i];
+                m_marks[i] = mark;
+            }
+        }
+
+        // Leaves out the trees in front of each pin beyond what MarkCover of its box leaves after
+        // the relief in front of it (OrderMarks, m_cover): the trees drawn after it whose
+        // footprints overlap it are taken in order of their feet, north first, each adding its
+        // overlap, and the rest are left out. Overlaps are added up, so crowns covering each other
+        // count twice and the pin shows a little more. A close-up decides alike, as it scatters
+        // every tree that can reach a pin near it (ScatterArea) and takes each pin's order and
+        // relief cover from the record.
         private void LimitMarkCover(int first)
         {
             if (m_marks.Count == 0) return;
@@ -528,7 +543,7 @@ namespace Atlas
                 for (int i = first; i < m_glyphs.Count; i++)
                 {
                     Glyph g = m_glyphs[i];
-                    if (g.m_y <= mark.m_y || dropped.Contains(i)) continue;
+                    if (!IsTree(g.m_kind) || g.m_y <= mark.m_order || dropped.Contains(i)) continue;
                     if (Overlap(GlyphBox(g), pin) > 0f) candidates.Add(i);
                 }
                 candidates.Sort((a, b) =>
@@ -536,7 +551,7 @@ namespace Atlas
                     int byFoot = m_glyphs[a].m_y.CompareTo(m_glyphs[b].m_y);
                     return byFoot != 0 ? byFoot : m_glyphs[a].m_x.CompareTo(m_glyphs[b].m_x);
                 });
-                float covered = 0f;
+                float covered = mark.m_cover;
                 foreach (int i in candidates)
                 {
                     float overlap = Overlap(GlyphBox(m_glyphs[i]), pin);
@@ -582,23 +597,36 @@ namespace Atlas
         // The order glyphs are drawn in, north to south: a glyph's foot, a mark's m_order.
         private static float Order(Glyph g) => IsMark(g.m_kind) ? g.m_order : g.m_y;
 
-        // Draws each mark after every piece of relief whose footprint reaches its core, so a peak
-        // standing in front of a pin does not hide it: the pin is inked over the peak, its body
-        // scraping only what lies under it.
+        // Relief in front of a pin may cover it up to MarkCover of its box too, but is never left
+        // out: the relief drawn after the pin that overlaps it is taken north first, each adding
+        // its overlap (m_cover), and where the next would pass MarkCover the pin is drawn after it
+        // instead (m_order), inked over the peak with its body scraping only what lies under it.
+        // Trees get what MarkCover leaves (LimitMarkCover).
         private void OrderMarks()
         {
+            var front = new List<Glyph>();
             for (int i = 0; i < m_marks.Count; i++)
             {
                 Glyph mark = m_marks[i];
-                Vector4 box = GlyphBox(mark);
-                float dx = (box.z - box.x) * MarkCore, dy = (box.w - box.y) * MarkCore;
-                var core = new Vector4(box.x + dx, box.y + dy, box.z - dx, box.w - dy);
+                Vector4 pin = GlyphBox(mark);
+                float area = (pin.z - pin.x) * (pin.w - pin.y);
+                front.Clear();
                 foreach (Glyph g in m_glyphs)
+                    if (IsRelief(g.m_kind) && g.m_y > mark.m_y && Overlap(GlyphBox(g), pin) > 0f) front.Add(g);
+                front.Sort((a, b) => a.m_y != b.m_y ? a.m_y.CompareTo(b.m_y) : a.m_x.CompareTo(b.m_x));
+                float covered = 0f;
+                foreach (Glyph g in front)
                 {
-                    if (!IsRelief(g.m_kind) || g.m_y <= mark.m_order) continue;
-                    Vector4 b = GlyphBox(g);
-                    if (b.x < core.z && core.x < b.z && b.y < core.w && core.y < b.w) mark.m_order = g.m_y + 0.01f;
+                    if (g.m_y <= mark.m_order) continue;
+                    float overlap = Overlap(GlyphBox(g), pin);
+                    if (covered + overlap <= MarkCover * area) covered += overlap;
+                    else mark.m_order = g.m_y + 0.01f;
                 }
+                // Relief the pin now stands in front of no longer covers it.
+                covered = 0f;
+                foreach (Glyph g in front)
+                    if (g.m_y > mark.m_order) covered += Overlap(GlyphBox(g), pin);
+                mark.m_cover = covered;
                 m_marks[i] = mark;
             }
         }
@@ -640,8 +668,10 @@ namespace Atlas
             public int m_seed;
             // A hill drawn without the smaller dome behind it, dropped to keep it off water.
             public bool m_lone;
-            // A mark's place in the drawing order (Order), at or south of its foot.
+            // A mark's place in the drawing order (Order), at or south of its foot, and the share of
+            // its box the relief in front of it covers (OrderMarks).
             public float m_order;
+            public float m_cover;
         }
 
         // Everything a scatter rule needs to know about one canvas point.
@@ -2117,7 +2147,8 @@ namespace Atlas
             // wood, as the Black Forest's pines do, off the steep ground where the spires stand.
             ScatterTrees(7f * m_t, 29, 0.9f, Kind.GiantTree, s => s.m_slope < SpireSlope && InWood(s, Land.Mistlands, 13f * m_t));
             HideCoveredCrowns(first);
-            LimitMarkCover(first);
+            // A close-up's trees; the sheet limits its trees once the relief is placed (PlaceGlyphs).
+            if (m_grid != null) LimitMarkCover(first);
         }
 
         // One biome's trees: a candidate on each cell of a spacing grid, kept with odds, where
@@ -2347,12 +2378,25 @@ namespace Atlas
                 if (!WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
                 m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
-            // The pins among the rest: glyphs placed without Add that would hide one give way too,
-            // but for the relief, which a pin is drawn in front of (OrderMarks).
+            // The pins among the rest: glyphs placed without Add that would hide one give way too;
+            // the relief in front of each takes its share of the cover first (OrderMarks), the
+            // trees the rest (LimitMarkCover). Close-ups take the order and the relief's cover
+            // from the record.
             if (m_marks.Count > 0)
             {
                 m_glyphs.RemoveAll(g => !ClearOfMarks(g));
                 OrderMarks();
+                LimitMarkCover(0);
+                if (m_record != null)
+                {
+                    m_record.m_pinOrders = new float[m_marks.Count];
+                    m_record.m_pinCovers = new float[m_marks.Count];
+                    for (int i = 0; i < m_marks.Count; i++)
+                    {
+                        m_record.m_pinOrders[i] = m_marks[i].m_order;
+                        m_record.m_pinCovers[i] = m_marks[i].m_cover;
+                    }
+                }
                 m_glyphs.AddRange(m_marks);
             }
         }

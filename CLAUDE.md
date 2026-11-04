@@ -52,17 +52,20 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
   so the ground's own wash fills it; checked pins are struck through. Recorded as `Op.Pin`, so
   close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so
-  trees in front may cover part of one, up to `MarkCover` 45% of its box (the user's rule;
-  `LimitMarkCover`: the trees drawn after a pin that overlap its box, taken north first, each
-  adding its box overlap, the rest left out). A close-up decides alike because it scatters
-  every tree that can reach a pin near it (`ScatterArea`, `PinInfluence` round each pin, the
-  ground sampled that far too). Any other glyph drawn after a pin whose footprint reaches its
+  relief and trees in front may cover part of one, together up to `MarkCover` 45% of its box
+  (the user's rule). Relief goes first and is never left out (`OrderMarks`: the relief drawn
+  after a pin that overlaps its box, north first, each adding its box overlap to `m_cover`;
+  where the next would pass `MarkCover` the pin is drawn after it instead, `m_order`). Trees
+  get the rest (`LimitMarkCover`: those drawn after the pin's order, north first, the rest
+  left out). The record keeps each pin's order and relief cover (`m_pinOrders`,
+  `m_pinCovers`), and a close-up scatters every tree that can reach a pin near it
+  (`ScatterArea`, `PinInfluence` round each pin, the ground sampled that far too), so tiles
+  decide alike. Any other glyph drawn after a pin whose footprint reaches its
   core (`MarkCore` 0.3 of its box in from each side) is left out (`ClearOfMarks` in `Add`, the
   rest removed after placement; cores filed in `PeakCell` squares). A broad clearing round
   every pin was too aggressive. Relief (peaks, hills, crags, volcanoes, `IsRelief`) is never
-  left out, as a range must still read as one (the user's requirement): a pin is drawn after any
-  relief whose footprint reaches its core (`OrderMarks`, `Glyph.m_order`, the group's foot),
-  so in the mountains it stands over the peaks, its body scraping only what lies under it.
+  left out, as a range must still read as one (the user's requirement); a pin drawn in front of
+  a peak scrapes only what lies under its body.
   Close-ups take the list from `InkRecord.m_pins` and decide the same. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
   a different key paints the world again in the background (about 6 s offline), the old sheet
   showing until the new one is uploaded and the table sparkling meanwhile; the close-up tiles
@@ -77,7 +80,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Anything else is traced from its sprite (other locations such as the Forge of Potential, other
   mods' pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
   parts inked); every body reaches `Gap` past the lines, the engraver's break that keeps trees
-  off the outline. Vanilla `PinType` (from assembly_valheim): Icon0-4, Death, Bed, Shout, None,
+  off the outline: for pins drawn into the sheet half a pen past the ink (`SheetGap`), the
+  halo a tree's crown scrapes round its own line, so pins and trees stand off each other alike.
+  The game's own pins never lie in water (beds, altars, dungeons, traders, the Stones), so the
+  catalogue shows them on land only. Vanilla `PinType` (from assembly_valheim): Icon0-4, Death, Bed, Shout, None,
   Boss, Player, RandomEvent, Ping, EventArea, Hildir1-3, Memorial. Its `AddPin` call sites:
   player pins, profile pins (bed and last death, `UpdateProfilePins`), location pins
   (`PinType.None`), events, players, pings and shouts (all passing), and `DiscoverLocation`

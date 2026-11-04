@@ -262,7 +262,7 @@ internal static class Program
                 for (int ty = 0; ty < 3; ty++)
                     for (int tx = 0; tx < 3; tx++)
                     {
-                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, null });
+                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, null, null });
                         for (int y = 0; y < 256; y++)
                             Buffer.BlockCopy(tile, y * 1024, all, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
                     }
@@ -422,7 +422,7 @@ internal static class Program
                 for (int ty = 0; ty < 3; ty++)
                     for (int tx = 0; tx < 3; tx++)
                     {
-                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, null });
+                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, null, null });
                         for (int y = 0; y < 256; y++)
                             Buffer.BlockCopy(tile, y * 1024, all, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
                     }
@@ -442,7 +442,7 @@ internal static class Program
                 int w = int.Parse(p[3]), scale = int.Parse(p[4]);
                 int left = (int)((wx + half) / mpp) - w / 2, top = (int)((half - wz) / mpp) - w / 2;
                 var rgba = p.Length > 5 && p[5] == "sheet" ? Sheet(inkMips, washed, fog, left, top, w, scale)
-                    : (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt(left, top, w, w), scale, 3f, 4, CancellationToken.None, null });
+                    : (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt(left, top, w, w), scale, 3f, 4, CancellationToken.None, null, null });
                 Dirt(rgba, w * scale, left, top, w, scale, dirt, fog);
                 Save(Path.Combine(outDir, p[0] + ".png"), rgba, w * scale, w * scale, 1);
             }

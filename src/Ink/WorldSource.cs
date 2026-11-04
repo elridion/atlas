@@ -83,13 +83,6 @@ namespace Atlas
         // deep swamp water joined to the sea must be to stay water (MarkSwampSea).
         public const float SwampFloor = 0.5f;
         public const float SwampShallow = 1.5f;
-        // Inland water patches mostly in the Mistlands under this many map pixels (32: about
-        // 4,600 m², a pool some 70 m across) are filled to their lowest rim, at least
-        // MistPoolFloor above the water, so the Mistlands' hundreds of little pools do not
-        // clutter it with shores (MarkMistPools). On Velen 1,472 of its 1,499 inland patches are
-        // smaller; the 27 left read as lakes.
-        public const int MistPoolCells = 32;
-        public const float MistPoolFloor = 0.5f;
         // Vanilla's Mountain firs (ZoneSystem vegetation firtree_mountain and
         // firtree_small_mountain): at most this many metres above the water, on ground no steeper
         // than this many degrees (m_maxAltitude 280, m_maxTilt 30).
@@ -126,10 +119,6 @@ namespace Atlas
         // Swamp water joined to the sea, which is not raised (MarkSwampSea).
         public bool[] m_swampSea;
         private const int SwampBlur = 3;
-        // The Mistlands pools raised to land (MarkMistPools): 1 on a raised pool's pixel, 2 on
-        // the land round it that touches no water left as water, where the generator's finer
-        // heights may still dip under the water line at the pool's rim.
-        public byte[] m_mistPool;
         // Rivers and streams from the world generator. The minimap's 12 m pixels lose the narrow
         // ones (a stream's channel is about 20 m wide), so they are drawn from their courses.
         public readonly List<RiverPath> m_rivers = new List<RiverPath>();
@@ -308,7 +297,6 @@ namespace Atlas
             MarkMountainForest();
             for (int i = 0; i < count; i++)
                 if (m_biome[i] == Land.Swamp && m_height[i] <= m_waterLevel && !m_swampSea[i]) m_height[i] = m_waterLevel + SwampFloor;
-            MarkMistPools();
             for (int pass = 0; pass < SwampBlur; pass++)
             {
                 Paper.Blur(m_swampWet, m_size);
@@ -473,130 +461,6 @@ namespace Atlas
             }
         }
 
-        // The Mistlands' small inland pools become their ground, so the tiny pools do not clutter
-        // the biome with little shores. Velen has 1,499 inland water patches mostly in the
-        // Mistlands, 799 of two pixels or more against the Plains' 432 and the Black Forest's
-        // 294, and all but 27 are under MistPoolCells; those few larger lakes stay. Water joined
-        // to the sea stays the sea. The sea is flooded four-way from the map's edge as
-        // InkPainter.MarkSea floods it, with a lone land pixel counted as water since the painter
-        // drops it (RemoveSpecks), so no inlet or channel of the painted sea is filled.
-        private void MarkMistPools()
-        {
-            int count = m_size * m_size;
-            m_mistPool = new byte[count];
-            var sea = new bool[count];
-            var seen = new bool[count];
-            var queue = new int[count];
-            int head = 0, tail = 0;
-            // The lowest land round the patch being flooded.
-            float rim = float.MaxValue;
-            for (int k = 0; k < m_size; k++)
-            {
-                Sea(k);
-                Sea((m_size - 1) * m_size + k);
-                Sea(k * m_size);
-                Sea(k * m_size + m_size - 1);
-            }
-            while (head < tail)
-            {
-                int i = queue[head++];
-                int x = i % m_size, z = i / m_size;
-                if (x > 0) Sea(i - 1);
-                if (x < m_size - 1) Sea(i + 1);
-                if (z > 0) Sea(i - m_size);
-                if (z < m_size - 1) Sea(i + m_size);
-            }
-            for (int start = 0; start < count; start++)
-            {
-                if (seen[start] || sea[start] || !IsWet(start)) continue;
-                head = 0;
-                tail = 0;
-                seen[start] = true;
-                queue[tail++] = start;
-                int water = 0, mist = 0;
-                rim = float.MaxValue;
-                while (head < tail)
-                {
-                    int i = queue[head++];
-                    if (m_height[i] <= m_waterLevel)
-                    {
-                        water++;
-                        if (m_biome[i] == Land.Mistlands) mist++;
-                    }
-                    int x = i % m_size, z = i / m_size;
-                    if (x > 0) Pool(i - 1);
-                    if (x < m_size - 1) Pool(i + 1);
-                    if (z > 0) Pool(i - m_size);
-                    if (z < m_size - 1) Pool(i + m_size);
-                }
-                if (water >= MistPoolCells || 2 * mist <= water) continue;
-                // Filled to its lowest rim, never under MistPoolFloor, so the pool leaves no hollow
-                // for the summits, crags and mist that read the heights to find.
-                float floor = Math.Max(m_waterLevel + MistPoolFloor, rim);
-                for (int k = 0; k < tail; k++)
-                {
-                    int i = queue[k];
-                    if (m_height[i] > m_waterLevel) continue;
-                    m_height[i] = floor;
-                    m_mistPool[i] = 1;
-                }
-            }
-            // The rim: land beside a raised pool, unless it also touches water that stays water,
-            // whose edge the generator's samples there belong to.
-            int last = m_size - 1;
-            for (int i = 0; i < count; i++)
-            {
-                if (m_mistPool[i] != 0 || m_height[i] <= m_waterLevel) continue;
-                int x = i % m_size, z = i / m_size;
-                bool pool = false, water = false;
-                for (int nz = Math.Max(0, z - 1); nz <= Math.Min(last, z + 1); nz++)
-                {
-                    for (int nx = Math.Max(0, x - 1); nx <= Math.Min(last, x + 1); nx++)
-                    {
-                        int j = nz * m_size + nx;
-                        if (m_mistPool[j] == 1) pool = true;
-                        else if (m_height[j] <= m_waterLevel) water = true;
-                    }
-                }
-                if (pool && !water) m_mistPool[i] = 2;
-            }
-
-            void Sea(int j)
-            {
-                if (sea[j] || !IsWet(j)) return;
-                sea[j] = true;
-                queue[tail++] = j;
-            }
-
-            void Pool(int j)
-            {
-                if (!IsWet(j))
-                {
-                    rim = Math.Min(rim, m_height[j]);
-                    return;
-                }
-                if (seen[j] || sea[j]) return;
-                seen[j] = true;
-                queue[tail++] = j;
-            }
-        }
-
-        // Water, or a lone pixel of land with water on all four sides, which the painter drops.
-        private bool IsWet(int i)
-        {
-            if (m_height[i] <= m_waterLevel) return true;
-            int x = i % m_size, z = i / m_size;
-            if (x > 0 && m_height[i - 1] > m_waterLevel) return false;
-            if (x < m_size - 1 && m_height[i + 1] > m_waterLevel) return false;
-            if (z > 0 && m_height[i - m_size] > m_waterLevel) return false;
-            if (z < m_size - 1 && m_height[i + m_size] > m_waterLevel) return false;
-            return true;
-        }
-
-        // Whether world point (wx, wz) lies on a raised Mistlands pool or its rim
-        // (MarkMistPools); close-ups raise the generator's finer heights there too.
-        public bool IsMistPool(float wx, float wz) => m_mistPool != null && m_mistPool[Index(wx, wz)] != 0;
-
         // Vanilla grows every Deep North tree (snowy firs and pines, ZoneSystem's vegetation from
         // _LocationList_DeepNorth) only where the forest factor is under 1.15, the Meadows' own
         // forest limit, yet its minimap mask (Minimap.GetMaskColor) marks no forest there. So the
@@ -726,11 +590,10 @@ namespace Atlas
 
         public Land LandAt(float wx, float wz) => m_biome[Index(wx, wz)];
 
-        // Water as the sheet washes it: swamp pools away from the sea and the Mistlands' raised
-        // pools read as ground.
+        // Water as the sheet washes it: swamp pools away from the sea read as ground.
         public bool IsWaterAt(float wx, float wz)
         {
-            if (HeightAt(wx, wz) > m_waterLevel || IsMistPool(wx, wz)) return false;
+            if (HeightAt(wx, wz) > m_waterLevel) return false;
             return LandAt(wx, wz) != Land.Swamp || IsSwampSea(wx, wz);
         }
 

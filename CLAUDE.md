@@ -109,8 +109,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - **Atlas is a navigation tool**, meant to be as accurate as vanilla's map but only as current as
   the last table visit. Accuracy wins over looks.
 - The coastline is traced (marching squares) on vanilla's own heights, unsmoothed, keeping every
-  island and lake; only single 12 m pixels are dropped, and swamp pools and the Mistlands' small
-  pools are raised to land before (`SwampFloor`, `MarkMistPools`, below). Water joined to the
+  island and lake; only single 12 m pixels are dropped, and swamp pools are raised to land before
+  (`SwampFloor`, below). Water joined to the
   world's edge (`MarkSea`, four-way flood fill) is the sea and gets the water lines, as do wide
   lakes; every shore, sea or inland, has the same pen (a thinner lake shore reads as unexplained
   inland lines; the water's blue tells lakes apart). The coast pen is 1.4 px on the sheet and 2.2
@@ -565,20 +565,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the feet of glyphs drawn after it, and shows as a hairline along a peak's or crag's base.
   Sorting banks by that lowest point instead lays them over many more crowns and across the
   peaks' lower bodies.
-  Its micro lakes are ground: many tiny inland pools clutter it with little shores, and the
-  Mistlands have far more small inland water patches (four-way, not joined to the sea) than any
-  other biome, nearly all under 32 cells. `WorldSource.MarkMistPools` fills those under
-  `MistPoolCells` 32 (about 4,600 m², a pool some 70 m across) to their lowest rim, at least
-  `MistPoolFloor` 0.5 m above the water, so no hollow is left for summits, crags or mist. The
-  larger lakes stay and may get lake lines. The sea is flooded from the map's edge as `MarkSea`
-  does, a lone land pixel counting as water since `RemoveSpecks` drops it, so no inlet or
-  channel of the painted sea is filled. `m_mistPool` marks the raised pixels (1) and the land
-  round them that touches no other water (2); `GeneratorSampler` raises its samples under the
-  water there to the sheet's own height and takes the sheet's wood field (16-31 cell pools in a
-  wood are clearings, as the forest mask has no trees on water), so close-ups agree with the
-  sheet. Former pool rims pass the spires' shore test, so a few filler spires stand where the
-  steep ground beside a pool was. The offline preview samples the minimap, so only the game
-  shows the generator's side.
+  Its small inland pools stay water, every one with its own shore: filled in as ground, the
+  Mistlands lost the many little lakes that are part of their look.
   Crags (`Spire`) are pinnacles in the peaks' hand (`Pinnacle`: 0.45-0.62 of their height wide,
   jagged flanks, a ledge, some twin tips, a solid wedge down `SpireWedge` of the east face, a
   smaller one or two behind), on real summits (`PlaceSummitSpire`: highest within `SpireCells`,

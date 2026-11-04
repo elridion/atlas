@@ -58,16 +58,6 @@ namespace Atlas
             if (land == Land.Swamp && height <= m_waterLevel && !(height <= m_waterLevel - WorldSource.SwampShallow && m_world.IsSwampSea(wx, wz)))
                 height = m_waterLevel + WorldSource.SwampFloor;
             wood = -1f;
-            // The Mistlands pools the sheet raised (WorldSource.MarkMistPools) are raised here
-            // too, rim included, to the sheet's own filled ground, and take the sheet's wood
-            // field, since the forest factor knows nothing of the pool and would grow trees in
-            // clearings the sheet keeps open.
-            if (height <= m_waterLevel && m_world.IsMistPool(wx, wz))
-            {
-                height = Mathf.Max(m_world.HeightAt(wx, wz), m_waterLevel + WorldSource.MistPoolFloor);
-                wood = m_world.Sample(m_world.m_wood, wx, wz) - 0.5f;
-                return;
-            }
             if (height <= m_waterLevel) return;
             switch (land)
             {

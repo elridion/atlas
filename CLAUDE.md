@@ -28,7 +28,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   tree or peak does, its foot on the spot (`PinGlyphs.Lift`, from each glyph's ground line in pin
   units; the images and the name layout are lifted, the holder stays on the place); plan signs
   (dot, stone circle) and traced sprites stay centred.
-  `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph but the Sacrificial Stones inked solid with its details cut back to paper (the user's call; the Stones keep their outlined blocks): fire: campfire, house: longhouse,
+  `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, house: longhouse,
   the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer, not a work hammer;
   circle: dot; portal: dolmen; death: memorial stone with the yr rune on a mound, never a
   cross; checked: struck through with paper, `InkCanvas.Pin`, a red strike vanishing on a solid glyph). The game's own pins get map signs too: bed (spawn point), a
@@ -42,10 +42,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   names checked against the SoftRef manifest).
   **Pins are drawn into the sheet** (the user's design), at a fixed size like every other glyph:
   `AtlasMap.KeepPins` builds the list (`SheetPin`: place, glyph, checked) from the snapshot's
-  pen-drawn pins the settings show on explored ground (`AtlasView.InSheet`), plus the
-  Sacrificial Stones from `ZoneSystem.GetLocationIcon("StartTemple")` (polled until found; a
-  first painting waits up to `TempleWait` 15 s for it, as a client gets the icons from the
-  server). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, part of the map
+  pen-drawn pins the settings show (`AtlasView.InSheet`). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, part of the map
   (the user's design): sized for what it stands for against a tree of about 13 sheet pixels
   (`PinSheetSize`: campfire, bed and circle 10, a longhouse or tent about a tree at 16, a boss
   altar 18, a barrow 20, a cave or tower 22, the Sacrificial Stones 26), standing on its place by `PinGlyphs.Lift`. That
@@ -115,12 +112,15 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   memory, and no custom shader is possible without asset bundles. Names are left off for
   now (`s_showNames`), to be given another pass. The preview takes `-Temple wx:wz` and
   `-Pin GLYPH:wx:wz[:checked]`.
-  The Sacrificial Stones are a pin like the others (the user's call), `PinGlyphs.StoneCircle`
-  in a 26 px box: a ring of standing stones round a low altar in the map's oblique view, each a
-  block with a lit front, a solid east face and a thin top, drawn back to front, the ring's
-  middle on the place. The stones take the peaks' rock wash, not the ground's (`PinMark.m_rock`,
-  marked as Mountain body by `InkCanvas.Pin`), and the ground inside the ring is not cleared:
-  only the stones scrape what lies behind them.
+  The Sacrificial Stones are a pin like every other, with no special treatment anywhere (the
+  user's call, made twice): the game's own location pin for `StartTemple` from the snapshot,
+  shown by `PlacePins`, drawn into the sheet and glimpsed like Haldor or the Forge, inked solid
+  red. Do not add them from `ZoneSystem` apart from the snapshot, keep them out of markers by a
+  special case, or give them a fill of their own (they had the peaks' rock wash and outlined
+  blocks): they read as a different, parchment-filled pin at low zoom. `PinGlyphs.StoneCircle`
+  in a 26 px box: a ring of solid standing stones round a low altar in the map's oblique view,
+  drawn back to front a line of paper apart, standing on the front of the ring (`StonesFoot`).
+  The ground inside the ring is not cleared: only the stones scrape what lies behind them.
   Anything else is traced from its sprite and stays a marker (other mods' locations and
   pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
   parts inked); every body reaches `Gap` past the lines, the engraver's break that keeps trees

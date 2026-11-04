@@ -77,7 +77,7 @@ background.
 | `BossPins` | true | Show the boss altars a Vegvisir revealed on the atlas. |
 | `TraderPins` | true | Show the traders (Haldor, Hildir, the Bog Witch) on the atlas. |
 | `HildirPins` | true | Show the dungeons of Hildir's requests on the atlas. |
-| `PlacePins` | true | Show the Forge of Potential and the places other mods mark on the atlas. |
+| `PlacePins` | true | Show the Sacrificial Stones, the Forge of Potential and the places other mods mark on the atlas. |
 
 ## Notes
 

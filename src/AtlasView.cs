@@ -398,7 +398,7 @@ namespace Atlas
         // round them (Glimpsed). The player's own pins out in unexplored land and traced icons
         // (other mods' pins) stay markers.
         internal static bool InSheet(Snapshot snapshot, Snapshot.Pin pin, PinGlyph glyph) =>
-            glyph != PinGlyph.Traced && glyph != PinGlyph.StoneCircle && Shown(pin, glyph)
+            glyph != PinGlyph.Traced && Shown(pin, glyph)
             && (snapshot.IsExplored(pin.m_position.x, pin.m_position.z) || IsGameMark(pin));
 
         // A mark the game placed itself rather than the player (Icon0 to Icon4).
@@ -420,16 +420,6 @@ namespace Atlas
 
         public static void PinsChanged() => s_pinsChanged = true;
 
-        // Where the Sacrificial Stones stand (AtlasMap.KeepPins), once known. They are always
-        // drawn into the sheet, so the game's own pin there is never also a marker: when its
-        // sprite is not matched to the stone circle (DrawnIcons), it was traced into a second,
-        // parchment-filled sign over them.
-        public static Vector2? s_temple;
-        private const float TempleReach = 30f;
-
-        private static bool IsTemple(Snapshot.Pin pin) =>
-            pin.m_type == Minimap.PinType.None && s_temple.HasValue
-            && (new Vector2(pin.m_position.x, pin.m_position.z) - s_temple.Value).sqrMagnitude < TempleReach * TempleReach;
 
         // Whether the pin settings let a pin show: the player's own pins always do, the game's
         // own marks by kind. Location pins (PinType.None) are traders when drawn as one, and other
@@ -445,8 +435,6 @@ namespace Atlas
                 case Minimap.PinType.Hildir2:
                 case Minimap.PinType.Hildir3: return AtlasPlugin.HildirPins.Value;
                 case Minimap.PinType.None:
-                    // The Sacrificial Stones are always drawn into the sheet (AtlasMap.KeepPins).
-                    if (glyph == PinGlyph.StoneCircle) return false;
                     if (glyph == PinGlyph.Trader || glyph == PinGlyph.Tent || glyph == PinGlyph.Cauldron) return AtlasPlugin.TraderPins.Value;
                     return AtlasPlugin.PlacePins.Value;
                 default: return true;
@@ -482,7 +470,7 @@ namespace Atlas
                 if (drawn.TryGetValue(pin.m_icon, out glyph)) textures = Textures(glyph, null);
                 else if (sprites.TryGetValue(pin.m_icon, out Sprite sprite) && sprite) textures = Textures(glyph = PinGlyph.Traced, sprite);
                 else continue;
-                if (textures == null || !Shown(pin, glyph) || InSheet(snapshot, pin, glyph) || IsTemple(pin)) continue;
+                if (textures == null || !Shown(pin, glyph) || InSheet(snapshot, pin, glyph)) continue;
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);

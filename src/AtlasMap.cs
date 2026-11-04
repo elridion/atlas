@@ -52,9 +52,6 @@ namespace Atlas
         private static long s_mipsKey;
         private static InkDensity s_mipsDensity;
         private static bool s_decodeFailed;
-        private static bool s_templeFound;
-        private static Vector2 s_temple;
-        private static float s_worldStart;
         private static Texture2D s_ink;
         // The sea illustrations on the uploaded sheet, those the uploaded fog showed or hid whole,
         // and those the fog being laid does. The atlas opens only once the first two agree, so a
@@ -274,9 +271,6 @@ namespace Atlas
                 if (s_cacheTask != null) return;
                 bool stale = s_sheet == null || s_rawKey != s_pinsKey;
                 if (!stale && (s_record != null || !s_opened)) return;
-                // The Sacrificial Stones are drawn too; a client gets their place from the server
-                // shortly after joining, so a first painting waits a little for it.
-                if (!s_templeFound && Time.realtimeSinceStartup - s_worldStart < TempleWait) return;
                 if (s_hasFailedKey && s_failedKey == s_pinsKey) return;
                 WorldSource source = s_source;
                 CancellationToken cancel = s_cancel.Token;
@@ -413,34 +407,17 @@ namespace Atlas
             public long m_key;
         }
 
-        // How long a first painting waits for the Sacrificial Stones' place, in seconds.
-        private const float TempleWait = 15f;
-
-        // The pins drawn into the sheet (SheetPin), rebuilt when the snapshot, the pin settings or
-        // the Stones' place change: the snapshot's pins with a pen glyph, shown by the settings,
-        // on explored ground (pins in unexplored land stay markers over the fog, AtlasView), and
-        // the Sacrificial Stones from the game's location icons.
+        // The pins drawn into the sheet (SheetPin), rebuilt when the snapshot or the pin settings
+        // change: the snapshot's pins with a pen glyph that the settings show (AtlasView.InSheet).
+        // The Sacrificial Stones are the game's location pin there, like any other place.
         private static void KeepPins()
         {
-            if (!s_templeFound && ZoneSystem.instance && ZoneSystem.instance.GetLocationIcon("StartTemple", out Vector3 temple))
-            {
-                s_templeFound = true;
-                s_temple = new Vector2(temple.x, temple.z);
-                AtlasView.s_temple = s_temple;
-                AtlasView.PinsChanged();
-                s_pinsDirty = true;
-            }
             if (!s_pinsDirty) return;
             Minimap minimap = Minimap.instance;
             if (!minimap) return;
             s_pinsDirty = false;
             var pins = new System.Collections.Generic.List<SheetPin>();
             var glimpses = new System.Collections.Generic.List<Vector2>();
-            if (s_templeFound)
-            {
-                pins.Add(new SheetPin { m_x = s_temple.x, m_z = s_temple.y, m_glyph = PinGlyph.StoneCircle });
-                if (s_snapshot != null && !s_snapshot.IsExplored(s_temple.x, s_temple.y)) glimpses.Add(s_temple);
-            }
             if (s_snapshot != null)
             {
                 System.Collections.Generic.Dictionary<string, PinGlyph> drawn = AtlasView.DrawnIcons(minimap);
@@ -684,9 +661,6 @@ namespace Atlas
             s_hasFailedKey = false;
             s_mipsDensity = null;
             s_decodeFailed = false;
-            s_templeFound = false;
-            AtlasView.s_temple = null;
-            s_worldStart = Time.realtimeSinceStartup;
             s_tiles.Clear();
             s_sparkles.Clear();
             s_source = null;

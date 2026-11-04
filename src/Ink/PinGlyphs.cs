@@ -29,7 +29,7 @@ namespace Atlas
     }
 
     // A pin drawn into the sheet itself (InkPainter), at its place in world metres. The
-    // Sacrificial Stones are one too (StoneCircle), from the game's location icons.
+    // Sacrificial Stones are one too (StoneCircle), from the game's location pin like any other.
     internal struct SheetPin
     {
         public float m_x, m_z;
@@ -68,13 +68,11 @@ namespace Atlas
         public int m_size;
         public byte[] m_ink;
         public byte[] m_body;
-        // The parts that are rock, filled with the peaks' wash on the sheet; null for none.
-        public byte[] m_rock;
     }
 
     /// <summary>
     /// The pins drawn with the map's own pens: a solid red sign with its details cut back to paper
-    /// (the Sacrificial Stones keep their outlined blocks), standing in a body that scrapes the
+    /// standing in a body that scrapes the
     /// terrain ink round it, instead of an icon on a parchment ring, which reads as a sticker on
     /// the hand-drawn map. The body is what keeps a pin legible on dark ground. Pins are laid out in a box of
     /// PinUnits units, standing on the pin's place (Lift); pure math, so the preview draws them too.
@@ -90,9 +88,6 @@ namespace Atlas
         private const float MarkerLogWidth = 2.6f;
         private const float MarkerPaperPen = 1.6f;
         [ThreadStatic] private static float s_pen;
-        // While a glyph is drawn, the parts of it that are rock (the Sacrificial Stones), filled
-        // with the peaks' wash on the sheet instead of the ground's.
-        [ThreadStatic] private static InkCanvas s_rock;
         // A sheet pin's outline is half again the map's pen, as a peak's flanks are, so a symbol
         // outranks the terrain round it; its inner lines keep the map's pen.
         private const float SheetOutline = 1.5f;
@@ -123,7 +118,7 @@ namespace Atlas
         // How far a glyph is lifted off its pin's place, as a share of the pin's size: a pin drawn
         // in elevation stands on its place as a tree or a peak does, its foot (the ground line it
         // is drawn on, in pin units) on the spot; the dot and icons traced from sprites
-        // stay centred on it, and the stone circle has the middle of its ring there.
+        // stay centred on it.
         public static float Lift(PinGlyph glyph) => (FootOf(glyph) - PinUnits * 0.5f) / PinUnits;
 
         private static float FootOf(PinGlyph glyph)
@@ -144,7 +139,7 @@ namespace Atlas
                 case PinGlyph.Tent: return 21.6f;
                 case PinGlyph.Cauldron: return 23.4f;
                 case PinGlyph.Forge: return 22f;
-                case PinGlyph.StoneCircle: return StonesCentreY;
+                case PinGlyph.StoneCircle: return StonesFoot;
                 default: return PinUnits * 0.5f;
             }
         }
@@ -161,7 +156,6 @@ namespace Atlas
             finally
             {
                 s_pen = 0f;
-                s_rock = null;
             }
         }
 
@@ -170,8 +164,6 @@ namespace Atlas
             float scale = size / PinUnits;
             var ink = new InkCanvas(size, size, 0f, 0f, scale);
             var body = new InkCanvas(size, size, 0f, 0f, scale);
-            var rock = glyph == PinGlyph.StoneCircle ? new InkCanvas(size, size, 0f, 0f, scale) : null;
-            s_rock = rock;
             if (seed != 0)
             {
                 Func<Vector2, Vector2> waver = p => p + new Vector2(
@@ -179,7 +171,6 @@ namespace Atlas
                     (Noise.Value(p.x / WaverGrain, p.y / WaverGrain, seed + 1) - 0.5f) * 2f * Waver);
                 ink.m_warp = waver;
                 body.m_warp = waver;
-                if (rock != null) rock.m_warp = waver;
             }
             // The body canvas starts all ink and the silhouette is scraped from it, as the
             // canvas scrapes concave outlines in one pass; the body is what got scraped.
@@ -204,8 +195,7 @@ namespace Atlas
                 case PinGlyph.Forge: Forge(ink, body); break;
                 case PinGlyph.Checked: Checked(ink); break;
             }
-            s_rock = null;
-            var mark = new PinMark { m_size = size, m_ink = ink.m_ink, m_body = new byte[size * size], m_rock = rock?.m_ink };
+            var mark = new PinMark { m_size = size, m_ink = ink.m_ink, m_body = new byte[size * size] };
             for (int i = 0; i < mark.m_body.Length; i++) mark.m_body[i] = (byte)(255 - body.m_ink[i]);
             if (glyph != PinGlyph.Checked) Widen(mark, Gap * scale);
             return mark;
@@ -474,10 +464,11 @@ namespace Atlas
         }
 
         // The Sacrificial Stones, where every Viking wakes: a ring of standing stones round a low
-        // altar in the map's oblique view, as its peaks and trees are drawn. Each stone is a block
-        // with a lit front, a solid east face and a thin top, drawn from the back of the ring to
-        // the front, each scraping what lies behind it. Its place is the ring's middle.
+        // altar in the map's oblique view, as its peaks and trees are drawn. Each stone is a solid
+        // block, drawn from the back of the ring to the front, a line of paper apart from what
+        // lies behind it. It stands on the front of its ring, as every pin stands on its foot.
         private const float StonesCentreY = 15f;
+        private const float StonesFoot = 19f;
         private const float StonesRadius = 9f;
         private const float StonesTilt = 0.42f;
         private const int StonesCount = 7;
@@ -514,18 +505,7 @@ namespace Atlas
             var topRight = new Vector2(x + width * 0.5f - taper + lean, y - height);
             var outline = new List<Vector2> { bottomLeft, bottomRight, bottomRight + back, topRight + back, topLeft + back, topLeft };
             body.EraseOutline(outline, Pen * 0.5f);
-            // The stone itself takes the rock's wash, not the ground's (PinMark.m_rock).
-            if (s_rock != null)
-            {
-                s_rock.Fill(new[] { bottomLeft, bottomRight, topRight, topLeft });
-                s_rock.Fill(new[] { bottomRight, bottomRight + back, topRight + back, topRight });
-                s_rock.Fill(new[] { topLeft, topRight, topRight + back, topLeft + back });
-            }
-            ink.EraseOutline(outline, 0f);
-            ink.Fill(new[] { bottomRight, bottomRight + back, topRight + back, topRight });
-            Loop(ink, outline, Pen);
-            ink.Stroke(topLeft.x, topLeft.y, topRight.x, topRight.y, Pen);
-            ink.Stroke(topRight.x, topRight.y, bottomRight.x, bottomRight.y, Pen);
+            SolidInFront(ink, outline);
         }
 
         // Haldor the trader: a solid tied bag, the tie a line of paper.

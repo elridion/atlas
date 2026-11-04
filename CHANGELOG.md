@@ -69,10 +69,11 @@
   bare paper. Pins out in land you have not explored, and other mods' icons, stay
   markers over the parchment. When your pins change, the atlas is drawn again in the
   background. Pin names are left off for now.
-- The Sacrificial Stones are always on the atlas, drawn as a ring of standing stones round a
+- The Sacrificial Stones are a pin like the others, drawn as a ring of standing stones round a
   low altar.
 - Settings choose which of the game's own marks the atlas shows: your bed, your last death,
-  boss altars, the traders, Hildir's dungeons and other places the game marks. All are on by
+  boss altars, the traders, Hildir's dungeons and other places the game marks, the Sacrificial
+  Stones among them. All are on by
   default; your own pins always show.
 - The atlas is drawn once per world in the background and kept, so opening it never stalls the game.
 - Zooming in redraws the part in view at that zoom from the world itself: coasts and wood edges

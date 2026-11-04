@@ -86,6 +86,7 @@ namespace Atlas
                 DrawGlyph(glyph);
             }
             while (next < groups.Count) record.Replay(m_canvas, groups[next++]);
+            DrawGrassOverMarks();
             m_cancel.ThrowIfCancellationRequested();
             DrawTileWaves(record);
             record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Floe), null);

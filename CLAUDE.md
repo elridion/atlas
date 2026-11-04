@@ -54,7 +54,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `PinGlyphs.Draw` in pin units. The pin's body takes no fill of its own: the ground's wash
   shows inside it (the user chose that over clean parchment and a thin red glaze). Trees behind
   a pin whose outline would show less than `HiddenShown` a quarter outside its body are left
-  out (`DropHiddenBehindMarks`): scraped round the pin, their slivers read as stray marks and a hand-drawn waver (`PinGlyphs.Waver`: every
+  out (`DropHiddenBehindMarks`): scraped round the pin, their slivers read as stray marks.
+  Meadow grass tufts over a pin's box that stand in front of it are inked again after the
+  glyphs (`m_markGrass`, `DrawGrassOverMarks`, sheet and close-ups), since the ground fills are
+  laid before any glyph and the pin's body would otherwise scrape them away. Pins also have a
+  hand-drawn waver (`PinGlyphs.Waver`: every
   point moved by a smooth noise seeded by the pin's place, straight lines and outlines cut
   into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
   so the ground's own wash fills it; checked pins are struck through. Recorded as `Op.Pin`, so

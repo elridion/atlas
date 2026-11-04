@@ -511,6 +511,35 @@ namespace Atlas
 
         private static bool IsMark(Kind kind) => kind == Kind.Pin;
 
+        // Meadow grass tufts drawn under a pin, the ground fills being laid before any glyph.
+        // Those standing in front of a pin (feet further south than its place in the order) are
+        // inked again after the glyphs (DrawGrassOverMarks), so a tuft before a tower stands
+        // over its foot as a tree would.
+        private readonly List<Vector2> m_markGrass = new List<Vector2>();
+
+        private bool OnAMark(Vector4 box)
+        {
+            foreach (Glyph mark in m_marks)
+                if (Overlap(box, GlyphBox(mark)) > 0f) return true;
+            return false;
+        }
+
+        private void DrawGrassOverMarks()
+        {
+            if (m_markGrass.Count == 0) return;
+            m_canvas.m_layer = InkLayer.Background;
+            foreach (Vector2 tuft in m_markGrass)
+            {
+                var box = new Vector4(tuft.x - 1.6f * m_g, tuft.y - 2.8f * m_g, tuft.x + 1.2f * m_g, tuft.y);
+                foreach (Glyph mark in m_marks)
+                {
+                    if (tuft.y <= mark.m_order || Overlap(box, GlyphBox(mark)) <= 0f) continue;
+                    Grass(tuft.x, tuft.y, m_g);
+                    break;
+                }
+            }
+        }
+
         // A close-up's marks take the sheet's order and relief cover (OrderMarks).
         private void TakeMarkOrders(InkRecord record)
         {
@@ -933,6 +962,7 @@ namespace Atlas
                 DrawGlyph(glyph);
                 if (!tree) m_canvas.EndGroup();
             }
+            DrawGrassOverMarks();
             MarkWideLakes();
             List<ContourLines.Line> waterLines = TraceWaterLines();
             // The waterline itself is not drawn; the waves find the coast's bends on its trace.
@@ -1464,6 +1494,8 @@ namespace Atlas
                 s.m_woodDistance /= m_lod;
                 if (!IsOpenLand(s, Land.Meadows, 3f) || !(s.m_roll < 0.3f)) return;
                 Grass(s.m_x, s.m_y, m_g);
+                // A tuft over a pin is inked again once the pin is drawn, if it stands in front.
+                if (OnAMark(new Vector4(s.m_x - 1.6f * m_g, s.m_y - 2.8f * m_g, s.m_x + 1.2f * m_g, s.m_y))) m_markGrass.Add(new Vector2(s.m_x, s.m_y));
             }, sheetGrid: true);
             // Black Forest: scattered stones on the open ground between the woods.
             Scatter(10f * m_g, 17, s =>

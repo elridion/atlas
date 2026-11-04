@@ -16,10 +16,7 @@ namespace Atlas
     internal static class InkCache
     {
         private const int Magic = 0x534C5441; // "ATLS"
-        // Counted from 1 for the first release. Files from before it carry versions up to 26,
-        // above DevVersions, and are never read; a temporary guard, to be removed later.
         private const int Version = 1;
-        private const int DevVersions = 15;
         // A file never holds more sea illustrations than this; more means it is damaged.
         private const int MostSeaMarks = 256;
 
@@ -40,11 +37,7 @@ namespace Atlas
                 using (var file = File.OpenRead(path))
                 using (var reader = new BinaryReader(file))
                 {
-                    if (reader.ReadInt32() != Magic) return null;
-                    // A sheet cached during development (version over DevVersions) is invalid,
-                    // whatever it would otherwise match.
-                    int version = reader.ReadInt32();
-                    if (version > DevVersions || version != Version) return null;
+                    if (reader.ReadInt32() != Magic || reader.ReadInt32() != Version) return null;
                     if (reader.ReadInt32() != seed || reader.ReadInt32() != InkPainter.CanvasSize) return null;
                     long key = reader.ReadInt64();
                     int count = reader.ReadInt32();

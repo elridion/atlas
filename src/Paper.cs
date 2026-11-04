@@ -54,7 +54,10 @@ namespace Atlas
         // middle within that band: RipTear by a slow fBm every RipGrain pixels for bays and
         // tongues, RipFibres by fine noise every RipFibre pixels for the fibres. The edge is
         // crisp over RipEdge of the cover (about half a pixel), with a paler rim RipRim deep
-        // (the torn paper's core) and a shadow RipShadow pixels to the south-east on the map.
+        // (the torn paper's core) and a shadow RipShadow pixels to the south-east on the map. Both
+        // keep the parchment's own hue: the rim brightens it by RipRimLight and the shadow is the
+        // parchment darkened to RipShadowTone, since white and the ink's brown read as a chalk
+        // line and a pencil stroke along the tear.
         private const int RipBlur = 5;
         private const float RipGrain = 9f;
         private const float RipTear = 0.85f;
@@ -62,9 +65,10 @@ namespace Atlas
         private const float RipFibres = 0.16f;
         private const float RipEdge = 0.04f;
         private const float RipRim = 0.12f;
-        private const float RipRimLight = 0.35f;
+        private const float RipRimLight = 0.08f;
         private const int RipShadow = 1;
-        private const float RipShadowStrength = 0.22f;
+        private const float RipShadowStrength = 0.3f;
+        private const float RipShadowTone = 0.55f;
         private const int RipSeed = 4127;
         // The glimpse past the explored land, in metres, and the distance field's steps a pixel
         // (its bytes reach 255 / GlimpseSteps pixels, past the band and the tear).
@@ -961,9 +965,9 @@ namespace Atlas
                 {
                     // Tearing pulls the paper's paler core out along the edge, as a fuzzy rim.
                     float rim = a * (1f - Smooth(0.5f, 0.5f + RipRim, c)) * RipRimLight;
-                    rgba[o] = ToByte(parchment[p] + (255 - parchment[p]) * rim);
-                    rgba[o + 1] = ToByte(parchment[p + 1] + (255 - parchment[p + 1]) * rim);
-                    rgba[o + 2] = ToByte(parchment[p + 2] + (255 - parchment[p + 2]) * rim);
+                    rgba[o] = ToByte(parchment[p] * (1f + rim));
+                    rgba[o + 1] = ToByte(parchment[p + 1] * (1f + rim));
+                    rgba[o + 2] = ToByte(parchment[p + 2] * (1f + rim));
                     rgba[o + 3] = ToByte(a * 255f);
                     if (a >= 1f) continue;
                 }
@@ -986,14 +990,15 @@ namespace Atlas
                 // Paper over shadow, by their coverage, as one colour and opacity.
                 float total = a + shadow;
                 float share = a / total;
-                rgba[o] = ToByte(rgba[o] * share + InkColor.r * (1f - share));
-                rgba[o + 1] = ToByte(rgba[o + 1] * share + InkColor.g * (1f - share));
-                rgba[o + 2] = ToByte(rgba[o + 2] * share + InkColor.b * (1f - share));
+                float sr = parchment[p] * RipShadowTone, sg = parchment[p + 1] * RipShadowTone, sb = parchment[p + 2] * RipShadowTone;
+                rgba[o] = ToByte(rgba[o] * share + sr * (1f - share));
+                rgba[o + 1] = ToByte(rgba[o + 1] * share + sg * (1f - share));
+                rgba[o + 2] = ToByte(rgba[o + 2] * share + sb * (1f - share));
                 if (a <= 0f)
                 {
-                    rgba[o] = InkColor.r;
-                    rgba[o + 1] = InkColor.g;
-                    rgba[o + 2] = InkColor.b;
+                    rgba[o] = ToByte(sr);
+                    rgba[o + 1] = ToByte(sg);
+                    rgba[o + 2] = ToByte(sb);
                 }
                 rgba[o + 3] = ToByte(Mathf.Min(1f, total) * 255f);
             }

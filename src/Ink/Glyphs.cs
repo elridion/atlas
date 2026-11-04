@@ -989,9 +989,10 @@ namespace Atlas
         }
 
 
-        // An ice floe: a small irregular outline lying on the water. Its body (an ellipse just
-        // around the outline) is scraped back to parchment first, so ripple lines stop at its edge,
-        // and the outline is filled with the Deep North's wash, as ice, not the sea's. The outline
+        // An ice floe: a small irregular outline lying on the water. Only the outline itself is
+        // scraped back to parchment, so a floe touching the shore lies over the coast line without
+        // cutting it beside the floe, and it is filled with the Deep North's wash, as ice, not the
+        // sea's. Waves are already kept off floes (m_floeSet). The outline
         // may sag inwards, so it is filled in one pass as peak bodies are
         // (InkCanvas.EraseOutline); a fan of triangles from its centre leaves faint seams.
         private void IceFloe(float x, float y, float s, int seed)
@@ -1005,7 +1006,6 @@ namespace Atlas
                 float r = size * Mathf.Lerp(0.7f, 1f, Unit(seed, 20 + k));
                 m_bodyOutline.Add(new Vector2(x + Mathf.Cos(a) * r, y + Mathf.Sin(a) * r * 0.7f));
             }
-            m_canvas.EraseEllipse(x, y, size + 0.8f, size * 0.7f + 0.8f);
             m_canvas.m_markBody = BodyKind.North;
             m_canvas.EraseOutline(m_bodyOutline, BodyGrow * m_pen);
             m_canvas.m_markBody = BodyKind.None;

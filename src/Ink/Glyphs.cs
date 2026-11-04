@@ -19,15 +19,13 @@ namespace Atlas
         private const float PeakWedge = 0.45f;
         // A spire's wedge reaches further down its east face: the Mistlands' rock is black.
         private const float SpireWedge = 0.65f;
-        // How far (sheet pixels) a peak's wash runs out below its foot, and how strongly at the
-        // foot (0 to 1), fading to nothing at the skirt's end.
-        // It starts at the body's own strength: a lower one leaves a step at the foot that reads as
-        // the mountain's colour cut off at its base.
-        private const float PeakSkirt = 4f;
-        private const float PeakBleed = 1f;
-        // How far in from each end of the base the skirt's lower edge stops, as a share of the
-        // base, so the wash's ends slope away instead of falling straight down.
-        private const float SkirtTaper = 0.12f;
+        // How far a cone's base ellipse rises at its ends, as a share of its half width: the near
+        // half of the base seen from above at an angle.
+        private const float ConeTilt = 0.5f;
+        // How far below the foot line the base arc reaches under the spine, beyond the fade, as a
+        // share of the half width.
+        private const float ConeDrop = 0.15f;
+        private const float SkirtOverlap = 2f;
         // How far (pen widths) a peak's scraped body reaches past its flanks, under their ink:
         // enough that close-ups show no hairline of parchment between the outline and whatever
         // stands behind.
@@ -129,15 +127,14 @@ namespace Atlas
             // the drawn contour (a hull spills past every sag and notch), in one pass
             // (ScrapeBody). Deep North peaks take its wash.
             BodyKind kind = !body ? BodyKind.None : IsNorthAt(x, y) ? BodyKind.North : BodyKind.Mountain;
+            if (kind != BodyKind.None) BaseFade(left, right);
             m_canvas.m_markBody = kind;
             ScrapeBody(m_points);
             m_canvas.m_markBody = BodyKind.None;
-            // A soft edge of PeakSkirt sheet pixels below the foot, where the peak's wash runs out
-            // into the ground, so the base is not cut hard. The body stays fully the peak's: the
-            // base leads into the other biome, not the other biome into the mountain, so a fading
-            // body reads wrong. The skirt starts at the body's strength and runs out over a few
-            // pixels, tapering at its ends.
-            if (kind != BodyKind.None) Skirt(left, right, width, kind);
+            // The base is not cut hard: the body meets the ground along a cone's base arc, with the
+            // ground's wash below it (Skirt). A wash run out below the foot instead shows
+            // its own edges on open ground.
+            if (kind != BodyKind.None) Skirt(left, right, kind);
 
             // The shadow: a solid wedge from the apex, then hatching down the eastern face.
             var foot = new Vector2(apex.x + width * 0.06f, y);
@@ -226,27 +223,58 @@ namespace Atlas
         // behind has its foot north of this one, but its pens reach a little past it (round caps,
         // a giant tree's roots, a crag's uneven feet), and the body's base edge is anti-aliased
         // over the foot line, so slivers of the peaks and trees behind would show just under the
-        // base line. The band takes no body, so the skirt alone tints it.
+        // base line. It scrapes the ink only and leaves the body masks (BodyKind.Keep).
         private void ScrapeBase(Vector2 left, Vector2 right)
         {
             float top = m_pen, depth = BaseScrape * m_pen;
             Poly(left + new Vector2(0f, -top), right + new Vector2(0f, -top), right + new Vector2(0f, depth), left + new Vector2(0f, depth));
+            // Ink only: cleared, the masks there showed the band's hard edges as a light line
+            // across the base and a cut in the wash of the peak behind.
+            m_canvas.m_markBody = BodyKind.Keep;
             m_canvas.Erase(m_points);
+            m_canvas.m_markBody = BodyKind.None;
         }
 
-        // The skirt below a peak's or pinnacle's base (feet left and right): its body's wash
-        // raised over PeakSkirt sheet pixels without touching the ink, at the body's strength
-        // from the lower foot down and fading to nothing along a smoothstep, its lower edge
-        // SkirtTaper of the glyph's width in from each end. A pinnacle's feet differ a little in height; above the
-        // lower foot the skirt only meets its own body, so it is laid at full strength there.
-        private void Skirt(Vector2 left, Vector2 right, float width, BodyKind kind)
+        // The foot of a peak's or pinnacle's body (feet left and right), drawn as a cone stands in
+        // an oblique view: it meets the ground along the near half of its base ellipse, ConeTilt
+        // of its half width above the foot line at the feet and below it under the middle, by the
+        // fade and ConeDrop of the half width (InkCanvas.Tint). BaseFade, before the body is
+        // scraped, has the body marked faded towards that arc; Skirt, after, lays the part of the
+        // fade below the foot line. Both only raise the body masks, so a peak never takes the wash
+        // of one behind it away: lowered after marking, it cut that wash with straight edges.
+        private void BaseArc(Vector2 left, Vector2 right, out float foot, out float depth, out float drop)
         {
-            float foot = Mathf.Max(left.y, right.y);
-            Poly(new Vector2(left.x, left.y - 0.5f), new Vector2(right.x, right.y - 0.5f),
-                new Vector2(right.x - width * SkirtTaper, foot + PeakSkirt), new Vector2(left.x + width * SkirtTaper, foot + PeakSkirt));
-            m_canvas.Tint(m_points, kind, foot - 0.5f, PeakSkirt + 0.5f, PeakBleed);
+            foot = Mathf.Min(left.y, right.y);
+            float half = 0.5f * (right.x - left.x);
+            depth = half * ConeTilt;
+            drop = InkCanvas.TintSoft + half * ConeDrop;
         }
 
+        private void BaseFade(Vector2 left, Vector2 right)
+        {
+            BaseArc(left, right, out float foot, out float depth, out float drop);
+            // Its own list: it runs while m_points holds the body outline about to be scraped.
+            m_basePoly.Clear();
+            m_basePoly.Add(new Vector2(left.x, foot));
+            m_basePoly.Add(new Vector2(right.x, foot));
+            m_basePoly.Add(new Vector2(right.x, foot + 1f));
+            m_basePoly.Add(new Vector2(left.x, foot + 1f));
+            m_canvas.Tint(m_basePoly, BodyKind.Keep, foot, depth, drop);
+        }
+
+        private readonly List<Vector2> m_basePoly = new List<Vector2>(4);
+
+        private void Skirt(Vector2 left, Vector2 right, BodyKind kind)
+        {
+            BaseArc(left, right, out float foot, out float depth, out float drop);
+            float bottom = Mathf.Max(left.y, right.y) + drop + 1f;
+            // From SkirtOverlap above the foot line: the body's outline stops a little above it
+            // (its feet are raised, ScrapeBody), and the strip between showed as a light line. The
+            // skirt follows the same fade as the body there, so the overlap leaves no seam.
+            float from = foot - SkirtOverlap;
+            Poly(new Vector2(left.x, from), new Vector2(right.x, from), new Vector2(right.x, bottom), new Vector2(left.x, bottom));
+            m_canvas.Tint(m_points, kind, foot, depth, drop);
+        }
         // A body outline: the peak's with its feet raised (ScrapeBody), or a floe's corners.
         private readonly List<Vector2> m_bodyOutline = new List<Vector2>(16);
 
@@ -844,10 +872,11 @@ namespace Atlas
             for (int i = 1; i < m_east.Count; i++) m_points.Add(m_east[i]);
             // Filled with the Mistlands' rock as a peak's body is with the mountains' wash, and
             // its skirt run into the ground below in the same way.
+            BaseFade(left, right);
             m_canvas.m_markBody = BodyKind.Mist;
             ScrapeBody(m_points);
             m_canvas.m_markBody = BodyKind.None;
-            Skirt(left, right, width, BodyKind.Mist);
+            Skirt(left, right, BodyKind.Mist);
 
             var foot = new Vector2(apex.x + width * 0.05f, y);
             Poly(apex, Along(m_east, SpireWedge), Vector2.Lerp(apex, foot, SpireWedge));

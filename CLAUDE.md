@@ -89,7 +89,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   pure math (`Mathf`, `Vector2`); `Mathf.HalfToFloat` is native, hence `WorldSource.HalfToFloat`.
 - **Deterministic drawing.** Glyph placement hashes the world seed, a per-rule salt and the grid
   cell (`Noise`), never a shared `System.Random`, so tuning one rule never moves another's glyphs.
-  Any change to the drawing bumps `InkCache.Version`, or players keep the old cached sheet.
+  Any change to the drawing bumps `InkCache.Version`, or players keep the old cached sheet;
+  until the first release it stays at 23, since no player has a cached sheet yet.
 - **Docs follow code.** `package/README.md` keeps the table behaviour, controls and pen mark tables
   in sync with `TablePatches`, `AtlasView` and the scatter rules in `InkPainter.PlaceGlyphs` and
   `DrawBackground` (and `DrawIllustrations`).
@@ -372,26 +373,36 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Mist, Wood, one plane each; any later erase clears the others, so the glyph in front
   decides). The Mistlands' pinnacles fill their bodies the same way with `BodyKind.Mist`
   (below), and trees with `BodyKind.Wood` (see the woods). The body
-  stays fully the peak's wash; below the foot a skirt (`Skirt`, `InkCanvas.Tint`, an `Op.Tint`
-  in the record, `PeakSkirt` 4 sheet px, its lower edge `SkirtTaper` in from each end) raises
-  the mask without touching the ink, from the body's own strength (`PeakBleed` 1) to nothing
-  along a smoothstep, so the base is not cut hard; a shallower skirt starting weaker leaves a
-  step that reads as the mountain colour cut off. The base leads into the other biome, so never
-  fade the body out at the base. The skirt is laid after the body: laid before, it overwrites
-  the outline before the body is scraped, bodies become trapezoids, peaks read as holes and
-  peaks behind show through the ones in front. Before the body, peaks and pinnacles scrape a
-  band from a pen inside their base to `BaseScrape` 1.25 pen below the foot (`ScrapeBase`, no
-  body mark, so the skirt alone tints it): the glyphs behind stand north of the foot, but their
-  round caps, a giant tree's roots and a crag's uneven feet reach a little past it, and the
-  body's base edge is anti-aliased on the foot line, so dots and slivers of the peaks and trees
-  behind would show just under the base line. Mountain ground keeps the mountain wash even where
+  is the peak's wash down to where the peak, seen as a cone in the map's oblique view, meets
+  the ground: the near half of its base ellipse, at the foot line under the middle and
+  `ConeTilt` 0.5 of its half width higher at the feet, so the arc scales with the peak. Below
+  it the ground's own wash shows, and the body fades in over `InkCanvas.TintSoft` 6 px above it,
+  the fade following the arc. Under the spine the arc dips below the foot line by the fade plus
+  `ConeDrop` 0.15 of the half width, so the body is full at the foot there and its wash runs
+  out below it as a rounded skirt. Nothing ever lowers a body mask: `BaseFade` sets the fade
+  (a `Keep` tint) before the body is scraped, so the body is marked already faded, and `Skirt`
+  raises the part below the foot line; overlapping peaks keep the stronger wash. Lowering the
+  mask after marking also faded the wash of a peak behind and cut it with straight edges and
+  hard-cornered blocks (`BaseArc`, `Skirt`,
+  `InkCanvas.Tint`, an `Op.Tint` in the record, which lowers the mask without touching the
+  ink; the body lies only inside the outline, so the arc leaves no edge beyond it). A level
+  fade band or a fixed-size curve does not read as a cone's base.
+  A skirt running the mountain wash out below the foot instead shows its own edges on open
+  ground such as a clear-cut, whatever its shape (straight, tapered, elliptical), and a hill in
+  front of a peak cuts its shape and foot line into it. The fade is laid after the body: laid
+  before, it would be overwritten. Before the body, peaks and pinnacles scrape a band from a pen
+  inside their base to `BaseScrape` 1.25 pen below the foot (`ScrapeBase`, no body mark): the
+  glyphs behind stand north of the foot, but their round caps, a giant tree's roots and a crag's
+  uneven feet reach a little past it, so dots and slivers of the peaks and trees behind would
+  show just under the base line. It scrapes ink only (`BodyKind.Keep`): clearing the masks there
+  left a light line across the base. Mountain ground keeps the mountain wash even where
   no peak is drawn, so the biome still reads as mountains; do not give it the neighbours' wash.
   The sheet is ink then the four masks (`InkPainter.Paint`, `SheetPlanes` 5 planes of 4096²,
   80 MB, cached together); `Paper.InkWithMips` reads the planes in place and fills bodies with
   `Paper.BodyColor` under the ink, and close-ups glaze `Paper.BodyGlaze` over the stained
   parchment, replaying the kind from the record. A kind byte beside one shared mask would save
   the Mist plane (16 MB) but cannot hold a pixel shared by two kinds, where a spire stands in
-  front of a peak or a skirt runs over another body. Carrying the mountain tint north spills it
+  front of a peak. Carrying the mountain tint north spills it
   over plains with no peaks. Peaks are tested for land at both base ends and both flanks
   (`PeakOnLand`), not only their centre, so coastal peaks do not hang over the sea. A summit's
   peak needs land only up to the summit (`reach` = `SummitAnchor`): above it the peak rises
@@ -580,7 +591,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   1.3 `SpireSlope`, clear
   of the summits; a fixed trapezoid on every high pixel reads as fence posts. Their bodies are
   filled as the peaks' are: scraped and marked `BodyKind.Mist`, with the peaks' `ScrapeBase` and
-  skirt, so the glyph in front decides. The fill is the Mistlands' own wash as its woods have
+  base fade, so the glyph in front decides. The fill is the Mistlands' own wash as its woods have
   it (`Paper.WoodTint(Land.Mistlands)`, the same as its tree crowns), so the rock is that
   land's colour, a shade deeper than its open ground; a separate rock hue reads as off from
   the Mistlands. On the sheet it is not laid opaque as a peak's body is: the clean-paper colour on the stained,

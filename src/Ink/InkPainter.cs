@@ -1314,7 +1314,7 @@ namespace Atlas
                     height = 12f * s;
                     break;
             }
-            return new Vector4(g.m_x - half, g.m_y - height, g.m_x + half, g.m_y + 0.5f * s + PeakSkirt);
+            return new Vector4(g.m_x - half, g.m_y - height, g.m_x + half, g.m_y + 0.5f * s);
         }
 
         // A scarp's length along its edge, from its seed.

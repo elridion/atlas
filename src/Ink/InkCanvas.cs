@@ -22,6 +22,9 @@ namespace Atlas
         North,
         Mist,
         Wood,
+        // Not a body: an erase that scrapes only the ink and leaves every body mask as it is
+        // (Glyphs.ScrapeBase).
+        Keep,
     }
 
     internal sealed class InkCanvas
@@ -55,7 +58,7 @@ namespace Atlas
         public byte[] m_scraped;
         // While Tint runs: the mask it raises, and its fade (sheet y where it starts, its length).
         private BodyKind m_tintKind;
-        private float m_tintTop, m_tintFade, m_tintStrength;
+        private float m_tintTop, m_tintFade, m_tintDrop, m_tintCentre, m_tintHalf;
 
         private readonly float m_originX;
         private readonly float m_originY;
@@ -212,6 +215,7 @@ namespace Atlas
             finally
             {
                 m_erasingPolygon = false;
+                m_rampOn = false;
             }
         }
 
@@ -259,16 +263,35 @@ namespace Atlas
             }
         }
 
-        // Raises a body mask over a convex polygon without touching the ink, at strength by sheet
-        // y = top and fading to nothing at top + fade: the skirt by which a peak's wash bleeds a
-        // little into the ground below its foot.
-        public void Tint(IList<Vector2> polygon, BodyKind kind, float top, float fade, float strength)
+        // A peak, seen as a cone, meets the ground along the near half of its base ellipse, as
+        // wide as the polygon (its bounding box): drop below sheet y = top (the foot line) under
+        // its middle and depth above it at its ends. The body is full TintSoft above that arc and
+        // fades to nothing at it. With kind Keep this only sets that fade for the next outline
+        // erase, which marks the body (EraseOutline): the body is marked faded rather than marked
+        // and then lowered, which would also lower the wash of a peak behind. With a body kind it
+        // raises that body's mask over the polygon (from just above the foot line down) along the
+        // same fade, the skirt under the
+        // middle where the arc dips below the foot. Either way it only ever raises a mask.
+        public void Tint(IList<Vector2> polygon, BodyKind kind, float top, float depth, float drop)
         {
-            m_record?.Tint(m_layer, polygon, kind, top, fade, strength);
-            m_tintKind = kind;
+            m_record?.Tint(m_layer, polygon, kind, top, depth, drop);
+            float left = float.MaxValue, right = float.MinValue;
+            foreach (Vector2 p in polygon)
+            {
+                left = Math.Min(left, p.x);
+                right = Math.Max(right, p.x);
+            }
             m_tintTop = top;
-            m_tintFade = Math.Max(fade, 1e-3f);
-            m_tintStrength = strength;
+            m_tintFade = Math.Max(depth, 0f);
+            m_tintDrop = Math.Max(drop, 0f);
+            m_tintCentre = 0.5f * (left + right);
+            m_tintHalf = Math.Max(0.5f * (right - left), 1e-3f);
+            if (kind == BodyKind.Keep)
+            {
+                m_rampOn = true;
+                return;
+            }
+            m_tintKind = kind;
             try
             {
                 PolygonPixels(polygon, 1f, erase: false);
@@ -279,19 +302,31 @@ namespace Atlas
             }
         }
 
+        // Set by a Keep tint: the next outline erase marks its body faded towards its base arc.
+        private bool m_rampOn;
+        // How far (sheet pixels) above a cone's base arc its body fades in from the ground's wash,
+        // the fade following the arc.
+        internal const float TintSoft = 6f;
+
+        // How much of a body is kept at a sheet point: nothing at the base arc and below it, all of
+        // it TintSoft above, along a smoothstep.
+        private float BaseKeep(int index)
+        {
+            float sheetX = (index % m_width + 0.5f) / m_scale + m_originX;
+            float sheetY = (index / m_width + 0.5f) / m_scale + m_originY;
+            float u = Math.Min(1f, Math.Abs(sheetX - m_tintCentre) / m_tintHalf);
+            float arc = m_tintTop + m_tintDrop - (m_tintFade + m_tintDrop) * (1f - Mathf.Sqrt(1f - u * u));
+            float keep = Mathf.Clamp01((arc - sheetY) / TintSoft);
+            return keep * keep * (3f - 2f * keep);
+        }
+
         private void TintPixel(int index, float coverage)
         {
             if (coverage <= 0f) return;
-            float sheetY = (index / m_width + 0.5f) / m_scale + m_originY;
-            // Smoothstep, so the wash leaves the foot level with the body and runs out without a
-            // visible edge at either end.
-            float fade = Mathf.Clamp01(1f - (sheetY - m_tintTop) / m_tintFade);
-            fade = fade * fade * (3f - 2f * fade);
-            int value = (int)(Math.Min(coverage, 1f) * fade * m_tintStrength * 255f + 0.5f);
+            int value = (int)(Math.Min(coverage, 1f) * BaseKeep(index) * 255f + 0.5f);
             byte[] mark = BodyMask(m_tintKind);
             if (value > mark[index]) mark[index] = (byte)value;
         }
-
         private void Capsule(float x0, float y0, float x1, float y1, float width, float strength, bool erase)
         {
             float r = width * 0.5f;
@@ -426,15 +461,25 @@ namespace Atlas
         {
             if (coverage <= 0f) return;
             float keep = 1f - Math.Min(coverage, 1f);
+            BodyKind marking = m_erasingPolygon ? m_markBody : BodyKind.None;
+            // A body marked faded towards its base arc takes only its faded share of what lies
+            // behind it (other kinds' bodies, woods): cleared in full, the body behind showed a
+            // hole of the ground's wash in the shape of the glyph in front.
+            float ramp = m_rampOn && marking != BodyKind.None && marking != BodyKind.Keep ? BaseKeep(index) : 1f;
+            float behind = 1f - Math.Min(coverage, 1f) * ramp;
             if (m_scraped != null)
             {
                 int scraped = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
                 if (scraped > m_scraped[index]) m_scraped[index] = (byte)scraped;
             }
-            BodyKind marking = m_erasingPolygon ? m_markBody : BodyKind.None;
-            Fade(m_body, index, keep, marking == BodyKind.Mountain);
-            Fade(m_bodyNorth, index, keep, marking == BodyKind.North);
-            Fade(m_bodyMist, index, keep, marking == BodyKind.Mist);
+            if (marking == BodyKind.Keep)
+            {
+                m_ink[index] = coverage >= 1f ? (byte)0 : (byte)(m_ink[index] * (1f - coverage));
+                return;
+            }
+            Fade(m_body, index, behind, marking == BodyKind.Mountain);
+            Fade(m_bodyNorth, index, behind, marking == BodyKind.North);
+            Fade(m_bodyMist, index, behind, marking == BodyKind.Mist);
             byte wood = m_bodyWood[index];
             if (marking == BodyKind.Wood)
             {
@@ -444,11 +489,11 @@ namespace Atlas
             }
             else if (wood != 0)
             {
-                m_bodyWood[index] = PackWood(WoodCover(wood) * keep, wood >> 5);
+                m_bodyWood[index] = PackWood(WoodCover(wood) * behind, wood >> 5);
             }
             if (marking != BodyKind.None && marking != BodyKind.Wood)
             {
-                int value = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
+                int value = (int)(Math.Min(coverage, 1f) * ramp * 255f + 0.5f);
                 byte[] mark = BodyMask(marking);
                 if (value > mark[index]) mark[index] = (byte)value;
             }

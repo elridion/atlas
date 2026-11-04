@@ -425,16 +425,20 @@ internal static class Program
         return 0;
     }
 
-    // --pincat <png>: every pen-drawn pin as a table. Each row is one glyph, with its vanilla pin,
-    // the glyph four times enlarged on paper, then at its size on screen (26 units) in every
-    // biome, over a dense hatching that stands for woods, so the body's fill and its break in
-    // the terrain ink show. A last row notes the icons traced from their sprites in game.
+    // --pincat <png>: every pen-drawn pin as the map draws it (InkCanvas.Pin), as a table. Each
+    // row is one glyph, with its vanilla pin and its box on the sheet, the glyph as a 4x close-up
+    // draws it on paper, then as a 2x close-up draws it in every biome, over a dense hatching
+    // that stands for woods, so the body's fill and its break in the terrain ink show. Both with
+    // the map's own pen (thinned by the close-up's level of detail, as every line) and the
+    // hand-drawn waver. A last row notes what is drawn otherwise.
     static int PinCatalogue(string path)
     {
-        const int size = 26, big = 3, over = 4, cell = 56, nameWidth = 230, bigCell = size * big + 16;
+        const int units = 26, over = 4, cell = 56, nameWidth = 230, bigScale = 4, smallScale = 2;
         Type kind = T("Atlas.PinGlyph"), land = T("Atlas.Land");
         MethodInfo draw = T("Atlas.PinGlyphs").GetMethod("Draw", All);
+        MethodInfo sheetSize = T("Atlas.InkPainter").GetMethod("PinSheetSize", All);
         MethodInfo bodyColor = T("Atlas.Paper").GetMethod("PinBodyColor", All);
+        int largest = 22, bigCell = largest * bigScale + 16;
         var rows = new[]
         {
             new[] { "Fire", "Fire (Icon0)", "campfire" },
@@ -448,7 +452,6 @@ internal static class Program
             new[] { "Tomb", "Hildir 1", "Smouldering Tombs: barrow" },
             new[] { "Cavern", "Hildir 2", "Howling Caverns: cave mouth" },
             new[] { "Tower", "Hildir 3", "Sealed Towers: tower" },
-            new[] { "StoneCircle", "Sacrificial Stones", "location: stone circle" },
             new[] { "Trader", "Haldor", "location: bag" },
             new[] { "Tent", "Hildir's camp", "location: tent" },
             new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
@@ -469,20 +472,28 @@ internal static class Program
             g.Clear(paperColor);
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             g.DrawString("pin", font, ink, 8, 8);
-            g.DrawString("drawn, 3x", font, ink, nameWidth + 4, 8);
+            g.DrawString("close-up, 4x", font, ink, nameWidth + 4, 8);
             for (int c = 0; c < headers.Length; c++)
                 g.DrawString(headers[c], small, ink, nameWidth + bigCell + c * cell, 12);
 
-            // Blends a glyph into the bitmap at (x, y), scale pixels per pin pixel; fill gives the
-            // body colour, null for none.
-            void Stamp(string glyph, int x, int y, int scale, System.Drawing.Color? fill)
+            // The pin's box on the sheet, in sheet pixels (InkPainter.PinSheetSize).
+            float Box(string glyph) => (float)sheetSize.Invoke(null, new object[] { Enum.Parse(kind, glyph) });
+
+            // Blends a glyph into the bitmap with its box centred on (cx, cy), as a close-up at
+            // scale draws it (InkCanvas.Pin): box sheet pixels at scale, every line the map's pen
+            // thinned by the level of detail; fill gives the body colour, null for none.
+            void Stamp(string glyph, float box, int cx, int cy, int scale, System.Drawing.Color? fill)
             {
-                int pixels = size * scale * over;
-                object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, glyph), pixels, 0f, 0 });
+                int size = Mathf.RoundToInt(box * scale);
+                int x = cx - size / 2, y = cy - size / 2;
+                int pixels = size * over;
+                float lod = Mathf.Sqrt(scale / 2f);
+                float pen = (1f / lod) * units / box;
+                object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, glyph), pixels, pen, 4127 });
                 var inkMask = (byte[])Get(mark, "m_ink");
                 var body = (byte[])Get(mark, "m_body");
-                for (int j = 0; j < size * scale; j++)
-                    for (int i = 0; i < size * scale; i++)
+                for (int j = 0; j < size; j++)
+                    for (int i = 0; i < size; i++)
                     {
                         float a = 0f, b = 0f;
                         for (int v = 0; v < over; v++)
@@ -512,10 +523,12 @@ internal static class Program
             for (int row = 0; row < rows.Length; row++)
             {
                 int top = header + row * rowHeight;
-                g.DrawString(rows[row][1], font, ink, 8, top + rowHeight / 2 - 18);
-                g.DrawString(rows[row][2], small, ink, 8, top + rowHeight / 2 + 2);
                 string[] parts = rows[row][0].Split('+');
-                foreach (string part in parts) Stamp(part, nameWidth + 8, top + 8, big, parts.Length > 1 && part == "Checked" ? (System.Drawing.Color?)null : paperColor);
+                float box = Box(parts[0]);
+                g.DrawString(rows[row][1], font, ink, 8, top + rowHeight / 2 - 26);
+                g.DrawString(rows[row][2], small, ink, 8, top + rowHeight / 2 - 6);
+                g.DrawString($"{box:0} sheet px box", small, ink, 8, top + rowHeight / 2 + 10);
+                foreach (string part in parts) Stamp(part, box, nameWidth + bigCell / 2, top + rowHeight / 2, bigScale, parts.Length > 1 && part == "Checked" ? (System.Drawing.Color?)null : paperColor);
                 for (int c = 0; c < lands.Length; c++)
                 {
                     bool water = lands[c] == "Ocean";
@@ -532,12 +545,12 @@ internal static class Program
                         g.ResetClip();
                     }
                     foreach (string part in parts)
-                        Stamp(part, x0 + (cell - 4 - size) / 2, y0 + (cell - 4 - size) / 2, 1, part == "Checked" ? (System.Drawing.Color?)null : fill);
+                        Stamp(part, box, x0 + (cell - 4) / 2, y0 + (cell - 4) / 2, smallScale, part == "Checked" ? (System.Drawing.Color?)null : fill);
                 }
             }
             int foot = header + rowHeight * rows.Length + 10;
-            g.DrawString("Other locations the game marks (the Forge of Potential, new ones) and other mods' pins:", small, ink, 8, foot);
-            g.DrawString("traced in pen from their own sprites in game (not shown offline).", small, ink, 8, foot + 18);
+            g.DrawString("The Sacrificial Stones are drawn on the map as a ring of standing stones (see the start island samples).", small, ink, 8, foot);
+            g.DrawString("Other locations the game marks and other mods' pins: traced from their sprites in game, as markers (not shown offline).", small, ink, 8, foot + 18);
             bitmap.Save(path, ImageFormat.Png);
         }
         return 0;

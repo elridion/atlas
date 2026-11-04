@@ -140,18 +140,50 @@ namespace Atlas
         private float X(float x) => (x - m_originX) * m_scale;
         private float Y(float y) => (y - m_originY) * m_scale;
 
+        // When set, every point drawn is moved by it first, and straight strokes and outlines are
+        // cut into short pieces so they bend with it: the hand-drawn waver of a pin drawn into
+        // the sheet (PinGlyphs). Not recorded; only the pins' own scratch canvases use it.
+        public Func<Vector2, Vector2> m_warp;
+        private const float WarpStep = 1.5f;
+
+        private Vector2 Warp(float x, float y) => m_warp != null ? m_warp(new Vector2(x, y)) : new Vector2(x, y);
+
+        private Vector2 Point(Vector2 p)
+        {
+            if (m_warp != null) p = m_warp(p);
+            return new Vector2(X(p.x), Y(p.y));
+        }
+
         // A straight pen stroke with round ends.
         public void Stroke(float x0, float y0, float x1, float y1, float width, float strength = 1f)
         {
             m_record?.Stroke(m_layer, x0, y0, x1, y1, width, strength, erase: false);
-            Capsule(X(x0), Y(y0), X(x1), Y(y1), width * m_penScale * m_scale, strength, erase: false);
+            Pieces(x0, y0, x1, y1, width * m_penScale * m_scale, strength, erase: false);
         }
 
         // Scrapes a band with round ends back to bare parchment.
         public void Scrape(float x0, float y0, float x1, float y1, float width)
         {
             m_record?.Stroke(m_layer, x0, y0, x1, y1, width, 1f, erase: true);
-            Capsule(X(x0), Y(y0), X(x1), Y(y1), width * m_penScale * m_scale, 1f, erase: true);
+            Pieces(x0, y0, x1, y1, width * m_penScale * m_scale, 1f, erase: true);
+        }
+
+        private void Pieces(float x0, float y0, float x1, float y1, float width, float strength, bool erase)
+        {
+            if (m_warp == null)
+            {
+                Capsule(X(x0), Y(y0), X(x1), Y(y1), width, strength, erase);
+                return;
+            }
+            int pieces = Math.Max(1, Mathf.CeilToInt(Mathf.Sqrt((x1 - x0) * (x1 - x0) + (y1 - y0) * (y1 - y0)) / WarpStep));
+            Vector2 from = Point(new Vector2(x0, y0));
+            for (int k = 1; k <= pieces; k++)
+            {
+                float t = k / (float)pieces;
+                Vector2 to = Point(new Vector2(Mathf.Lerp(x0, x1, t), Mathf.Lerp(y0, y1, t)));
+                Capsule(from.x, from.y, to.x, to.y, width, strength, erase);
+                from = to;
+            }
         }
 
         public void Polyline(IList<Vector2> points, float width, float strength = 1f)
@@ -163,7 +195,8 @@ namespace Atlas
         public void Dot(float cx, float cy, float radius, float strength = 1f)
         {
             m_record?.Ellipse(m_layer, cx, cy, radius, radius, strength, erase: false);
-            Ellipse(X(cx), Y(cy), radius * m_scale, radius * m_scale, strength, erase: false);
+            Vector2 c = Point(new Vector2(cx, cy));
+            Ellipse(c.x, c.y, radius * m_scale, radius * m_scale, strength, erase: false);
         }
 
         public void EraseEllipse(float cx, float cy, float rx, float ry)
@@ -172,7 +205,8 @@ namespace Atlas
             m_erasingPolygon = true;
             try
             {
-                Ellipse(X(cx), Y(cy), rx * m_scale, ry * m_scale, 1f, erase: true);
+                Vector2 c = Point(new Vector2(cx, cy));
+                Ellipse(c.x, c.y, rx * m_scale, ry * m_scale, 1f, erase: true);
             }
             finally
             {
@@ -183,6 +217,19 @@ namespace Atlas
         public void Ring(float cx, float cy, float rx, float ry, float width, float strength = 1f)
         {
             m_record?.Ring(m_layer, cx, cy, rx, ry, width, strength);
+            if (m_warp != null)
+            {
+                // Traced round as pen strokes, so the ring wavers with the rest of the pin.
+                int pieces = Math.Max(8, Mathf.CeilToInt(2f * Mathf.PI * Math.Max(rx, ry) / WarpStep));
+                for (int k = 0; k < pieces; k++)
+                {
+                    float a0 = 2f * Mathf.PI * k / pieces, a1 = 2f * Mathf.PI * (k + 1) / pieces;
+                    Vector2 p = Point(new Vector2(cx + Mathf.Cos(a0) * rx, cy + Mathf.Sin(a0) * ry));
+                    Vector2 q = Point(new Vector2(cx + Mathf.Cos(a1) * rx, cy + Mathf.Sin(a1) * ry));
+                    Capsule(p.x, p.y, q.x, q.y, width * m_penScale * m_scale, strength, erase: false);
+                }
+                return;
+            }
             RingPixels(X(cx), Y(cy), rx * m_scale, ry * m_scale, width * m_penScale * m_scale, strength);
         }
 
@@ -201,8 +248,12 @@ namespace Atlas
         {
             m_record?.Pin(m_layer, glyph, left, top, size, struck);
             int pixels = Mathf.Max(4, Mathf.RoundToInt(size * m_scale));
-            PinMark mark = PinGlyphs.Draw(glyph, pixels);
-            PinMark strike = struck ? PinGlyphs.Draw(PinGlyph.Checked, pixels) : null;
+            // The map's own pen (1 sheet pixel, thinned in close-ups as every line is) in pin
+            // units, and a waver seeded by the pin's place, the same on the sheet and in tiles.
+            float pen = m_penScale * PinGlyphs.PinUnits / size;
+            int seed = Noise.HashInt(Mathf.RoundToInt(left * 4f), Mathf.RoundToInt(top * 4f), 7411) | 1;
+            PinMark mark = PinGlyphs.Draw(glyph, pixels, pen, seed);
+            PinMark strike = struck ? PinGlyphs.Draw(PinGlyph.Checked, pixels, pen, seed) : null;
             int x0 = Mathf.RoundToInt(X(left)), y0 = Mathf.RoundToInt(Y(top));
             for (int y = 0; y < pixels; y++)
             {
@@ -264,7 +315,20 @@ namespace Atlas
             int count = sheetPolygon.Count;
             if (count < 3) return;
             m_transformed.Clear();
-            foreach (Vector2 p in sheetPolygon) m_transformed.Add(new Vector2(X(p.x), Y(p.y)));
+            for (int i = 0; i < count; i++)
+            {
+                Vector2 a = sheetPolygon[i];
+                if (m_warp == null)
+                {
+                    m_transformed.Add(new Vector2(X(a.x), Y(a.y)));
+                    continue;
+                }
+                // Cut into short pieces, so the outline bends with the warp as the strokes do.
+                Vector2 b = sheetPolygon[(i + 1) % count];
+                int pieces = Math.Max(1, Mathf.CeilToInt(Vector2.Distance(a, b) / WarpStep));
+                for (int k = 0; k < pieces; k++) m_transformed.Add(Point(Vector2.Lerp(a, b, k / (float)pieces)));
+            }
+            count = m_transformed.Count;
             List<Vector2> polygon = m_transformed;
             float minXf = float.MaxValue, maxXf = float.MinValue, minYf = float.MaxValue, maxYf = float.MinValue;
             foreach (Vector2 p in polygon)
@@ -446,7 +510,9 @@ namespace Atlas
             int count = sheetPolygon.Count;
             if (count < 3) return;
             m_transformed.Clear();
-            foreach (Vector2 p in sheetPolygon) m_transformed.Add(new Vector2(X(p.x), Y(p.y)));
+            // Convex polygons keep their corners only: pieces bent by the warp could break the
+            // convexity the fill relies on.
+            foreach (Vector2 p in sheetPolygon) m_transformed.Add(Point(p));
             List<Vector2> polygon = m_transformed;
             float minXf = float.MaxValue, maxXf = float.MinValue, minYf = float.MaxValue, maxYf = float.MinValue;
             float area = 0f;

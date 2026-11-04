@@ -437,21 +437,52 @@ namespace Atlas
             Pin,
         }
 
-        // Pins and the Sacrificial Stones are drawn into the sheet as glyphs of their own: the
-        // Stones (Glyphs.Stones) a ring of standing stones TempleRadius wide either side of its
-        // centre, the size of a large peak so it reads at the opening zoom (the real ring is about
-        // 35 m, under 7 sheet pixels), a pin a PinSheetSize box, about a peak's size. Every
-        // glyph, tree and ground mark keeps MarkClear off their footprints, so they stand in
-        // clearings among the trees round them and stay readable.
+        // Pins and the Sacrificial Stones are drawn into the sheet as glyphs of their own, part of
+        // the map: the Stones (Glyphs.Stones) a ring of standing stones TempleRadius wide either
+        // side of its centre (the real ring is about 35 m, under 7 sheet pixels), a pin a box
+        // sized for what it stands for (PinSheetSize), against a tree of about 13 pixels: a
+        // campfire or a bed smaller, a longhouse about a tree, a tower or a cave larger. They are sorted in with the trees and other
+        // glyphs by their feet, so a tree in front may cover part of one; only a glyph in front
+        // whose footprint reaches its core (the middle, MarkCore of its box in from each side) is
+        // left out, so none is ever hidden. Ground marks under one are scraped by its body.
         private const float TempleRadius = 9f * G;
-        public const float PinSheetSize = 32f;
-        private const float MarkClear = 3f * G;
+        private const float MarkCore = 0.3f;
+
+        // A pin's box on the sheet, in sheet pixels; the glyph fills about 0.8 of it.
+        private static float PinSheetSize(PinGlyph glyph)
+        {
+            switch (glyph)
+            {
+                case PinGlyph.Fire:
+                case PinGlyph.Bed:
+                case PinGlyph.Point: return 10f;
+                case PinGlyph.Death: return 11f;
+                case PinGlyph.Trader:
+                case PinGlyph.Hammer:
+                case PinGlyph.Portal:
+                case PinGlyph.Cauldron: return 13f;
+                case PinGlyph.House:
+                case PinGlyph.Tent: return 16f;
+                case PinGlyph.Boss: return 18f;
+                case PinGlyph.Tomb: return 20f;
+                case PinGlyph.Cavern:
+                case PinGlyph.Tower: return 22f;
+                default: return 13f;
+            }
+        }
         private const int PinStruck = 0x100;
         private readonly List<Glyph> m_marks = new List<Glyph>();
-        // The marks' cleared boxes, filed in PeakCell squares.
-        private readonly Dictionary<int, List<Vector4>> m_markCells = new Dictionary<int, List<Vector4>>();
 
-        // The pins' glyphs and their clearings, for the sheet and every close-up alike.
+        // A mark's core and foot (its sort order), filed in PeakCell squares.
+        private struct MarkZone
+        {
+            public Vector4 m_core;
+            public float m_foot;
+        }
+
+        private readonly Dictionary<int, List<MarkZone>> m_markCells = new Dictionary<int, List<MarkZone>>();
+
+        // The pins' glyphs and their cores, for the sheet and every close-up alike.
         private void FindMarks(IList<SheetPin> pins)
         {
             if (pins == null) return;
@@ -460,47 +491,57 @@ namespace Atlas
                 float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
                 Glyph g = pin.m_glyph == PinGlyph.StoneCircle
                     ? new Glyph { m_x = x, m_y = y + TempleRadius * StonesTilt, m_size = TempleRadius, m_kind = Kind.Stones, m_seed = m_world.m_seed }
-                    : new Glyph { m_x = x, m_y = y, m_size = PinSheetSize, m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
+                    : new Glyph { m_x = x, m_y = y, m_size = PinSheetSize(pin.m_glyph), m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
+                g.m_order = g.m_y;
                 m_marks.Add(g);
                 Vector4 box = GlyphBox(g);
-                box = new Vector4(box.x - MarkClear, box.y - MarkClear, box.z + MarkClear, box.w + MarkClear);
-                int x0 = (int)Math.Floor(box.x / PeakCell), x1 = (int)Math.Floor(box.z / PeakCell);
-                int y0 = (int)Math.Floor(box.y / PeakCell), y1 = (int)Math.Floor(box.w / PeakCell);
+                float dx = (box.z - box.x) * MarkCore, dy = (box.w - box.y) * MarkCore;
+                var zone = new MarkZone { m_core = new Vector4(box.x + dx, box.y + dy, box.z - dx, box.w - dy), m_foot = g.m_y };
+                int x0 = (int)Math.Floor(zone.m_core.x / PeakCell), x1 = (int)Math.Floor(zone.m_core.z / PeakCell);
+                int y0 = (int)Math.Floor(zone.m_core.y / PeakCell), y1 = (int)Math.Floor(zone.m_core.w / PeakCell);
                 for (int cy = y0; cy <= y1; cy++)
                     for (int cx = x0; cx <= x1; cx++)
                     {
                         int key = PeakCellKey(cx, cy);
-                        if (!m_markCells.TryGetValue(key, out List<Vector4> cell)) m_markCells[key] = cell = new List<Vector4>(4);
-                        cell.Add(box);
+                        if (!m_markCells.TryGetValue(key, out List<MarkZone> cell)) m_markCells[key] = cell = new List<MarkZone>(4);
+                        cell.Add(zone);
                     }
             }
         }
 
         private static bool IsMark(Kind kind) => kind == Kind.Stones || kind == Kind.Pin;
 
-        // The land's own shape: peaks, hills, crags and volcanoes are never removed for a pin, as
-        // a range must still read as one; the pin is inked over them instead (DrawMarks).
+        // The land's own shape: peaks, hills, crags and volcanoes are never left out for a pin, as
+        // a range must still read as one; a pin among them is drawn in front instead (OrderMarks).
         private static bool IsRelief(Kind kind) =>
             kind == Kind.Peak || kind == Kind.Hill || kind == Kind.Spire || kind == Kind.Crag || kind == Kind.Volcano;
 
-        // The pins and the Stones, after every other glyph, the waves and the sea's illustrations,
-        // so each stands in front of whatever is round it: in a wood its clearing keeps the trees
-        // off, in the mountains it is inked over the peaks, its body scraping them away behind it.
-        // Their own layer, which close-ups replay last too.
-        private void DrawMarks()
+        // The order glyphs are drawn in, north to south: a glyph's foot, a mark's m_order.
+        private static float Order(Glyph g) => IsMark(g.m_kind) ? g.m_order : g.m_y;
+
+        // Draws each mark after every piece of relief whose footprint reaches its core, so a peak
+        // standing in front of a pin does not hide it: the pin is inked over the peak, its body
+        // scraping only what lies under it.
+        private void OrderMarks()
         {
-            m_canvas.m_layer = InkLayer.Mark;
-            var marks = new List<Glyph>(m_marks);
-            marks.Sort((a, b) => a.m_y.CompareTo(b.m_y));
-            foreach (Glyph mark in marks)
+            for (int i = 0; i < m_marks.Count; i++)
             {
-                m_canvas.BeginGroup(mark.m_y);
-                DrawGlyph(mark);
-                m_canvas.EndGroup();
+                Glyph mark = m_marks[i];
+                Vector4 box = GlyphBox(mark);
+                float dx = (box.z - box.x) * MarkCore, dy = (box.w - box.y) * MarkCore;
+                var core = new Vector4(box.x + dx, box.y + dy, box.z - dx, box.w - dy);
+                foreach (Glyph g in m_glyphs)
+                {
+                    if (!IsRelief(g.m_kind) || g.m_y <= mark.m_order) continue;
+                    Vector4 b = GlyphBox(g);
+                    if (b.x < core.z && core.x < b.z && b.y < core.w && core.y < b.w) mark.m_order = g.m_y + 0.01f;
+                }
+                m_marks[i] = mark;
             }
         }
 
-        // Whether a glyph keeps clear of every pin's clearing; relief always does.
+        // Whether a glyph may stand where it is: one drawn after a mark (its foot further south)
+        // must not reach the mark's core. Relief always may (OrderMarks).
         private bool ClearOfMarks(Glyph g)
         {
             if (m_markCells.Count == 0 || IsMark(g.m_kind) || IsRelief(g.m_kind)) return true;
@@ -510,20 +551,14 @@ namespace Atlas
             for (int cy = y0; cy <= y1; cy++)
                 for (int cx = x0; cx <= x1; cx++)
                 {
-                    if (!m_markCells.TryGetValue(PeakCellKey(cx, cy), out List<Vector4> cell)) continue;
-                    foreach (Vector4 c in cell)
-                        if (box.x < c.z && c.x < box.z && box.y < c.w && c.y < box.w) return false;
+                    if (!m_markCells.TryGetValue(PeakCellKey(cx, cy), out List<MarkZone> cell)) continue;
+                    foreach (MarkZone zone in cell)
+                    {
+                        Vector4 c = zone.m_core;
+                        if (g.m_y > zone.m_foot && box.x < c.z && c.x < box.z && box.y < c.w && c.y < box.w) return false;
+                    }
                 }
             return true;
-        }
-
-        private bool InMarkClearing(float x, float y)
-        {
-            if (m_markCells.Count == 0) return false;
-            if (!m_markCells.TryGetValue(PeakCellKey((int)Math.Floor(x / PeakCell), (int)Math.Floor(y / PeakCell)), out List<Vector4> cell)) return false;
-            foreach (Vector4 c in cell)
-                if (x > c.x && x < c.z && y > c.y && y < c.w) return true;
-            return false;
         }
 
         // A pin's box (left, top, size): its glyph stands on its place (PinGlyphs.Lift).
@@ -541,6 +576,8 @@ namespace Atlas
             public int m_seed;
             // A hill drawn without the smaller dome behind it, dropped to keep it off water.
             public bool m_lone;
+            // A mark's place in the drawing order (Order), at or south of its foot.
+            public float m_order;
         }
 
         // Everything a scatter rule needs to know about one canvas point.
@@ -643,20 +680,15 @@ namespace Atlas
                 // Close-ups draw their own trees, so only the other glyphs' footprints are kept.
                 if (!IsTree(glyph.m_kind)) m_record?.AddGlyphBox(GlyphBox(glyph));
             }
-            foreach (Glyph mark in m_marks)
-            {
-                AddFootprint(mark);
-                m_record?.AddGlyphBox(GlyphBox(mark));
-            }
             m_canvas.m_layer = InkLayer.Background;
             DrawScarps();
             DrawStumps();
-            m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
+            m_glyphs.Sort((a, b) => Order(a).CompareTo(Order(b)));
             foreach (Glyph glyph in m_glyphs)
             {
                 bool tree = IsTree(glyph.m_kind);
                 m_canvas.m_layer = tree ? InkLayer.Tree : InkLayer.Glyph;
-                if (!tree) m_canvas.BeginGroup(glyph.m_y);
+                if (!tree) m_canvas.BeginGroup(Order(glyph));
                 DrawGlyph(glyph);
                 if (!tree) m_canvas.EndGroup();
             }
@@ -670,7 +702,6 @@ namespace Atlas
             // Last before the frame, so they can keep clear of every mark already inked.
             DrawIllustrations();
             m_cancel.ThrowIfCancellationRequested();
-            DrawMarks();
             m_canvas.m_layer = InkLayer.Frame;
             DrawFrame();
         }
@@ -947,25 +978,6 @@ namespace Atlas
         private void Scatter(float spacing, int salt, Action<Spot> visit) =>
             Scatter(spacing, spacing, 0.9f, 0f, salt, visit);
 
-        // A scatter of relief (peaks, crags, volcanoes), which keeps its spots in the pins'
-        // clearings: the pins are inked over the relief instead (DrawMarks).
-        private bool m_reliefScatter;
-
-        private void ScatterRelief(float spacingX, float spacingY, float jitter, float stagger, int salt, Action<Spot> visit)
-        {
-            m_reliefScatter = true;
-            try
-            {
-                Scatter(spacingX, spacingY, jitter, stagger, salt, visit);
-            }
-            finally
-            {
-                m_reliefScatter = false;
-            }
-        }
-
-        private void ScatterRelief(float spacing, int salt, Action<Spot> visit) => ScatterRelief(spacing, spacing, 0.9f, 0f, salt, visit);
-
         // Rows: separate column and row spacing, a jitter as a fraction of the cell, and every other
         // row shifted by stagger cells, so glyphs pack like bricks. A sheet grid hashes as level 1
         // at every level of detail, so its marks stand at the same places at every zoom.
@@ -996,7 +1008,6 @@ namespace Atlas
                     // Inside the frame's inner ring, with room for the glyph above its foot.
                     float limit = edge * EdgeFraction;
                     if (dx * dx + dy * dy > limit * limit) continue;
-                    if (!m_reliefScatter && InMarkClearing(x, y)) continue;
                     Spot spot = Look(x, y);
                     spot.m_roll = Unit(seed, 3);
                     spot.m_seed = seed;
@@ -2181,7 +2192,7 @@ namespace Atlas
             // Mountains between the summits: staggered rows of smaller overlapping peaks, so a range
             // still reads as one mass while its real summits stand out above it. In the Mountain
             // biome and the high Deep North.
-            ScatterRelief(16f * G, 9f * G, 0.3f, 0.5f, 21, s =>
+            Scatter(16f * G, 9f * G, 0.3f, 0.5f, 21, s =>
             {
                 if (!s.m_isLand || !(s.m_roll < 0.97f)) return;
                 bool mountain = s.m_land == Land.Mountain && s.m_above >= PeakHeight;
@@ -2212,7 +2223,7 @@ namespace Atlas
             });
             // Mistlands: crags on the real summits (PlaceSummitSpire) and filler crags on the steep,
             // broken ground only, clear of the summits; high flat plateaus are not crags.
-            ScatterRelief(18f * G, 28, s =>
+            Scatter(18f * G, 28, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 5f || !(s.m_roll < 0.35f)) return;
                 if (s.m_slope < SpireSlope * 1.3f || NearSummitSpire(s.m_x, s.m_y, 7f * G)) return;
@@ -2230,7 +2241,7 @@ namespace Atlas
             // clear ground it would stand in a bay of the lake, reading as standing in it.
             var volcanoMisses = new List<Spot>();
             var cragMisses = new List<Spot>();
-            ScatterRelief(24f * G, 30, s =>
+            Scatter(24f * G, 30, s =>
             {
                 if (!VolcanoChosen(s)) return;
                 if (!VolcanoRoom(s, lava: true))
@@ -2244,7 +2255,7 @@ namespace Atlas
                 Add(s, Kind.Volcano, VolcanoScale * G);
             });
             // Crag ridges, never standing on lava: both ends of the ridge are tested as well.
-            ScatterRelief(18f * G, 31, s =>
+            Scatter(18f * G, 31, s =>
             {
                 if (!CragChosen(s)) return;
                 if (!CragRoom(s, lava: true))
@@ -2275,9 +2286,14 @@ namespace Atlas
                 if (!WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
                 m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
-            // The pins' clearings: glyphs placed without Add give way to them too, but for the
-            // relief, which the pins are inked over (DrawMarks).
-            if (m_marks.Count > 0) m_glyphs.RemoveAll(g => !ClearOfMarks(g));
+            // The pins among the rest: glyphs placed without Add that would hide one give way too,
+            // but for the relief, which a pin is drawn in front of (OrderMarks).
+            if (m_marks.Count > 0)
+            {
+                m_glyphs.RemoveAll(g => !ClearOfMarks(g));
+                OrderMarks();
+                m_glyphs.AddRange(m_marks);
+            }
         }
 
         private void DrawCoast()

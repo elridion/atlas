@@ -42,19 +42,24 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   pen-drawn pins the settings show on explored ground (`AtlasView.InSheet`), plus the
   Sacrificial Stones from `ZoneSystem.GetLocationIcon("StartTemple")` (polled until found; a
   first painting waits up to `TempleWait` 15 s for it, as a client gets the icons from the
-  server). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, a
-  `PinSheetSize` 32 px box standing on its place by `PinGlyphs.Lift`, inked by
-  `InkCanvas.Pin` (the `PinGlyphs` mark drawn at the canvas's resolution: its body scrapes the
-  ink and body masks so the ground's own wash fills it, then its lines, struck through when
-  checked), recorded as `Op.Pin` so close-ups redraw it sharp. Trees, ground marks, mist and the
-  other non-relief glyphs keep `MarkClear` off each pin's footprint (`ClearOfMarks` in `Add`,
-  `InMarkClearing` in `Scatter`, the rest removed after placement; cleared boxes filed in
-  `PeakCell` squares), so pins stand in clearings among the trees. Relief (peaks, hills, crags,
-  volcanoes, `IsRelief`, scattered with `ScatterRelief`) is never removed for a pin, as a range
-  must still read as one (the user's requirement): the pins are drawn after everything but the
-  frame (`DrawMarks`, layer `InkLayer.Mark`, which close-ups replay last too), so a pin in the
-  mountains is inked over the peaks, its body scraping only what lies under it. Close-ups take
-  the list from `InkRecord.m_pins` and keep the same clearings. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
+  server). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, part of the map
+  (the user's design): sized for what it stands for against a tree of about 13 sheet pixels
+  (`PinSheetSize`: campfire, bed and circle 10, a longhouse or tent about a tree at 16, a boss
+  altar 18, a barrow 20, a cave or tower 22), standing on its place by `PinGlyphs.Lift`, inked
+  by `InkCanvas.Pin` with the map's own pen (every line `Pen` thinned as the canvas thins it,
+  passed to `PinGlyphs.Draw` in pin units) and a hand-drawn waver (`PinGlyphs.Waver`: every
+  point moved by a smooth noise seeded by the pin's place, straight lines and outlines cut
+  into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
+  so the ground's own wash fills it; checked pins are struck through. Recorded as `Op.Pin`, so
+  close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so a
+  tree in front may cover part of one: only a glyph drawn after it whose footprint reaches its
+  core (`MarkCore` 0.3 of its box in from each side) is left out (`ClearOfMarks` in `Add`, the
+  rest removed after placement; cores filed in `PeakCell` squares). A broad clearing round
+  every pin was too aggressive. Relief (peaks, hills, crags, volcanoes, `IsRelief`) is never
+  left out, as a range must still read as one (the user's requirement): a pin is drawn after any
+  relief whose footprint reaches its core (`OrderMarks`, `Glyph.m_order`, the group's foot),
+  so in the mountains it stands over the peaks, its body scraping only what lies under it.
+  Close-ups take the list from `InkRecord.m_pins` and decide the same. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
   a different key paints the world again in the background (about 6 s offline), the old sheet
   showing until the new one is uploaded and the table sparkling meanwhile; the close-up tiles
   start over with the new record. Pins in unexplored land (a boss a Vegvisir revealed) and

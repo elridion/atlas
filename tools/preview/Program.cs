@@ -478,7 +478,7 @@ internal static class Program
             void Stamp(string glyph, int x, int y, int scale, System.Drawing.Color? fill)
             {
                 int pixels = size * scale * over;
-                object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, glyph), pixels });
+                object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, glyph), pixels, 0f, 0 });
                 var inkMask = (byte[])Get(mark, "m_ink");
                 var body = (byte[])Get(mark, "m_body");
                 for (int j = 0; j < size * scale; j++)
@@ -626,7 +626,7 @@ internal static class Program
             float pwx = (left + cx / (float)scale) * 2f * 10800f / canvas - 10800f, pwz = 10800f - (bottom - cy / (float)scale) * 2f * 10800f / canvas;
             var fill = (Color32)bodyColor.Invoke(null, new object[] { landAt.Invoke(source, new object[] { pwx, pwz }), waterAt.Invoke(source, new object[] { pwx, pwz }) });
             if (aged != null) fill = (Color32)aged.Invoke(null, new object[] { fill, pwx, pwz, 12345 });
-            object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, name), size * over });
+            object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, name), size * over, 0f, 0 });
             var ink = (byte[])Get(mark, "m_ink");
             var shape = (byte[])Get(mark, "m_body");
             int m = size * over;

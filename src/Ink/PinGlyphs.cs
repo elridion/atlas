@@ -79,15 +79,26 @@ namespace Atlas
     internal static class PinGlyphs
     {
         public const float PinUnits = 26f;
-        // The outline pen, heavier than the terrain's so the pin stands out as a symbol, and the
-        // fine pen for hatching, both in pin units.
-        private const float Pen = 2.3f;
-        private const float FinePen = 1.1f;
+        // The outline pen, heavier than the terrain's so a marker stands out as a symbol, and the
+        // fine pen for hatching, both in pin units. A pin drawn into the sheet uses the map's own
+        // pen for every line instead (Draw's pen), so it reads as drawn by the same hand.
+        private const float MarkerPen = 2.3f;
+        private const float MarkerFinePen = 1.1f;
+        private const float MarkerLogWidth = 2.6f;
+        private const float MarkerRunePen = 1.6f;
+        [ThreadStatic] private static float s_pen;
+        private static float Pen => s_pen > 0f ? s_pen : MarkerPen;
+        private static float FinePen => s_pen > 0f ? s_pen : MarkerFinePen;
+        // The logs are solid bars rather than lines, a little heavier than the pen.
+        private static float LogWidth => s_pen > 0f ? s_pen * 1.6f : MarkerLogWidth;
+        private static float RunePen => s_pen > 0f ? s_pen * 1.2f : MarkerRunePen;
         // The engraver's gap: terrain ink stops this far short of the pin's lines, as pen lines
         // break off round a symbol on a hand-drawn map, so trees do not run into its outline.
         private const float Gap = 1.2f;
-        private const float LogWidth = 2.6f;
-        private const float RunePen = 1.6f;
+        // A pin drawn into the sheet wavers as a hand-drawn line does: every point is moved by a
+        // smooth noise of its place, up to Waver pin units, over WaverGrain units.
+        private const float Waver = 0.45f;
+        private const float WaverGrain = 3.5f;
         // How far a traced icon's dark interior must fall below its brightest part to be inked,
         // and the share of the body above which the interior is left out (an all-dark icon).
         private const float TraceDark = 0.55f;
@@ -120,11 +131,34 @@ namespace Atlas
             }
         }
 
-        public static PinMark Draw(PinGlyph glyph, int size)
+        // pen, when given, is every line's width in pin units (the map's pen, for a pin drawn into
+        // the sheet), and seed, when not 0, makes the lines waver by hand (Waver).
+        public static PinMark Draw(PinGlyph glyph, int size, float pen = 0f, int seed = 0)
+        {
+            s_pen = pen;
+            try
+            {
+                return DrawWith(glyph, size, seed);
+            }
+            finally
+            {
+                s_pen = 0f;
+            }
+        }
+
+        private static PinMark DrawWith(PinGlyph glyph, int size, int seed)
         {
             float scale = size / PinUnits;
             var ink = new InkCanvas(size, size, 0f, 0f, scale);
             var body = new InkCanvas(size, size, 0f, 0f, scale);
+            if (seed != 0)
+            {
+                Func<Vector2, Vector2> waver = p => p + new Vector2(
+                    (Noise.Value(p.x / WaverGrain, p.y / WaverGrain, seed) - 0.5f) * 2f * Waver,
+                    (Noise.Value(p.x / WaverGrain, p.y / WaverGrain, seed + 1) - 0.5f) * 2f * Waver);
+                ink.m_warp = waver;
+                body.m_warp = waver;
+            }
             // The body canvas starts all ink and the silhouette is scraped from it, as the
             // canvas scrapes concave outlines in one pass; the body is what got scraped.
             body.Fill(new[] { new Vector2(-1f, -1f), new Vector2(PinUnits + 1f, -1f), new Vector2(PinUnits + 1f, PinUnits + 1f), new Vector2(-1f, PinUnits + 1f) });
@@ -235,7 +269,7 @@ namespace Atlas
         // the outline scraped from it in one pass, and what was scraped is the fill.
         private static void FillSolid(InkCanvas ink, IList<Vector2> outline)
         {
-            var shape = new InkCanvas(ink.m_width, ink.m_height, 0f, 0f, ink.m_width / PinUnits);
+            var shape = new InkCanvas(ink.m_width, ink.m_height, 0f, 0f, ink.m_width / PinUnits) { m_warp = ink.m_warp };
             shape.Fill(new[] { new Vector2(-1f, -1f), new Vector2(PinUnits + 1f, -1f), new Vector2(PinUnits + 1f, PinUnits + 1f), new Vector2(-1f, PinUnits + 1f) });
             shape.EraseOutline(outline, 0f);
             for (int i = 0; i < ink.m_ink.Length; i++)

@@ -19,8 +19,6 @@ namespace Atlas
         Lava,
         // The sea's illustrations (SeaGlyphs), one group each.
         Illustration,
-        // The pins and the Sacrificial Stones, one group each, drawn over everything else.
-        Mark,
     }
 
     // Where a sea illustration stands, in world metres: the box round its ink. The fog shows or

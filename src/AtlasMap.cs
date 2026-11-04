@@ -360,7 +360,9 @@ namespace Atlas
             byte[] sheet = s_sheet;
             if (sheet == null || sheet == s_mipsFailedSheet) return;
             if (sheet == s_inkSheet && s_inkGlimpse == s_glimpseSerial) return;
-            if (s_glimpseSerial == 0 && !s_fogFailed) return;
+            // Laid only from the fog laid for this sheet (its sea illustrations), or without one when
+            // the fog failed: laid from an earlier fog it was laid twice after login.
+            if (s_fogMarks != s_sheetMarks && !s_fogFailed) return;
             byte[] glimpse = s_glimpseSerial == 0 ? null : s_glimpseCopy;
             SeaMark[] marks = s_sheetMarks;
             s_mipsSheet = sheet;
@@ -498,6 +500,10 @@ namespace Atlas
                 UploadFog();
             }
             if (!s_fogDirty) return;
+            // Before the sheet is there the fog would be laid for nothing: the atlas opens only
+            // with a fog laid for the sheet's sea illustrations, and the sheet's arrival lays it
+            // again. Without a sheet coming, it is laid at once.
+            if (s_sheet == null && !s_inkFailed && !s_decodeFailed) return;
             s_fogDirty = false;
             Snapshot snapshot = s_snapshot;
             int seed = ZNet.World != null ? ZNet.World.m_seed : 0;

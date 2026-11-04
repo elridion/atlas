@@ -47,7 +47,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   ones that mark places: location pins (`m_locationPins`), `m_spawnPointPin` and `m_deathPin`,
   which a saved-only filter leaves off the atlas. Daymark's dungeon and deposit pins are
   ordinary Icon2 and Icon3 pins. `Preview --pincat` renders the glyph table
-  (`screenshots/atlas-sample-15-pin-catalogue.png`). Names: regular weight, letter-spacing, bare
+  (`screenshots/atlas-sample-15-pin-catalogue.png`). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
   ink over a gap of their own letters grown a little (a TextMeshPro underlay used only as a
   `Mask`, paper behind it), placed by `PinLayout` at the clearest of the eight classic positions
   by the sheet's ink density (`InkDensity`, a summed-area table built before the sheet is

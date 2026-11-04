@@ -497,6 +497,8 @@ namespace Atlas
             text.font = font;
             text.fontSize = PinFontSize;
             text.characterSpacing = LabelSpacing;
+            // Bold: at the regular weight the thin letters were hard to read over the paper.
+            text.fontStyle = FontStyles.Bold;
             text.color = Paper.InkColor;
             text.textWrappingMode = TextWrappingModes.NoWrap;
             text.raycastTarget = false;

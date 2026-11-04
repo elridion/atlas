@@ -39,7 +39,6 @@ namespace Atlas
             int paper = Paper.FogSize;
             float perSheet = paper / (float)InkPainter.CanvasSize;
             Color32 ink = Paper.InkColor, pinInk = Paper.PinInkColor;
-            Paper.PinFill(out float fillAlpha, out float fillR, out float fillG, out float fillB);
             // The frame's radius in sheet pixels: beyond it is the sheet's bare margin, not water.
             float frame = InkPainter.EdgeRadius / InkPainter.MetresPerPixel;
             var rgba = new byte[w * h * 4];
@@ -106,14 +105,7 @@ namespace Atlas
                         float amount = sea.At(sx, sy);
                         if (amount > 0f) Paper.SeaGlaze(lr, lg, lb, amount, out lr, out lg, out lb);
                     }
-                    // A pin's fill and its red ink, under any black ink drawn over them later.
-                    float fill = canvas.m_pinFill[ty * w + tx] / 255f * fillAlpha;
-                    if (fill > 0f)
-                    {
-                        lr += (fillR - lr) * fill;
-                        lg += (fillG - lg) * fill;
-                        lb += (fillB - lb) * fill;
-                    }
+                    // A pin's red ink, under any black ink drawn over it later.
                     float red = canvas.m_pinInk[ty * w + tx] / 255f;
                     if (red > 0f)
                     {

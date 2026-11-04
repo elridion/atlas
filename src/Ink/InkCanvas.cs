@@ -47,10 +47,9 @@ namespace Atlas
         // coverage (bottom five bits), since a cached sheet is shown before the world is read
         // and so cannot look the biome up.
         public readonly byte[] m_bodyWood;
-        // The pins' own ink, laid in red, and their bodies, laid in the pins' fill (Paper.PinInk,
-        // InkCanvas.Pin): planes of their own, so pins read apart from the terrain's black ink.
+        // The pins' own ink, laid in red (Paper.PinInkColor, InkCanvas.Pin): a plane of its own,
+        // so pins read apart from the terrain's black ink.
         public readonly byte[] m_pinInk;
-        public readonly byte[] m_pinFill;
         // While not None, an erase marks what it scrapes as that kind of body (and clears the
         // others); any other erase clears all, so the glyph in front decides. Polygon, outline and
         // ellipse erases mark; scraped strokes never do.
@@ -92,7 +91,6 @@ namespace Atlas
             m_bodyMist = new byte[width * height];
             m_bodyWood = new byte[width * height];
             m_pinInk = new byte[width * height];
-            m_pinFill = new byte[width * height];
             m_originX = originX;
             m_originY = originY;
             m_scale = scale;
@@ -247,9 +245,8 @@ namespace Atlas
         }
 
         // A pin glyph (PinGlyphs) in the box of size sheet pixels from (left, top): its body
-        // scrapes the ink and every body mask, so the ground's own wash shows round it, then its
-        // shape is laid in the pins' fill (m_pinFill) and its lines in their red ink (m_pinInk),
-        // struck through when checked. Drawn at this canvas's resolution, so a
+        // scrapes the ink and every body mask, so the ground's own wash fills it, then its lines
+        // are laid in the pins' red ink (m_pinInk), struck through when checked. Drawn at this canvas's resolution, so a
         // close-up gets a sharp pin.
         public void Pin(PinGlyph glyph, float left, float top, float size, bool struck)
         {
@@ -282,9 +279,7 @@ namespace Atlas
                         if (wood != 0) m_bodyWood[i] = PackWood(WoodCover(wood) * keep, wood >> 5);
                         if (m_scraped != null) m_scraped[i] = Math.Max(m_scraped[i], mark.m_body[j]);
                         m_pinInk[i] = (byte)(m_pinInk[i] * keep);
-                        m_pinFill[i] = (byte)(m_pinFill[i] * keep);
                     }
-                    if (mark.m_fill[j] > m_pinFill[i]) m_pinFill[i] = mark.m_fill[j];
                     byte ink = mark.m_ink[j];
                     if (strike != null) ink = Math.Max(ink, strike.m_ink[j]);
                     if (ink > m_pinInk[i]) m_pinInk[i] = ink;
@@ -586,9 +581,8 @@ namespace Atlas
                 int scraped = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
                 if (scraped > m_scraped[index]) m_scraped[index] = (byte)scraped;
             }
-            // A glyph in front scrapes a pin's red ink and fill as it scrapes black ink.
+            // A glyph in front scrapes a pin's red ink as it scrapes black ink.
             if (m_pinInk[index] != 0) m_pinInk[index] = (byte)(m_pinInk[index] * keep);
-            if (m_pinFill[index] != 0) m_pinFill[index] = (byte)(m_pinFill[index] * keep);
             if (marking == BodyKind.Keep)
             {
                 m_ink[index] = coverage >= 1f ? (byte)0 : (byte)(m_ink[index] * (1f - coverage));

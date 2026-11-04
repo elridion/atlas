@@ -67,8 +67,6 @@ namespace Atlas
         public int m_size;
         public byte[] m_ink;
         public byte[] m_body;
-        // The glyph's own shape, without the gap round it: what the pins' fill takes.
-        public byte[] m_fill;
     }
 
     /// <summary>
@@ -194,8 +192,6 @@ namespace Atlas
             }
             var mark = new PinMark { m_size = size, m_ink = ink.m_ink, m_body = new byte[size * size] };
             for (int i = 0; i < mark.m_body.Length; i++) mark.m_body[i] = (byte)(255 - body.m_ink[i]);
-            // The fill is the shape itself, before the gap round it.
-            mark.m_fill = (byte[])mark.m_body.Clone();
             if (glyph != PinGlyph.Checked) Widen(mark, Gap * scale);
             return mark;
         }

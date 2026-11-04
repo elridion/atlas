@@ -17,8 +17,8 @@ namespace Atlas
         // Canvas: CanvasSize pixels across HalfExtent metres either side of the world centre.
         public const int CanvasSize = 4096;
         // The painted sheet's planes of CanvasSize² bytes: ink, one body mask per BodyKind, then
-        // the pins' red ink and their fill (InkCanvas.m_pinInk, m_pinFill).
-        public const int SheetPlanes = 7;
+        // the pins' red ink (InkCanvas.m_pinInk).
+        public const int SheetPlanes = 6;
         public const float HalfExtent = 10800f;
         public const float MetresPerPixel = 2f * HalfExtent / CanvasSize;
         // Vanilla's world edge (WorldGenerator.waterEdge): the frame is drawn there.
@@ -864,7 +864,6 @@ namespace Atlas
             Buffer.BlockCopy(painter.m_canvas.m_bodyMist, 0, sheet, 3 * n, n);
             Buffer.BlockCopy(painter.m_canvas.m_bodyWood, 0, sheet, 4 * n, n);
             Buffer.BlockCopy(painter.m_canvas.m_pinInk, 0, sheet, 5 * n, n);
-            Buffer.BlockCopy(painter.m_canvas.m_pinFill, 0, sheet, 6 * n, n);
             return sheet;
         }
 

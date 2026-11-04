@@ -22,36 +22,6 @@ namespace Atlas
         // by age, so a pin reads apart from the terrain's black ink at any zoom.
         public static readonly Color32 PinInkColor = new Color32(152, 44, 28, 255);
 
-        // The pins' fill, being tried: 0 none (the ground's own wash shows), 1 clean parchment,
-        // 2 a thin red glaze. Set by the offline preview to compare.
-        internal static int s_pinFillMode = 2;
-        private static readonly Color32 s_pinRedGlaze = new Color32(196, 92, 64, 255);
-        private const float PinRedGlaze = 0.22f;
-
-        // A pin's fill as colour and opacity over whatever lies under it, by s_pinFillMode.
-        public static void PinFill(out float alpha, out float r, out float g, out float b)
-        {
-            switch (s_pinFillMode)
-            {
-                case 1:
-                    alpha = 1f;
-                    r = PaperColor.r;
-                    g = PaperColor.g;
-                    b = PaperColor.b;
-                    return;
-                case 2:
-                    alpha = PinRedGlaze;
-                    r = s_pinRedGlaze.r;
-                    g = s_pinRedGlaze.g;
-                    b = s_pinRedGlaze.b;
-                    return;
-                default:
-                    alpha = 0f;
-                    r = g = b = 0f;
-                    return;
-            }
-        }
-
         // How strongly the paper is mottled and darkened towards its corners.
         private const float Mottle = 0.07f;
         private const float Vignette = 0.2f;
@@ -781,8 +751,6 @@ namespace Atlas
             int mistAt = sheet.Length >= 4 * plane ? 3 * plane : -1;
             int woodAt = sheet.Length >= 5 * plane ? 4 * plane : -1;
             int pinInkAt = sheet.Length >= 6 * plane ? 5 * plane : -1;
-            int pinFillAt = sheet.Length >= 7 * plane ? 6 * plane : -1;
-            PinFill(out float fillAlpha, out float fillR, out float fillG, out float fillB);
             // Each wood code's ink (InkCanvas.WoodCode), worked out once.
             var woodAlpha = new float[8];
             var woodR = new float[8];
@@ -808,14 +776,13 @@ namespace Atlas
                     int code = wood >> 5;
                     float mu = m * (1f - a), qu = q * (1f - a), ku = k * mistAlpha * (1f - a);
                     float wu = InkCanvas.WoodCover(wood) * woodAlpha[code] * (1f - a);
-                    // A pin's red ink and fill lie under any black ink drawn over them later.
+                    // A pin's red ink lies under any black ink drawn over it later.
                     float pr = pinInkAt >= 0 ? sheet[pinInkAt + i] / 255f * (1f - a) : 0f;
-                    float pf = pinFillAt >= 0 ? sheet[pinFillAt + i] / 255f * fillAlpha * (1f - a) * (1f - pr) : 0f;
                     int o = (y * n + x) * 4;
-                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + woodR[code] * wu + fillR * pf + PinInkColor.r * pr + InkColor.r * a);
-                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + woodG[code] * wu + fillG * pf + PinInkColor.g * pr + InkColor.g * a);
-                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + woodB[code] * wu + fillB * pf + PinInkColor.b * pr + InkColor.b * a);
-                    level[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + wu + pf + pr + a) * 255f);
+                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + woodR[code] * wu + PinInkColor.r * pr + InkColor.r * a);
+                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + woodG[code] * wu + PinInkColor.g * pr + InkColor.g * a);
+                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + woodB[code] * wu + PinInkColor.b * pr + InkColor.b * a);
+                    level[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + wu + pr + a) * 255f);
                 }
             }
             // The sea illustrations' wash under their ink. They stand in open water far from any

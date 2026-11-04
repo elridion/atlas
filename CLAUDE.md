@@ -48,12 +48,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   altar 18, a barrow 20, a cave or tower 22, the Sacrificial Stones 26), standing on its place by `PinGlyphs.Lift`, inked
   by `InkCanvas.Pin` in red (`Paper.PinInkColor`, a dulled vermilion, as places were rubricated
   on maps of the period; black pins in the terrain's ink were lost in woods and ranges and at
-  the opening zoom), on planes of their own (`InkCanvas.m_pinInk`, `m_pinFill`, sheet planes 6
-  and 7, scraped by glyphs drawn in front like black ink), with the map's own pen for inner
-  lines and 1.5 of it for the outline (`PinGlyphs.SheetOutline`, as a peak's flanks), passed
-  to `PinGlyphs.Draw` in pin units. The pin's shape (`PinMark.m_fill`, its body before the
-  gap) takes the fill `Paper.PinFill`, still being chosen (`s_pinFillMode`: 0 the ground's
-  wash, 1 clean parchment, 2 a thin red glaze; the preview takes `-PinFill N`). Trees behind
+  the opening zoom), on a plane of its own (`InkCanvas.m_pinInk`, the sheet's sixth plane,
+  scraped by glyphs drawn in front like black ink), with the map's own pen for inner lines and
+  1.5 of it for the outline (`PinGlyphs.SheetOutline`, as a peak's flanks), passed to
+  `PinGlyphs.Draw` in pin units. The pin's body takes no fill of its own: the ground's wash
+  shows inside it (the user chose that over clean parchment and a thin red glaze). Trees behind
   a pin whose outline would show less than `HiddenShown` a quarter outside its body are left
   out (`DropHiddenBehindMarks`): scraped round the pin, their slivers read as stray marks and a hand-drawn waver (`PinGlyphs.Waver`: every
   point moved by a smooth noise seeded by the pin's place, straight lines and outlines cut
@@ -156,8 +155,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - **Deterministic drawing.** Glyph placement hashes the world seed, a per-rule salt and the grid
   cell (`Noise`), never a shared `System.Random`, so tuning one rule never moves another's glyphs.
   Any change to the drawing bumps `InkCache.Version`, or players keep the old cached sheet;
-  until the first release it stays at 25 for drawing changes, since no player has a cached
-  sheet yet (24 added the pins' key to the header, 25 the pins' planes: format changes).
+  until the first release it stays at 26 for drawing changes, since no player has a cached
+  sheet yet (24 added the pins' key to the header, 26 the pins' red plane: format changes).
 - **Persisted config.** Section and key names (`Pins`, `BedPin`, `DeathPin`, `BossPins`,
   `TraderPins`, `HildirPins`, `PlacePins`): renaming one resets players' settings.
 - **Docs follow code.** `package/README.md` keeps the settings table in sync with

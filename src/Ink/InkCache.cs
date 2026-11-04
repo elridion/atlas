@@ -16,9 +16,9 @@ namespace Atlas
     internal static class InkCache
     {
         private const int Magic = 0x534C5441; // "ATLS"
-        // 24 added the pins' key to the header (the pins are drawn into the sheet); 25 the pins'
-        // red ink and fill planes.
-        private const int Version = 25;
+        // 24 added the pins' key to the header (the pins are drawn into the sheet); 26 the pins'
+        // red ink plane.
+        private const int Version = 26;
         // A file never holds more sea illustrations than this; more means it is damaged.
         private const int MostSeaMarks = 256;
 

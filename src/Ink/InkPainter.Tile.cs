@@ -92,6 +92,10 @@ namespace Atlas
             // from beside it scrapes and inks exactly as on the sheet.
             foreach (InkRecord.Group group in record.Groups(InkLayer.Illustration, m_left, m_top, m_right, m_bottom))
                 record.Replay(m_canvas, group);
+            // The pins over everything, each whole, as on the sheet.
+            List<InkRecord.Group> marks = record.Groups(InkLayer.Mark, m_left, m_top, m_right, m_bottom);
+            marks.Sort((a, b) => a.m_foot.CompareTo(b.m_foot));
+            foreach (InkRecord.Group mark in marks) record.Replay(m_canvas, mark);
             record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Frame), null);
         }
 

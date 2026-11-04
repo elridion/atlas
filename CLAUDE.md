@@ -46,11 +46,15 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `PinSheetSize` 32 px box standing on its place by `PinGlyphs.Lift`, inked by
   `InkCanvas.Pin` (the `PinGlyphs` mark drawn at the canvas's resolution: its body scrapes the
   ink and body masks so the ground's own wash fills it, then its lines, struck through when
-  checked), recorded as `Op.Pin` so close-ups redraw it sharp. Every scatter mark and glyph keeps
-  `MarkClear` off each pin's footprint (`ClearOfMarks` in `Add`, `InMarkClearing` in `Scatter`,
-  the rest removed after placement; cleared boxes filed in `PeakCell` squares), so pins stand in
-  clearings among the trees; close-ups take the list from `InkRecord.m_pins` and keep the same
-  clearings. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
+  checked), recorded as `Op.Pin` so close-ups redraw it sharp. Trees, ground marks, mist and the
+  other non-relief glyphs keep `MarkClear` off each pin's footprint (`ClearOfMarks` in `Add`,
+  `InMarkClearing` in `Scatter`, the rest removed after placement; cleared boxes filed in
+  `PeakCell` squares), so pins stand in clearings among the trees. Relief (peaks, hills, crags,
+  volcanoes, `IsRelief`, scattered with `ScatterRelief`) is never removed for a pin, as a range
+  must still read as one (the user's requirement): the pins are drawn after everything but the
+  frame (`DrawMarks`, layer `InkLayer.Mark`, which close-ups replay last too), so a pin in the
+  mountains is inked over the peaks, its body scraping only what lies under it. Close-ups take
+  the list from `InkRecord.m_pins` and keep the same clearings. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
   a different key paints the world again in the background (about 6 s offline), the old sheet
   showing until the new one is uploaded and the table sparkling meanwhile; the close-up tiles
   start over with the new record. Pins in unexplored land (a boss a Vegvisir revealed) and

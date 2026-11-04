@@ -478,10 +478,32 @@ namespace Atlas
 
         private static bool IsMark(Kind kind) => kind == Kind.Stones || kind == Kind.Pin;
 
-        // Whether a glyph keeps clear of every pin's clearing.
+        // The land's own shape: peaks, hills, crags and volcanoes are never removed for a pin, as
+        // a range must still read as one; the pin is inked over them instead (DrawMarks).
+        private static bool IsRelief(Kind kind) =>
+            kind == Kind.Peak || kind == Kind.Hill || kind == Kind.Spire || kind == Kind.Crag || kind == Kind.Volcano;
+
+        // The pins and the Stones, after every other glyph, the waves and the sea's illustrations,
+        // so each stands in front of whatever is round it: in a wood its clearing keeps the trees
+        // off, in the mountains it is inked over the peaks, its body scraping them away behind it.
+        // Their own layer, which close-ups replay last too.
+        private void DrawMarks()
+        {
+            m_canvas.m_layer = InkLayer.Mark;
+            var marks = new List<Glyph>(m_marks);
+            marks.Sort((a, b) => a.m_y.CompareTo(b.m_y));
+            foreach (Glyph mark in marks)
+            {
+                m_canvas.BeginGroup(mark.m_y);
+                DrawGlyph(mark);
+                m_canvas.EndGroup();
+            }
+        }
+
+        // Whether a glyph keeps clear of every pin's clearing; relief always does.
         private bool ClearOfMarks(Glyph g)
         {
-            if (m_markCells.Count == 0 || IsMark(g.m_kind)) return true;
+            if (m_markCells.Count == 0 || IsMark(g.m_kind) || IsRelief(g.m_kind)) return true;
             Vector4 box = GlyphBox(g);
             int x0 = (int)Math.Floor(box.x / PeakCell), x1 = (int)Math.Floor(box.z / PeakCell);
             int y0 = (int)Math.Floor(box.y / PeakCell), y1 = (int)Math.Floor(box.w / PeakCell);
@@ -621,6 +643,11 @@ namespace Atlas
                 // Close-ups draw their own trees, so only the other glyphs' footprints are kept.
                 if (!IsTree(glyph.m_kind)) m_record?.AddGlyphBox(GlyphBox(glyph));
             }
+            foreach (Glyph mark in m_marks)
+            {
+                AddFootprint(mark);
+                m_record?.AddGlyphBox(GlyphBox(mark));
+            }
             m_canvas.m_layer = InkLayer.Background;
             DrawScarps();
             DrawStumps();
@@ -643,6 +670,7 @@ namespace Atlas
             // Last before the frame, so they can keep clear of every mark already inked.
             DrawIllustrations();
             m_cancel.ThrowIfCancellationRequested();
+            DrawMarks();
             m_canvas.m_layer = InkLayer.Frame;
             DrawFrame();
         }
@@ -919,6 +947,25 @@ namespace Atlas
         private void Scatter(float spacing, int salt, Action<Spot> visit) =>
             Scatter(spacing, spacing, 0.9f, 0f, salt, visit);
 
+        // A scatter of relief (peaks, crags, volcanoes), which keeps its spots in the pins'
+        // clearings: the pins are inked over the relief instead (DrawMarks).
+        private bool m_reliefScatter;
+
+        private void ScatterRelief(float spacingX, float spacingY, float jitter, float stagger, int salt, Action<Spot> visit)
+        {
+            m_reliefScatter = true;
+            try
+            {
+                Scatter(spacingX, spacingY, jitter, stagger, salt, visit);
+            }
+            finally
+            {
+                m_reliefScatter = false;
+            }
+        }
+
+        private void ScatterRelief(float spacing, int salt, Action<Spot> visit) => ScatterRelief(spacing, spacing, 0.9f, 0f, salt, visit);
+
         // Rows: separate column and row spacing, a jitter as a fraction of the cell, and every other
         // row shifted by stagger cells, so glyphs pack like bricks. A sheet grid hashes as level 1
         // at every level of detail, so its marks stand at the same places at every zoom.
@@ -949,7 +996,7 @@ namespace Atlas
                     // Inside the frame's inner ring, with room for the glyph above its foot.
                     float limit = edge * EdgeFraction;
                     if (dx * dx + dy * dy > limit * limit) continue;
-                    if (InMarkClearing(x, y)) continue;
+                    if (!m_reliefScatter && InMarkClearing(x, y)) continue;
                     Spot spot = Look(x, y);
                     spot.m_roll = Unit(seed, 3);
                     spot.m_seed = seed;
@@ -2134,7 +2181,7 @@ namespace Atlas
             // Mountains between the summits: staggered rows of smaller overlapping peaks, so a range
             // still reads as one mass while its real summits stand out above it. In the Mountain
             // biome and the high Deep North.
-            Scatter(16f * G, 9f * G, 0.3f, 0.5f, 21, s =>
+            ScatterRelief(16f * G, 9f * G, 0.3f, 0.5f, 21, s =>
             {
                 if (!s.m_isLand || !(s.m_roll < 0.97f)) return;
                 bool mountain = s.m_land == Land.Mountain && s.m_above >= PeakHeight;
@@ -2165,7 +2212,7 @@ namespace Atlas
             });
             // Mistlands: crags on the real summits (PlaceSummitSpire) and filler crags on the steep,
             // broken ground only, clear of the summits; high flat plateaus are not crags.
-            Scatter(18f * G, 28, s =>
+            ScatterRelief(18f * G, 28, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 5f || !(s.m_roll < 0.35f)) return;
                 if (s.m_slope < SpireSlope * 1.3f || NearSummitSpire(s.m_x, s.m_y, 7f * G)) return;
@@ -2183,7 +2230,7 @@ namespace Atlas
             // clear ground it would stand in a bay of the lake, reading as standing in it.
             var volcanoMisses = new List<Spot>();
             var cragMisses = new List<Spot>();
-            Scatter(24f * G, 30, s =>
+            ScatterRelief(24f * G, 30, s =>
             {
                 if (!VolcanoChosen(s)) return;
                 if (!VolcanoRoom(s, lava: true))
@@ -2197,7 +2244,7 @@ namespace Atlas
                 Add(s, Kind.Volcano, VolcanoScale * G);
             });
             // Crag ridges, never standing on lava: both ends of the ridge are tested as well.
-            Scatter(18f * G, 31, s =>
+            ScatterRelief(18f * G, 31, s =>
             {
                 if (!CragChosen(s)) return;
                 if (!CragRoom(s, lava: true))
@@ -2228,13 +2275,9 @@ namespace Atlas
                 if (!WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
                 m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
-            // The pins and the Sacrificial Stones in their clearings: glyphs placed without Add
-            // (summits, hills, spires) give way to them too.
-            if (m_marks.Count > 0)
-            {
-                m_glyphs.RemoveAll(g => !ClearOfMarks(g));
-                m_glyphs.AddRange(m_marks);
-            }
+            // The pins' clearings: glyphs placed without Add give way to them too, but for the
+            // relief, which the pins are inked over (DrawMarks).
+            if (m_marks.Count > 0) m_glyphs.RemoveAll(g => !ClearOfMarks(g));
         }
 
         private void DrawCoast()

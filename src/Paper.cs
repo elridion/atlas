@@ -209,7 +209,7 @@ namespace Atlas
                     int y0 = Math.Max(0, (int)(cy - reach)), y1 = Math.Min(n - 1, (int)(cy + reach));
                     // Rows are independent, so they run in parallel: the warp's noise for some
                     // hundred blots is most of the parchment's cost.
-                    System.Threading.Tasks.Parallel.For(y0, y1 + 1, y =>
+                    System.Threading.Tasks.Parallel.For(y0, y1 + 1, Workers.LoopOptions(), y =>
                     {
                         for (int x = x0; x <= x1; x++)
                         {
@@ -335,7 +335,7 @@ namespace Atlas
             var rgb = new byte[n * n * 3];
             float[] age = Ages(seed);
             // Rows are independent, so they run in parallel.
-            System.Threading.Tasks.Parallel.For(0, n, y =>
+            System.Threading.Tasks.Parallel.For(0, n, Workers.LoopOptions(), y =>
             {
                 for (int x = 0; x < n; x++)
                 {
@@ -370,7 +370,7 @@ namespace Atlas
             int n = FogSize;
             var rgba = new byte[n * n * 4];
             Stains(seed, out float[] blots, out float[] foxing);
-            System.Threading.Tasks.Parallel.For(0, n, y =>
+            System.Threading.Tasks.Parallel.For(0, n, Workers.LoopOptions(), y =>
             {
                 for (int x = 0; x < n; x++)
                 {

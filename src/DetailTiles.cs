@@ -232,10 +232,9 @@ namespace Atlas
         // Starts the most wanted tiles not drawn yet, as many as there are workers.
         private void Start()
         {
-            int workers = Mathf.Clamp(Environment.ProcessorCount / 2, 1, 4);
             foreach (long key in m_wanted)
             {
-                if (m_running.Count >= workers) break;
+                if (m_running.Count >= Workers.Count) break;
                 if (m_tiles.TryGetValue(key, out Tile tile))
                 {
                     tile.m_used = m_frame;
@@ -250,7 +249,7 @@ namespace Atlas
                 SampleCache samples = m_samples;
                 int scale = s_scales[level];
                 CancellationToken cancel = m_cancel.Token;
-                m_running[key] = Task.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel)), cancel);
+                m_running[key] = Workers.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel)), cancel);
                 m_runningRegion[key] = region;
             }
             foreach (long key in m_wanted)

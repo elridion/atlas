@@ -84,8 +84,13 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - **Nothing heavy on the main thread.** The main thread only copies vanilla's three minimap textures
   once per world (`WorldSource.Capture`) and uploads finished pixels: the ink sheet once per world
   (`LoadRawTextureData`, made unreadable after), the washed paper once per world, the 2048² fog
-  once per recording. Decoding the world, painting, the wash, the fog, parchment, mips and the
-  cache run on `Task.Run`. Worker code must not call Unity APIs except
+  once per recording. Decoding the world, painting, the wash, the fog, parchment, mips, the
+  cache and close-up tiles run on the atlas's own threads (`Workers`: half the cores, at most 4,
+  below normal priority), never the shared ThreadPool, and `Parallel.For` passes
+  `Workers.LoopOptions()`, so the atlas never takes every core from the game right after login.
+  Work there never blocks on another atlas task (`.Result` or `Wait` on one not yet done): with
+  one worker it would wait on a task queued behind itself; chain with `Workers.Then`. Worker
+  code must not call Unity APIs except
   pure math (`Mathf`, `Vector2`); `Mathf.HalfToFloat` is native, hence `WorldSource.HalfToFloat`.
 - **Deterministic drawing.** Glyph placement hashes the world seed, a per-rule salt and the grid
   cell (`Noise`), never a shared `System.Random`, so tuning one rule never moves another's glyphs.
@@ -642,7 +647,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   tile pixels; everything else is replayed from the `InkRecord` (every pen call of the painting
   with its `InkLayer`, about 720k calls, 20 MB, indexed in 64 px cells). Because only painting
   yields the record, the world is painted once per session in the background even when the
-  sheet came from the disk cache.
+  sheet came from the disk cache, but then only after the cache has loaded and the atlas has
+  first been opened, and that painting does not write the cache again.
 - Tiles sample the world generator (`GeneratorSampler`: `GetBiome`, `GetBiomeHeight` and the
   forest factor, exactly what vanilla's minimap is built from), which vanilla itself calls off
   the main thread from `HeightmapBuilder`; `Mathf.PerlinNoise` underneath means the offline

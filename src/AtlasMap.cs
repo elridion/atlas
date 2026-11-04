@@ -36,6 +36,8 @@ namespace Atlas
         private static AggregateException s_paintError;
         // Set after an error in Update: the atlas is off for the session.
         private static bool s_stopped;
+        // Whether the atlas was opened in this world, which starts painting behind a cached sheet.
+        private static bool s_opened;
         private static Texture2D s_ink;
         // The sea illustrations on the uploaded sheet, those the uploaded fog showed or hid whole,
         // and those the fog being laid does. The atlas opens only once the first two agree, so a
@@ -154,6 +156,7 @@ namespace Atlas
                 return;
             }
             s_view.Show(s_paper, s_ink, s_fog, s_dirt, s_snapshot, s_density, s_source);
+            s_opened = true;
         }
 
         private static bool OpenPressed() => ZInput.GetButtonDown("Map") || JoyMapPressed();
@@ -175,9 +178,9 @@ namespace Atlas
         }
 
         // The sheet comes from the disk cache when there is one, so the atlas is ready at once. The
-        // world is still painted once per session in the background, because only painting yields
-        // the record that detail tiles are drawn from; without a cached sheet, that painting also
-        // provides the sheet.
+        // world is still painted in the background once the atlas is first opened, because only
+        // painting yields the record that detail tiles are drawn from; without a cached sheet,
+        // painting starts at once and also provides the sheet.
         private static void KeepInk(long worldUid)
         {
             if (s_inkFailed) return;
@@ -185,7 +188,7 @@ namespace Atlas
             {
                 s_cacheStarted = true;
                 int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
-                s_cacheTask = Task.Run(() =>
+                s_cacheTask = Workers.Run(() =>
                 {
                     byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks);
                     return ink == null ? null : new CachedSheet { m_mips = Paper.InkWithMips(ink, marks), m_marks = marks, m_density = InkDensity.FromSheet(ink) };
@@ -212,45 +215,55 @@ namespace Atlas
 
             if (s_paintTask == null)
             {
-                if (s_decodeTask == null)
+                if (s_source == null)
                 {
-                    if (s_record != null || !WorldSource.IsReady(Minimap.instance)) return;
-                    WorldSource captured = WorldSource.Capture(Minimap.instance);
-                    s_decodeTask = Task.Run(() =>
+                    if (s_decodeTask == null)
                     {
-                        captured.Decode();
-                        return captured;
-                    });
-                    return;
+                        if (!WorldSource.IsReady(Minimap.instance)) return;
+                        WorldSource captured = WorldSource.Capture(Minimap.instance);
+                        s_decodeTask = Workers.Run(() =>
+                        {
+                            captured.Decode();
+                            return captured;
+                        });
+                        return;
+                    }
+                    if (!s_decodeTask.IsCompleted) return;
+                    Task<WorldSource> decoded = s_decodeTask;
+                    s_decodeTask = null;
+                    if (decoded.IsFaulted)
+                    {
+                        s_washFailed = true;
+                        s_paintError = decoded.Exception;
+                        if (!s_ink && s_cacheTask == null) Fail(decoded.Exception);
+                        else Jotunn.Logger.LogWarning($"The atlas could not read the world: {decoded.Exception?.GetBaseException()}");
+                        s_paintTask = Task.FromResult<PaintResult>(null);
+                        return;
+                    }
+                    WorldSource decodedSource = decoded.Result;
+                    s_source = decodedSource;
+                    WorldGenerator generator = WorldGenerator.instance;
+                    s_samples = new SampleCache(generator != null ? new GeneratorSampler(generator, decodedSource) : (IWorldSampler)new MinimapSampler(decodedSource));
+                    s_washTask = Workers.Then(Parchment(decodedSource.m_seed), parchment => Paper.Washed(parchment, decodedSource));
                 }
-                if (!s_decodeTask.IsCompleted) return;
-                Task<WorldSource> decoded = s_decodeTask;
-                s_decodeTask = null;
-                if (decoded.IsFaulted)
-                {
-                    s_washFailed = true;
-                    s_paintError = decoded.Exception;
-                    if (!s_ink && s_cacheTask == null) Fail(decoded.Exception);
-                    else Jotunn.Logger.LogWarning($"The atlas could not read the world: {decoded.Exception?.GetBaseException()}");
-                    s_paintTask = Task.FromResult<PaintResult>(null);
-                    return;
-                }
-                WorldSource source = decoded.Result;
-                s_source = source;
-                WorldGenerator generator = WorldGenerator.instance;
-                s_samples = new SampleCache(generator != null ? new GeneratorSampler(generator, source) : (IWorldSampler)new MinimapSampler(source));
+
+                // With a cached sheet, painting only yields the record close-ups are drawn from, so
+                // it waits until the atlas is first opened: most sessions never zoom in, and painting
+                // beside the cache load doubled the work right after login.
+                if (s_cacheTask != null) return;
+                bool cached = s_ink;
+                if (cached && !s_opened) return;
+                WorldSource source = s_source;
                 CancellationToken cancel = s_cancel.Token;
-                int seed = source.m_seed;
-                Task<byte[]> parchmentTask = Parchment(seed);
-                s_washTask = Task.Run(() => Paper.Washed(parchmentTask.Result, source));
-                s_paintTask = Task.Run(() =>
+                s_paintTask = Workers.Run(() =>
                 {
                     var record = new InkRecord();
                     byte[] ink = InkPainter.Paint(source, cancel, record);
-                    // A sheet drawn without the alt biomes' groves is not cached: the cache is keyed by seed
-                    // alone, so it would stand in for the variants in every later session.
-                    if (source.m_grove != null) InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
-                    return new PaintResult { m_ink = ink, m_record = record, m_density = InkDensity.FromSheet(ink) };
+                    // The cache already holds this sheet when it came from there. A sheet drawn without
+                    // the alt biomes' groves is not cached: the cache is keyed by seed alone, so it
+                    // would stand in for the variants in every later session.
+                    if (!cached && source.m_grove != null) InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
+                    return new PaintResult { m_ink = ink, m_record = record, m_density = cached ? null : InkDensity.FromSheet(ink) };
                 });
                 return;
             }
@@ -271,7 +284,7 @@ namespace Atlas
             byte[] sheet = painted.Result.m_ink;
             InkRecord record = painted.Result.m_record;
             s_paintTask = Task.FromResult<PaintResult>(null);
-            if (!s_ink && s_mipsTask == null) s_mipsTask = Task.Run(() => Paper.InkWithMips(sheet, record.m_seaMarks));
+            if (!s_ink && s_mipsTask == null) s_mipsTask = Workers.Run(() => Paper.InkWithMips(sheet, record.m_seaMarks));
         }
 
         private sealed class PaintResult
@@ -339,17 +352,19 @@ namespace Atlas
             Task<byte[]> parchmentTask = Parchment(seed);
             // The task hands the parchment back instead of storing it, so a task still running
             // when the world changes cannot leave its paper behind for the next world.
-            s_fogTask = Task.Run(() =>
+            Func<byte[], byte[]> lay = paper =>
             {
-                byte[] paper = parchment ?? parchmentTask.Result;
                 Paper.Fog(pixels, paper, snapshot, marks);
                 return paper;
-            });
+            };
+            // Chained rather than waiting on the parchment: a worker blocked on a task queued
+            // behind it would never wake.
+            s_fogTask = parchment != null ? Workers.Run(() => lay(parchment)) : Workers.Then(parchmentTask, lay);
         }
 
         private static Task<byte[]> Parchment(int seed)
         {
-            if (s_parchmentTask == null) s_parchmentTask = Task.Run(() => Paper.Parchment(seed));
+            if (s_parchmentTask == null) s_parchmentTask = Workers.Run(() => Paper.Parchment(seed));
             return s_parchmentTask;
         }
 
@@ -389,7 +404,7 @@ namespace Atlas
             if (s_dirtTask == null)
             {
                 int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
-                s_dirtTask = Task.Run(() => Paper.Dirt(seed));
+                s_dirtTask = Workers.Run(() => Paper.Dirt(seed));
                 return;
             }
             if (!s_dirtTask.IsCompleted) return;
@@ -453,6 +468,7 @@ namespace Atlas
             s_density = null;
             s_inkFailed = false;
             s_paintError = null;
+            s_opened = false;
             s_tiles.Clear();
             s_sparkles.Clear();
             s_source = null;

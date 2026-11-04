@@ -576,12 +576,38 @@ namespace Atlas
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool[]> s_coverBodies =
             new System.Collections.Concurrent.ConcurrentDictionary<int, bool[]>();
 
-        private static bool[] CoverBody(Glyph mark) => s_coverBodies.GetOrAdd(mark.m_seed & 0xFF, glyph =>
+        // Thin parts (the boss's horns, a bed's posts, the gap round every line) are eroded away,
+        // so the share is of the pin's solid core: counted in, the horns let trees hide the whole
+        // skull. A glyph with too little core left (the open circle) keeps its whole body.
+        private const int CoverCoreLeast = 10;
+
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool[]> s_pinBodies =
+            new System.Collections.Concurrent.ConcurrentDictionary<int, bool[]>();
+
+        // The points of a pin's box its whole body takes, gap included.
+        private static bool[] PinBody(Glyph mark) => s_pinBodies.GetOrAdd(mark.m_seed & 0xFF, glyph =>
         {
             PinMark drawn = PinGlyphs.Draw((PinGlyph)glyph, CoverSamples);
             var body = new bool[CoverSamples * CoverSamples];
             for (int k = 0; k < body.Length; k++) body[k] = drawn.m_body[k] > 127;
             return body;
+        });
+
+        private static bool[] CoverBody(Glyph mark) => s_coverBodies.GetOrAdd(mark.m_seed & 0xFF, glyph =>
+        {
+            int n = CoverSamples;
+            bool[] body = PinBody(mark);
+            var core = new bool[n * n];
+            int count = 0;
+            for (int y = 1; y < n - 1; y++)
+                for (int x = 1; x < n - 1; x++)
+                {
+                    int k = y * n + x;
+                    if (!body[k] || !body[k - 1] || !body[k + 1] || !body[k - n] || !body[k + n]) continue;
+                    core[k] = true;
+                    count++;
+                }
+            return count >= CoverCoreLeast ? core : body;
         });
 
         private static int CoverLimit(Glyph mark)
@@ -642,7 +668,7 @@ namespace Atlas
             foreach (Glyph mark in m_marks)
             {
                 Vector4 pin = GlyphBox(mark);
-                bool[] body = CoverBody(mark);
+                bool[] body = PinBody(mark);
                 for (int i = first; i < m_glyphs.Count; i++)
                 {
                     Glyph g = m_glyphs[i];

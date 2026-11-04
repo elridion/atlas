@@ -61,7 +61,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so
   relief and trees in front may cover part of one, together up to `MarkCover` 45% of it (the
   user's rule). Cover is measured on `CoverSamples` 12 x 12 points of the pin's box, only those
-  its own body takes (`CoverBody`, the `PinGlyphs` mark at 12 px), each covered when a glyph in
+  of its solid core (`CoverBody`: the `PinGlyphs` mark's body at 12 px, `PinBody`, eroded by
+  one point, so thin parts such as the boss's horns and the gap round every line do not count;
+  counted in, the horns let trees hide the whole skull; a glyph left with under
+  `CoverCoreLeast` points keeps its whole body), each covered when a glyph in
   front draws over it (`Covers`: a round crown's scraped ellipse, a hill's dome, the triangle of
   a pine or other relief), counted once however many cover it. Box overlaps instead overstated
   a tree's cover so far that one tree used up the share and pins stood clear of the woods.
@@ -88,7 +91,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   The Sacrificial Stones are a pin like the others (the user's call), `PinGlyphs.StoneCircle`
   in a 26 px box: a ring of standing stones round a low altar in the map's oblique view, each a
   block with a lit front, a solid east face and a thin top, drawn back to front, the ring's
-  middle on the place.
+  middle on the place. The stones take the peaks' rock wash, not the ground's (`PinMark.m_rock`,
+  marked as Mountain body by `InkCanvas.Pin`), and the ground inside the ring is not cleared:
+  only the stones scrape what lies behind them.
   Anything else is traced from its sprite (other locations such as the Forge of Potential, other
   mods' pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
   parts inked); every body reaches `Gap` past the lines, the engraver's break that keeps trees

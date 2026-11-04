@@ -67,6 +67,8 @@ namespace Atlas
         public int m_size;
         public byte[] m_ink;
         public byte[] m_body;
+        // The parts that are rock, filled with the peaks' wash on the sheet; null for none.
+        public byte[] m_rock;
     }
 
     /// <summary>
@@ -87,6 +89,9 @@ namespace Atlas
         private const float MarkerLogWidth = 2.6f;
         private const float MarkerRunePen = 1.6f;
         [ThreadStatic] private static float s_pen;
+        // While a glyph is drawn, the parts of it that are rock (the Sacrificial Stones), filled
+        // with the peaks' wash on the sheet instead of the ground's.
+        [ThreadStatic] private static InkCanvas s_rock;
         // A sheet pin's outline is half again the map's pen, as a peak's flanks are, so a symbol
         // outranks the terrain round it; its inner lines keep the map's pen.
         private const float SheetOutline = 1.5f;
@@ -152,6 +157,7 @@ namespace Atlas
             finally
             {
                 s_pen = 0f;
+                s_rock = null;
             }
         }
 
@@ -160,6 +166,8 @@ namespace Atlas
             float scale = size / PinUnits;
             var ink = new InkCanvas(size, size, 0f, 0f, scale);
             var body = new InkCanvas(size, size, 0f, 0f, scale);
+            var rock = glyph == PinGlyph.StoneCircle ? new InkCanvas(size, size, 0f, 0f, scale) : null;
+            s_rock = rock;
             if (seed != 0)
             {
                 Func<Vector2, Vector2> waver = p => p + new Vector2(
@@ -167,6 +175,7 @@ namespace Atlas
                     (Noise.Value(p.x / WaverGrain, p.y / WaverGrain, seed + 1) - 0.5f) * 2f * Waver);
                 ink.m_warp = waver;
                 body.m_warp = waver;
+                if (rock != null) rock.m_warp = waver;
             }
             // The body canvas starts all ink and the silhouette is scraped from it, as the
             // canvas scrapes concave outlines in one pass; the body is what got scraped.
@@ -190,7 +199,8 @@ namespace Atlas
                 case PinGlyph.Cauldron: Cauldron(ink, body); break;
                 case PinGlyph.Checked: Checked(ink); break;
             }
-            var mark = new PinMark { m_size = size, m_ink = ink.m_ink, m_body = new byte[size * size] };
+            s_rock = null;
+            var mark = new PinMark { m_size = size, m_ink = ink.m_ink, m_body = new byte[size * size], m_rock = rock?.m_ink };
             for (int i = 0; i < mark.m_body.Length; i++) mark.m_body[i] = (byte)(255 - body.m_ink[i]);
             if (glyph != PinGlyph.Checked) Widen(mark, Gap * scale);
             return mark;
@@ -448,7 +458,6 @@ namespace Atlas
             }
             order.Add(new Vector3(13f, StonesCentreY, -1f));
             order.Sort((a, b) => a.y.CompareTo(b.y));
-            body.EraseEllipse(13f, StonesCentreY, StonesRadius + Width, ry + Width * 0.8f);
             foreach (Vector3 stone in order)
             {
                 int k = (int)stone.z;
@@ -469,6 +478,13 @@ namespace Atlas
             var topRight = new Vector2(x + width * 0.5f - taper + lean, y - height);
             var outline = new List<Vector2> { bottomLeft, bottomRight, bottomRight + back, topRight + back, topLeft + back, topLeft };
             body.EraseOutline(outline, Pen * 0.5f);
+            // The stone itself takes the rock's wash, not the ground's (PinMark.m_rock).
+            if (s_rock != null)
+            {
+                s_rock.Fill(new[] { bottomLeft, bottomRight, topRight, topLeft });
+                s_rock.Fill(new[] { bottomRight, bottomRight + back, topRight + back, topRight });
+                s_rock.Fill(new[] { topLeft, topRight, topRight + back, topLeft + back });
+            }
             ink.EraseOutline(outline, 0f);
             ink.Fill(new[] { bottomRight, bottomRight + back, topRight + back, topRight });
             Loop(ink, outline, Pen);

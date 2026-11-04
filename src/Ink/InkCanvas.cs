@@ -280,6 +280,8 @@ namespace Atlas
                         if (m_scraped != null) m_scraped[i] = Math.Max(m_scraped[i], mark.m_body[j]);
                         m_pinInk[i] = (byte)(m_pinInk[i] * keep);
                     }
+                    // Rock (the Sacrificial Stones) takes the peaks' wash instead of the ground's.
+                    if (mark.m_rock != null && mark.m_rock[j] > m_body[i]) m_body[i] = mark.m_rock[j];
                     byte ink = mark.m_ink[j];
                     if (strike != null) ink = Math.Max(ink, strike.m_ink[j]);
                     if (ink > m_pinInk[i]) m_pinInk[i] = ink;

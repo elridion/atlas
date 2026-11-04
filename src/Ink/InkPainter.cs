@@ -16,8 +16,9 @@ namespace Atlas
     {
         // Canvas: CanvasSize pixels across HalfExtent metres either side of the world centre.
         public const int CanvasSize = 4096;
-        // The painted sheet's planes of CanvasSize² bytes: ink, then one body mask per BodyKind.
-        public const int SheetPlanes = 5;
+        // The painted sheet's planes of CanvasSize² bytes: ink, one body mask per BodyKind, then
+        // the pins' red ink and their fill (InkCanvas.m_pinInk, m_pinFill).
+        public const int SheetPlanes = 7;
         public const float HalfExtent = 10800f;
         public const float MetresPerPixel = 2f * HalfExtent / CanvasSize;
         // Vanilla's world edge (WorldGenerator.waterEdge): the frame is drawn there.
@@ -629,6 +630,65 @@ namespace Atlas
             m_glyphs.RemoveRange(write, m_glyphs.Count - write);
         }
 
+        // A tree behind a pin whose outline shows less than HiddenShown outside the pin's body is
+        // left out: scraped round the pin, its last slivers read as stray marks, not a tree.
+        private const float HiddenShown = 0.25f;
+        private const int HiddenSamples = 24;
+
+        private void DropHiddenBehindMarks(int first)
+        {
+            if (m_marks.Count == 0) return;
+            var dropped = new HashSet<int>();
+            foreach (Glyph mark in m_marks)
+            {
+                Vector4 pin = GlyphBox(mark);
+                bool[] body = CoverBody(mark);
+                for (int i = first; i < m_glyphs.Count; i++)
+                {
+                    Glyph g = m_glyphs[i];
+                    if (!IsTree(g.m_kind) || g.m_y > mark.m_order || dropped.Contains(i)) continue;
+                    if (Overlap(GlyphBox(g), pin) <= 0f) continue;
+                    int shown = 0;
+                    for (int k = 0; k < HiddenSamples; k++)
+                        if (!InBody(pin, body, OutlinePoint(g, k / (float)HiddenSamples))) shown++;
+                    if (shown < HiddenShown * HiddenSamples) dropped.Add(i);
+                }
+            }
+            if (dropped.Count == 0) return;
+            int write = first;
+            for (int i = first; i < m_glyphs.Count; i++)
+                if (!dropped.Contains(i)) m_glyphs[write++] = m_glyphs[i];
+            m_glyphs.RemoveRange(write, m_glyphs.Count - write);
+        }
+
+        // A point at share t round a tree's outline: its crown's loop, or the triangle of a pine.
+        private static Vector2 OutlinePoint(Glyph g, float t)
+        {
+            if (RoundCrown(g, out Crown crown))
+            {
+                float angle = t * Mathf.PI * 2f;
+                return new Vector2(crown.m_cx + Mathf.Cos(angle) * crown.m_rx, crown.m_cy + Mathf.Sin(angle) * crown.m_ry);
+            }
+            Vector4 box = GlyphBox(g);
+            float half = (box.z - box.x) * 0.5f;
+            var apex = new Vector2(g.m_x, box.y);
+            var left = new Vector2(g.m_x - half, g.m_y);
+            var right = new Vector2(g.m_x + half, g.m_y);
+            float s = t * 3f;
+            if (s < 1f) return Vector2.Lerp(apex, right, s);
+            if (s < 2f) return Vector2.Lerp(right, left, s - 1f);
+            return Vector2.Lerp(left, apex, s - 2f);
+        }
+
+        // Whether a sheet point lies on a pin's body (CoverBody, over its box).
+        private static bool InBody(Vector4 pin, bool[] body, Vector2 p)
+        {
+            if (p.x < pin.x || p.x >= pin.z || p.y < pin.y || p.y >= pin.w) return false;
+            int cx = Mathf.Clamp((int)((p.x - pin.x) / (pin.z - pin.x) * CoverSamples), 0, CoverSamples - 1);
+            int cy = Mathf.Clamp((int)((p.y - pin.y) / (pin.w - pin.y) * CoverSamples), 0, CoverSamples - 1);
+            return body[cy * CoverSamples + cx];
+        }
+
         // How far round a pin's place a close-up scatters trees, in sheet pixels: the largest pin's
         // box (PinSheetSize, lifted) and the tallest tree that can stand in front of it.
         public const float PinInfluence = 44f;
@@ -803,6 +863,8 @@ namespace Atlas
             Buffer.BlockCopy(painter.m_canvas.m_bodyNorth, 0, sheet, 2 * n, n);
             Buffer.BlockCopy(painter.m_canvas.m_bodyMist, 0, sheet, 3 * n, n);
             Buffer.BlockCopy(painter.m_canvas.m_bodyWood, 0, sheet, 4 * n, n);
+            Buffer.BlockCopy(painter.m_canvas.m_pinInk, 0, sheet, 5 * n, n);
+            Buffer.BlockCopy(painter.m_canvas.m_pinFill, 0, sheet, 6 * n, n);
             return sheet;
         }
 
@@ -2208,7 +2270,11 @@ namespace Atlas
             ScatterTrees(7f * m_t, 29, 0.9f, Kind.GiantTree, s => s.m_slope < SpireSlope && InWood(s, Land.Mistlands, 13f * m_t));
             HideCoveredCrowns(first);
             // A close-up's trees; the sheet limits its trees once the relief is placed (PlaceGlyphs).
-            if (m_grid != null) LimitMarkCover(first);
+            if (m_grid != null)
+            {
+                LimitMarkCover(first);
+                DropHiddenBehindMarks(first);
+            }
         }
 
         // One biome's trees: a candidate on each cell of a spacing grid, kept with odds, where
@@ -2447,6 +2513,7 @@ namespace Atlas
                 m_glyphs.RemoveAll(g => !ClearOfMarks(g));
                 OrderMarks();
                 LimitMarkCover(0);
+                DropHiddenBehindMarks(0);
                 if (m_record != null)
                 {
                     m_record.m_pinOrders = new float[m_marks.Count];

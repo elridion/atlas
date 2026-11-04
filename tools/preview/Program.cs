@@ -28,7 +28,14 @@ internal static class Program
     {
         s_atlas = Assembly.LoadFrom(Environment.GetEnvironmentVariable("ATLAS_DLL") ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Atlas.dll"));
         if (args[0] == "--seacat") return SeaCatalogue(args[1]);
-        if (args[0] == "--pincat") return PinCatalogue(args[1]);
+        // --pinfill N tries a pin fill (Paper.s_pinFillMode); with --pincat it is the third argument.
+        int fillArg = Array.IndexOf(args, "--pinfill");
+        if (fillArg >= 0) T("Atlas.Paper").GetField("s_pinFillMode", All).SetValue(null, int.Parse(args[fillArg + 1]));
+        if (args[0] == "--pincat")
+        {
+            if (args.Length > 2) T("Atlas.Paper").GetField("s_pinFillMode", All).SetValue(null, int.Parse(args[2]));
+            return PinCatalogue(args[1]);
+        }
         string dir = args[0], outDir = args[1];
         Directory.CreateDirectory(outDir);
         var sw = Stopwatch.StartNew();
@@ -244,7 +251,7 @@ internal static class Program
         const float half = 10800f, mpp = 2f * half / canvas;
         for (int a = 2; a < args.Length; a++)
         {
-            if (args[a].StartsWith("--") || args[a - 1] == "--alt" || args[a - 1] == "--temple" || args[a - 1] == "--pin") continue;
+            if (args[a].StartsWith("--") || args[a - 1] == "--alt" || args[a - 1] == "--temple" || args[a - 1] == "--pin" || args[a - 1] == "--pinfill") continue;
             string[] p = args[a].Split(':');
             sw.Restart();
             if (p[0].StartsWith("tiles"))
@@ -477,6 +484,11 @@ internal static class Program
             for (int c = 0; c < headers.Length; c++)
                 g.DrawString(headers[c], small, ink, nameWidth + bigCell + c * cell, 12);
 
+            var pinInk = (Color32)T("Atlas.Paper").GetField("PinInkColor", All).GetValue(null);
+            var fillArgs = new object[4];
+            T("Atlas.Paper").GetMethod("PinFill", All).Invoke(null, fillArgs);
+            float[] pinFill = { (float)fillArgs[0], (float)fillArgs[1], (float)fillArgs[2], (float)fillArgs[3] };
+
             // The pin's box on the sheet, in sheet pixels (InkPainter.PinSheetSize).
             float Box(string glyph) => (float)sheetSize.Invoke(null, new object[] { Enum.Parse(kind, glyph) });
 
@@ -493,19 +505,22 @@ internal static class Program
                 object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, glyph), pixels, pen, 4127 });
                 var inkMask = (byte[])Get(mark, "m_ink");
                 var body = (byte[])Get(mark, "m_body");
+                var shape = (byte[])Get(mark, "m_fill");
                 for (int j = 0; j < size; j++)
                     for (int i = 0; i < size; i++)
                     {
-                        float a = 0f, b = 0f;
+                        float a = 0f, b = 0f, f = 0f;
                         for (int v = 0; v < over; v++)
                             for (int u = 0; u < over; u++)
                             {
                                 int k = (j * over + v) * pixels + i * over + u;
                                 a += inkMask[k];
                                 b += body[k];
+                                if (shape != null) f += shape[k];
                             }
                         a /= 255f * over * over;
                         b /= 255f * over * over;
+                        f /= 255f * over * over;
                         System.Drawing.Color under = bitmap.GetPixel(x + i, y + j);
                         float r = under.R, gr = under.G, bl = under.B;
                         if (fill.HasValue && b > 0f)
@@ -514,9 +529,17 @@ internal static class Program
                             gr += (fill.Value.G - gr) * b;
                             bl += (fill.Value.B - bl) * b;
                         }
-                        r += (inkColor.R - r) * a;
-                        gr += (inkColor.G - gr) * a;
-                        bl += (inkColor.B - bl) * a;
+                        // The pins' fill and their red ink (Paper.PinFill, PinInkColor).
+                        if (fill.HasValue && f > 0f && pinFill[0] > 0f)
+                        {
+                            float t = f * pinFill[0];
+                            r += (pinFill[1] - r) * t;
+                            gr += (pinFill[2] - gr) * t;
+                            bl += (pinFill[3] - bl) * t;
+                        }
+                        r += (pinInk.r - r) * a;
+                        gr += (pinInk.g - gr) * a;
+                        bl += (pinInk.b - bl) * a;
                         bitmap.SetPixel(x + i, y + j, System.Drawing.Color.FromArgb((int)(r + 0.5f), (int)(gr + 0.5f), (int)(bl + 0.5f)));
                     }
             }

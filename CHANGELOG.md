@@ -55,7 +55,8 @@
   death, a horned skull for a boss's altar, a barrow, a cave mouth and a tower for Hildir's
   requests, a bag for Haldor, a tent for Hildir's
   camp and a cauldron for the Bog Witch; other places the game marks, such as the Forge of
-  Potential, are traced in outline. Pins are inked into the map itself in its own wavering pen,
+  Potential, are traced in outline. Pins are inked into the map itself in red, as places were
+  marked on old maps, in its own wavering pen with a slightly heavier outline,
   each as large as what it stands for beside the trees (a campfire smaller than a tree, a
   longhouse about one, a tower, a cave or the Sacrificial Stones larger): standing on its place
   among the trees and peaks, which may cover part of it but never more than about half, filled in the

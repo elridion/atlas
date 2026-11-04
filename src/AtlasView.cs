@@ -684,7 +684,7 @@ namespace Atlas
             try
             {
                 PinMark mark = glyph == PinGlyph.Traced ? TraceSprite(sprite) : PinGlyphs.Draw(glyph, PinPixels);
-                made = new PinTextures { m_ink = MarkTexture(mark.m_ink, mark.m_size, Paper.InkColor, "Atlas pin ink") };
+                made = new PinTextures { m_ink = MarkTexture(mark.m_ink, mark.m_size, Paper.PinInkColor, "Atlas pin ink") };
                 made.m_body = MarkTexture(mark.m_body, mark.m_size, new Color32(255, 255, 255, 255), "Atlas pin body");
             }
             catch (System.Exception e)

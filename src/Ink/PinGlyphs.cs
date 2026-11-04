@@ -67,6 +67,8 @@ namespace Atlas
         public int m_size;
         public byte[] m_ink;
         public byte[] m_body;
+        // The glyph's own shape, without the gap round it: what the pins' fill takes.
+        public byte[] m_fill;
     }
 
     /// <summary>
@@ -87,7 +89,10 @@ namespace Atlas
         private const float MarkerLogWidth = 2.6f;
         private const float MarkerRunePen = 1.6f;
         [ThreadStatic] private static float s_pen;
-        private static float Pen => s_pen > 0f ? s_pen : MarkerPen;
+        // A sheet pin's outline is half again the map's pen, as a peak's flanks are, so a symbol
+        // outranks the terrain round it; its inner lines keep the map's pen.
+        private const float SheetOutline = 1.5f;
+        private static float Pen => s_pen > 0f ? s_pen * SheetOutline : MarkerPen;
         private static float FinePen => s_pen > 0f ? s_pen : MarkerFinePen;
         // The logs are solid bars rather than lines, a little heavier than the pen.
         private static float LogWidth => s_pen > 0f ? s_pen * 1.6f : MarkerLogWidth;
@@ -189,6 +194,8 @@ namespace Atlas
             }
             var mark = new PinMark { m_size = size, m_ink = ink.m_ink, m_body = new byte[size * size] };
             for (int i = 0; i < mark.m_body.Length; i++) mark.m_body[i] = (byte)(255 - body.m_ink[i]);
+            // The fill is the shape itself, before the gap round it.
+            mark.m_fill = (byte[])mark.m_body.Clone();
             if (glyph != PinGlyph.Checked) Widen(mark, Gap * scale);
             return mark;
         }

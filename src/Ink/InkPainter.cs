@@ -1761,6 +1761,25 @@ namespace Atlas
             }
         }
 
+        // Leaves out every Mistlands crag whose drawn shape overlaps a mountain peak's: where the
+        // Mountains meet the Mistlands both stand on the same steep ground, and a crag among the
+        // peaks lays its mauve rock, wedge and hatching across their bodies.
+        private void DropSpiresOnPeaks()
+        {
+            var peaks = new List<Vector4>();
+            foreach (Glyph g in m_glyphs)
+                if (g.m_kind == Kind.Peak) peaks.Add(GlyphBox(g));
+            if (peaks.Count == 0) return;
+            m_glyphs.RemoveAll(g =>
+            {
+                if (g.m_kind != Kind.Spire) return false;
+                Vector4 box = GlyphBox(g);
+                foreach (Vector4 p in peaks)
+                    if (box.x < p.z && p.x < box.z && box.y < p.w && p.y < box.w) return true;
+                return false;
+            });
+        }
+
         // Whether a filler spire at this foot would crowd a summit's.
         private bool NearSummitSpire(float x, float y, float width)
         {
@@ -2056,6 +2075,7 @@ namespace Atlas
                 if (!IsLandColumn(s.m_x, s.m_y, 22f * G)) return;
                 Add(s, Kind.Spire, G);
             });
+            DropSpiresOnPeaks();
             // Ashlands: smoking volcanoes on the heights, and clusters of jagged crags on the
             // broken ground between the lava fields.
             // Volcanoes keep a cone's width apart and clear of the coast, so they never overlap

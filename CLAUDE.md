@@ -578,6 +578,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   peaks' lower bodies.
   Its small inland pools stay water, every one with its own shore: filled in as ground, the
   Mistlands lost the many little lakes that are part of their look.
+  A crag whose drawn shape overlaps a mountain peak's is left out (`DropSpiresOnPeaks`): where
+  the Mountains meet the Mistlands both stand on the same steep ground, and crags among the
+  peaks laid their rock, wedge and hatching across the peaks' bodies.
   Crags (`Spire`) are pinnacles in the peaks' hand (`Pinnacle`: 0.45-0.62 of their height wide,
   jagged flanks, a ledge, some twin tips, a solid wedge down `SpireWedge` of the east face, a
   smaller one or two behind), on real summits (`PlaceSummitSpire`: highest within `SpireCells`,

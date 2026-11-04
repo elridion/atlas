@@ -12,7 +12,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 
 ## Where things are
 
-- `src/AtlasPlugin.cs` loads translations, applies the patches and calls `AtlasMap.Update` every frame.
+- `src/AtlasPlugin.cs` binds the config (section `Pins`: one switch per kind of the game's own
+  marks, read when the pins are built, `AtlasView.Shown`; the player's own pins always show),
+  loads translations, applies the patches and calls `AtlasMap.Update` every frame. Location
+  pins (`PinType.None`) count as traders when drawn as Trader, Tent or Cauldron, otherwise as
+  other places.
 - `src/AtlasMap.cs` the controller: per world it loads or paints the ink sheet, lays the fog for the
   current snapshot, and opens `AtlasView` on the map key.
 - `src/AtlasView.cs` the window (parchment, ink and fog `RawImage`s plus pin markers) with zoom and
@@ -96,7 +100,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   cell (`Noise`), never a shared `System.Random`, so tuning one rule never moves another's glyphs.
   Any change to the drawing bumps `InkCache.Version`, or players keep the old cached sheet;
   until the first release it stays at 23, since no player has a cached sheet yet.
-- **Docs follow code.** `package/README.md` keeps the table behaviour, controls and pen mark tables
+- **Persisted config.** Section and key names (`Pins`, `BedPin`, `DeathPin`, `BossPins`,
+  `TraderPins`, `HildirPins`, `PlacePins`): renaming one resets players' settings.
+- **Docs follow code.** `package/README.md` keeps the settings table in sync with
+  `AtlasPlugin.Awake`, and the table behaviour, controls and pen mark tables
   in sync with `TablePatches`, `AtlasView` and the scatter rules in `InkPainter.PlaceGlyphs` and
   `DrawBackground` (and `DrawIllustrations`).
 

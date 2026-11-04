@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using BepInEx;
+using BepInEx.Configuration;
 using HarmonyLib;
 using Jotunn.Managers;
 using Jotunn.Utils;
@@ -26,8 +27,24 @@ namespace Atlas
 
         private readonly Harmony _harmony = new Harmony(PluginGuid);
 
+        // Which of the game's own map marks the atlas shows. The player's own pins always show.
+        public static ConfigEntry<bool> BedPin;
+        public static ConfigEntry<bool> DeathPin;
+        public static ConfigEntry<bool> BossPins;
+        public static ConfigEntry<bool> TraderPins;
+        public static ConfigEntry<bool> HildirPins;
+        public static ConfigEntry<bool> PlacePins;
+
         private void Awake()
         {
+            BedPin = Config.Bind("Pins", "BedPin", true, "Show your bed (spawn point) on the atlas.");
+            DeathPin = Config.Bind("Pins", "DeathPin", true, "Show where you last died on the atlas.");
+            BossPins = Config.Bind("Pins", "BossPins", true, "Show the boss altars a Vegvisir revealed on the atlas.");
+            TraderPins = Config.Bind("Pins", "TraderPins", true, "Show the traders (Haldor, Hildir, the Bog Witch) on the atlas.");
+            HildirPins = Config.Bind("Pins", "HildirPins", true, "Show the dungeons of Hildir's requests on the atlas.");
+            PlacePins = Config.Bind("Pins", "PlacePins", true, "Show other places the game marks itself, such as the Forge of Potential or other mods' locations, on the atlas.");
+            // Applied the next time the atlas opens.
+            Config.SettingChanged += (sender, args) => AtlasView.PinsChanged();
             AddLocalizations();
             _harmony.PatchAll(typeof(AtlasPlugin).Assembly);
         }

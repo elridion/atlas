@@ -365,10 +365,37 @@ namespace Atlas
             return image;
         }
 
-        // Rebuilds the markers only for a new snapshot; reopening the atlas reuses them.
+        // Set when a pin setting changes, so the next opening rebuilds the markers.
+        private static bool s_pinsChanged;
+
+        public static void PinsChanged() => s_pinsChanged = true;
+
+        // Whether the pin settings let a pin show: the player's own pins always do, the game's
+        // own marks by kind. Location pins (PinType.None) are traders when drawn as one, and other
+        // places otherwise.
+        private static bool Shown(Snapshot.Pin pin, PinGlyph glyph)
+        {
+            switch (pin.m_type)
+            {
+                case Minimap.PinType.Bed: return AtlasPlugin.BedPin.Value;
+                case Minimap.PinType.Death: return AtlasPlugin.DeathPin.Value;
+                case Minimap.PinType.Boss: return AtlasPlugin.BossPins.Value;
+                case Minimap.PinType.Hildir1:
+                case Minimap.PinType.Hildir2:
+                case Minimap.PinType.Hildir3: return AtlasPlugin.HildirPins.Value;
+                case Minimap.PinType.None:
+                    if (glyph == PinGlyph.Trader || glyph == PinGlyph.Tent || glyph == PinGlyph.Cauldron) return AtlasPlugin.TraderPins.Value;
+                    return AtlasPlugin.PlacePins.Value;
+                default: return true;
+            }
+        }
+
+        // Rebuilds the markers only for a new snapshot or changed settings; reopening the atlas
+        // reuses them.
         private void SetPins(Snapshot snapshot)
         {
-            if (snapshot == m_pinSnapshot && m_pins.Count > 0) return;
+            if (snapshot == m_pinSnapshot && m_pins.Count > 0 && !s_pinsChanged) return;
+            s_pinsChanged = false;
             m_pinSnapshot = snapshot;
             m_appliedScale = -1f;
             foreach (RectTransform pin in m_pins)
@@ -392,7 +419,7 @@ namespace Atlas
                 if (drawn.TryGetValue(pin.m_icon, out glyph)) textures = Textures(glyph, null);
                 else if (sprites.TryGetValue(pin.m_icon, out Sprite sprite) && sprite) textures = Textures(glyph = PinGlyph.Traced, sprite);
                 else continue;
-                if (textures == null) continue;
+                if (textures == null || !Shown(pin, glyph)) continue;
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);

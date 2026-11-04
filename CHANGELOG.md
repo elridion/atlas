@@ -59,6 +59,9 @@
   the ground's pen marks break off round it, so it reads on the darkest woods. Names are
   lettered beside their pins on the clearest ground round them, the pen lines breaking off round
   their letters, and give way where pins crowd; checked pins are struck through.
+- Settings choose which of the game's own marks the atlas shows: your bed, your last death,
+  boss altars, the traders, Hildir's dungeons and other places the game marks. All are on by
+  default; your own pins always show.
 - The atlas is drawn once per world in the background and kept, so opening it never stalls the game.
 - Zooming in redraws the part in view at that zoom from the world itself: coasts and wood edges
   follow the land to within a few metres, and woods fill with more, finer trees. Close-ups are drawn

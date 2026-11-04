@@ -59,11 +59,21 @@ Mistlands have denser woods, and bog Swamps more dead trees.
 
 ## Settings
 
-None. Atlas uses your map key and the game's own fonts; your pins are redrawn in the atlas's
+Atlas uses your map key and the game's own fonts; your pins are redrawn in the atlas's
 pen (the game's five pin icons and the death marker in their own hand-drawn form, any other icon
 traced in outline, each filled in the colour of its biome), their names lettered beside them on
-the clearest ground. The game's own marks are drawn as map signs too: your bed and last death,
-bosses' altars, Hildir's requests, the Sacrificial Stones and the traders.
+the clearest ground, and always show. The game's own marks are drawn as map signs too, each kind
+switched on or off in `BepInEx/config/elridion.atlas.cfg` (or a config manager); a change shows
+the next time the atlas opens.
+
+| Key | Default | Description |
+| --- | --- | --- |
+| `BedPin` | true | Show your bed (spawn point) on the atlas. |
+| `DeathPin` | true | Show where you last died on the atlas. |
+| `BossPins` | true | Show the boss altars a Vegvisir revealed on the atlas. |
+| `TraderPins` | true | Show the traders (Haldor, Hildir, the Bog Witch) on the atlas. |
+| `HildirPins` | true | Show the dungeons of Hildir's requests on the atlas. |
+| `PlacePins` | true | Show other places the game marks itself, such as the Forge of Potential or other mods' locations, on the atlas. |
 
 ## Notes
 

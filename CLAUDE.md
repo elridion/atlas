@@ -52,9 +52,14 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
   so the ground's own wash fills it; checked pins are struck through. Recorded as `Op.Pin`, so
   close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so
-  relief and trees in front may cover part of one, together up to `MarkCover` 45% of its box
-  (the user's rule). Relief goes first and is never left out (`OrderMarks`: the relief drawn
-  after a pin that overlaps its box, north first, each adding its box overlap to `m_cover`;
+  relief and trees in front may cover part of one, together up to `MarkCover` 45% of it (the
+  user's rule). Cover is measured on `CoverSamples` 12 x 12 points of the pin's box, only those
+  its own body takes (`CoverBody`, the `PinGlyphs` mark at 12 px), each covered when a glyph in
+  front draws over it (`Covers`: a round crown's scraped ellipse, a hill's dome, the triangle of
+  a pine or other relief), counted once however many cover it. Box overlaps instead overstated
+  a tree's cover so far that one tree used up the share and pins stood clear of the woods.
+  Relief goes first and is never left out (`OrderMarks`: the relief drawn after a pin that
+  overlaps it, north first, each adding the points it newly covers to `m_cover`;
   where the next would pass `MarkCover` the pin is drawn after it instead, `m_order`). Trees
   get the rest (`LimitMarkCover`: those drawn after the pin's order, north first, the rest
   left out). The record keeps each pin's order and relief cover (`m_pinOrders`,

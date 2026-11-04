@@ -146,7 +146,7 @@ namespace Atlas
         // box the relief in front of it covers (InkPainter.OrderMarks), so close-ups give its
         // trees the same share.
         public float[] m_pinOrders;
-        public float[] m_pinCovers;
+        public bool[][] m_pinCovers;
 
         // Calls visit with the ends and width of every stroke of a layer touching the sheet
         // rectangle (each once). Scrapes are left out.

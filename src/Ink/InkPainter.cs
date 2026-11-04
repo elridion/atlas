@@ -523,13 +523,78 @@ namespace Atlas
             }
         }
 
-        // Leaves out the trees in front of each pin beyond what MarkCover of its box leaves after
-        // the relief in front of it (OrderMarks, m_cover): the trees drawn after it whose
-        // footprints overlap it are taken in order of their feet, north first, each adding its
-        // overlap, and the rest are left out. Overlaps are added up, so crowns covering each other
-        // count twice and the pin shows a little more. A close-up decides alike, as it scatters
-        // every tree that can reach a pin near it (ScatterArea) and takes each pin's order and
-        // relief cover from the record.
+        // A pin's cover is measured on CoverSamples x CoverSamples points over its box: a point is
+        // covered when the drawn shape of a glyph in front lies over it (Covers), and the cover is
+        // the share of points any glyph in front covers, so crowns over each other count once.
+        private const int CoverSamples = 12;
+
+        private static Vector2 CoverPoint(Vector4 box, int k) =>
+            new Vector2(box.x + (k % CoverSamples + 0.5f) / CoverSamples * (box.z - box.x),
+                box.y + (k / CoverSamples + 0.5f) / CoverSamples * (box.w - box.y));
+
+        // Whether a glyph's drawn shape lies over a sheet point: a round crown's scraped ellipse,
+        // a hill's dome, or for pines and the other relief the triangle from the top of their
+        // footprint down to their foot.
+        private bool Covers(Glyph g, Vector2 p)
+        {
+            if (RoundCrown(g, out Crown crown))
+            {
+                float dx = (p.x - crown.m_cx) / CrownEraseX(crown), dy = (p.y - crown.m_cy) / CrownEraseY(crown);
+                return dx * dx + dy * dy < 1f;
+            }
+            Vector4 box = GlyphBox(g);
+            if (p.y > g.m_y || p.y < box.y) return false;
+            float half = (box.z - box.x) * 0.5f;
+            if (g.m_kind == Kind.Hill)
+            {
+                float hx = (p.x - g.m_x) / half, hy = (g.m_y - p.y) / (g.m_y - box.y);
+                return hx * hx + hy * hy < 1f;
+            }
+            float t = (p.y - box.y) / Math.Max(1e-3f, g.m_y - box.y);
+            return Math.Abs(p.x - g.m_x) < half * t;
+        }
+
+        // Adds a glyph's cover to a pin's points (covered), when the points it newly covers keep
+        // the pin within limit points; returns whether it did. Only the points the pin's own body
+        // takes count, so the cover is of the drawn pin, not of the paper round it in its box.
+        private bool AddCover(Glyph g, Glyph mark, Vector4 pin, bool[] covered, ref int count, int limit)
+        {
+            bool[] body = CoverBody(mark);
+            int added = 0;
+            for (int k = 0; k < covered.Length; k++)
+                if (body[k] && !covered[k] && Covers(g, CoverPoint(pin, k))) added++;
+            if (count + added > limit) return false;
+            if (added == 0) return true;
+            for (int k = 0; k < covered.Length; k++)
+                if (body[k] && !covered[k] && Covers(g, CoverPoint(pin, k))) covered[k] = true;
+            count += added;
+            return true;
+        }
+
+        // The points of a pin's box its body takes (the PinGlyphs mark at CoverSamples pixels).
+        private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool[]> s_coverBodies =
+            new System.Collections.Concurrent.ConcurrentDictionary<int, bool[]>();
+
+        private static bool[] CoverBody(Glyph mark) => s_coverBodies.GetOrAdd(mark.m_seed & 0xFF, glyph =>
+        {
+            PinMark drawn = PinGlyphs.Draw((PinGlyph)glyph, CoverSamples);
+            var body = new bool[CoverSamples * CoverSamples];
+            for (int k = 0; k < body.Length; k++) body[k] = drawn.m_body[k] > 127;
+            return body;
+        });
+
+        private static int CoverLimit(Glyph mark)
+        {
+            int points = 0;
+            foreach (bool b in CoverBody(mark)) if (b) points++;
+            return (int)(MarkCover * points);
+        }
+
+        // Leaves out the trees in front of each pin beyond MarkCover of its points after the relief
+        // in front of it (OrderMarks, m_cover): the trees drawn after it that overlap it are taken
+        // in order of their feet, north first, each adding the points it newly covers, and the
+        // rest are left out. A close-up decides alike, as it scatters every tree that can reach a
+        // pin near it (ScatterArea) and takes each pin's order and relief cover from the record.
         private void LimitMarkCover(int first)
         {
             if (m_marks.Count == 0) return;
@@ -538,7 +603,6 @@ namespace Atlas
             foreach (Glyph mark in m_marks)
             {
                 Vector4 pin = GlyphBox(mark);
-                float area = (pin.z - pin.x) * (pin.w - pin.y);
                 candidates.Clear();
                 for (int i = first; i < m_glyphs.Count; i++)
                 {
@@ -551,13 +615,12 @@ namespace Atlas
                     int byFoot = m_glyphs[a].m_y.CompareTo(m_glyphs[b].m_y);
                     return byFoot != 0 ? byFoot : m_glyphs[a].m_x.CompareTo(m_glyphs[b].m_x);
                 });
-                float covered = mark.m_cover;
+                var covered = mark.m_cover != null ? (bool[])mark.m_cover.Clone() : new bool[CoverSamples * CoverSamples];
+                int count = 0;
+                foreach (bool c in covered) if (c) count++;
+                int limit = CoverLimit(mark);
                 foreach (int i in candidates)
-                {
-                    float overlap = Overlap(GlyphBox(m_glyphs[i]), pin);
-                    if (covered + overlap <= MarkCover * area) covered += overlap;
-                    else dropped.Add(i);
-                }
+                    if (!AddCover(m_glyphs[i], mark, pin, covered, ref count, limit)) dropped.Add(i);
             }
             if (dropped.Count == 0) return;
             int write = first;
@@ -609,23 +672,20 @@ namespace Atlas
             {
                 Glyph mark = m_marks[i];
                 Vector4 pin = GlyphBox(mark);
-                float area = (pin.z - pin.x) * (pin.w - pin.y);
                 front.Clear();
                 foreach (Glyph g in m_glyphs)
                     if (IsRelief(g.m_kind) && g.m_y > mark.m_y && Overlap(GlyphBox(g), pin) > 0f) front.Add(g);
                 front.Sort((a, b) => a.m_y != b.m_y ? a.m_y.CompareTo(b.m_y) : a.m_x.CompareTo(b.m_x));
-                float covered = 0f;
+                var covered = new bool[CoverSamples * CoverSamples];
+                int count = 0;
+                int limit = CoverLimit(mark);
                 foreach (Glyph g in front)
-                {
-                    if (g.m_y <= mark.m_order) continue;
-                    float overlap = Overlap(GlyphBox(g), pin);
-                    if (covered + overlap <= MarkCover * area) covered += overlap;
-                    else mark.m_order = g.m_y + 0.01f;
-                }
+                    if (g.m_y > mark.m_order && !AddCover(g, mark, pin, covered, ref count, limit)) mark.m_order = g.m_y + 0.01f;
                 // Relief the pin now stands in front of no longer covers it.
-                covered = 0f;
+                covered = new bool[CoverSamples * CoverSamples];
+                count = 0;
                 foreach (Glyph g in front)
-                    if (g.m_y > mark.m_order) covered += Overlap(GlyphBox(g), pin);
+                    if (g.m_y > mark.m_order) AddCover(g, mark, pin, covered, ref count, int.MaxValue);
                 mark.m_cover = covered;
                 m_marks[i] = mark;
             }
@@ -671,7 +731,7 @@ namespace Atlas
             // A mark's place in the drawing order (Order), at or south of its foot, and the share of
             // its box the relief in front of it covers (OrderMarks).
             public float m_order;
-            public float m_cover;
+            public bool[] m_cover;
         }
 
         // Everything a scatter rule needs to know about one canvas point.
@@ -2390,7 +2450,7 @@ namespace Atlas
                 if (m_record != null)
                 {
                     m_record.m_pinOrders = new float[m_marks.Count];
-                    m_record.m_pinCovers = new float[m_marks.Count];
+                    m_record.m_pinCovers = new bool[m_marks.Count][];
                     for (int i = 0; i < m_marks.Count; i++)
                     {
                         m_record.m_pinOrders[i] = m_marks[i].m_order;

@@ -446,7 +446,6 @@ namespace Atlas
             order.Add(new Vector3(13f, StonesCentreY, -1f));
             order.Sort((a, b) => a.y.CompareTo(b.y));
             body.EraseEllipse(13f, StonesCentreY, StonesRadius + Width, ry + Width * 0.8f);
-            ink.Ring(13f, StonesCentreY, StonesRadius, ry, FinePen);
             foreach (Vector3 stone in order)
             {
                 int k = (int)stone.z;

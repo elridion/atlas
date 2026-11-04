@@ -456,6 +456,7 @@ internal static class Program
             new[] { "Trader", "Haldor", "location: bag" },
             new[] { "Tent", "Hildir's camp", "location: tent" },
             new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
+            new[] { "Forge", "Forge of Potential", "location: ward stone" },
             new[] { "House+Checked", "Any pin, checked", "struck through" },
         };
         string[] lands = { "Meadows", "BlackForest", "Swamp", "Mountain", "Plains", "Mistlands", "Ashlands", "DeepNorth", "Ocean" };
@@ -557,7 +558,7 @@ internal static class Program
                 }
             }
             int foot = header + rowHeight * rows.Length + 10;
-            g.DrawString("Other locations the game marks (the Forge of Potential, new ones) and other mods' pins:", small, ink, 8, foot);
+            g.DrawString("Locations other mods mark (vanilla marks only the five above) and other mods' pins:", small, ink, 8, foot);
             g.DrawString("traced from their own sprites in game, as markers over the map (not shown offline).", small, ink, 8, foot + 18);
             bitmap.Save(path, ImageFormat.Png);
         }

@@ -463,7 +463,8 @@ namespace Atlas
                 case PinGlyph.Portal:
                 case PinGlyph.Cauldron: return 13f;
                 case PinGlyph.House:
-                case PinGlyph.Tent: return 16f;
+                case PinGlyph.Tent:
+                case PinGlyph.Forge: return 16f;
                 case PinGlyph.Boss: return 18f;
                 case PinGlyph.Tomb: return 20f;
                 case PinGlyph.Cavern:

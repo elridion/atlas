@@ -23,6 +23,7 @@ namespace Atlas
         Trader,
         Tent,
         Cauldron,
+        Forge,
         Checked,
         Traced,
     }
@@ -140,6 +141,7 @@ namespace Atlas
                 case PinGlyph.Trader: return 22.6f;
                 case PinGlyph.Tent: return 21.6f;
                 case PinGlyph.Cauldron: return 23.4f;
+                case PinGlyph.Forge: return 22f;
                 case PinGlyph.StoneCircle: return StonesCentreY;
                 default: return PinUnits * 0.5f;
             }
@@ -197,6 +199,7 @@ namespace Atlas
                 case PinGlyph.Trader: Trader(ink, body); break;
                 case PinGlyph.Tent: Tent(ink, body); break;
                 case PinGlyph.Cauldron: Cauldron(ink, body); break;
+                case PinGlyph.Forge: Forge(ink, body); break;
                 case PinGlyph.Checked: Checked(ink); break;
             }
             s_rock = null;
@@ -541,6 +544,29 @@ namespace Atlas
             ink.Ring(14.2f, 5.4f, 1.1f, 1.1f, FinePen);
             ink.Ring(15.8f, 8.8f, 0.8f, 0.8f, FinePen);
             for (float x = 14.6f; x < 20f; x += 1.9f) ink.Stroke(x, 12.6f, x, 20f - (x - 14.6f) * 0.5f, FinePen);
+        }
+
+        // The Forge of Potential, whose map icon the game draws after its ward: a standing stone on
+        // a low plinth under a wider cap, a gem set on top, its eastern face hatched as the map
+        // shades every glyph's eastern side.
+        private static void Forge(InkCanvas ink, InkCanvas body)
+        {
+            var plinth = new List<Vector2> { new Vector2(6.8f, 19.4f), new Vector2(19.2f, 19.4f), new Vector2(19.2f, 22f), new Vector2(6.8f, 22f) };
+            var pillar = new List<Vector2> { new Vector2(9.6f, 19.4f), new Vector2(10.6f, 8.4f), new Vector2(15.4f, 8.4f), new Vector2(16.4f, 19.4f) };
+            var cap = new List<Vector2> { new Vector2(8.4f, 6.6f), new Vector2(17.6f, 6.6f), new Vector2(17.6f, 8.4f), new Vector2(8.4f, 8.4f) };
+            var gem = new List<Vector2> { new Vector2(13f, 1.8f), new Vector2(15f, 4.3f), new Vector2(13f, 6.6f), new Vector2(11f, 4.3f) };
+            foreach (List<Vector2> part in new[] { plinth, pillar, cap, gem }) body.EraseOutline(part, Pen * 0.5f);
+            foreach (List<Vector2> part in new[] { pillar, plinth, cap })
+            {
+                ink.EraseOutline(part, 0f);
+                Loop(ink, part, Pen);
+            }
+            FillSolid(ink, gem);
+            // A rune down the stone's face, and the hatching on its eastern side.
+            ink.Stroke(13f, 10.6f, 13f, 16.4f, FinePen);
+            ink.Stroke(13f, 12.2f, 11.6f, 13.8f, FinePen);
+            ink.Stroke(13f, 12.2f, 14.4f, 13.8f, FinePen);
+            for (float x = 15.2f; x < 16.4f; x += 1f) ink.Stroke(x, 9.6f, x + 0.4f, 18.6f, FinePen);
         }
 
         // A checked pin is struck through with two pen strokes, drawn over its glyph.

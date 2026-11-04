@@ -34,9 +34,12 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   cross; checked: struck through). The game's own pins get map signs too: bed (spawn point), a
   solid horned skull in the language of the game's boss icon (Boss, from Vegvisirs), Hildir1-3
   as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and tower (Sealed Towers); location
-  pins by `LocationSpriteData.m_name`: `StartTemple` a stone circle seen from above (survey-map
-  sign, never shown: the Stones are drawn on the sheet, below), vendor/Haldor a plain tied bag,
-  Hildir a tent with pennant, BogWitch a cauldron.
+  pins by `LocationSpriteData.m_name`: `StartTemple` the Sacrificial Stones (below),
+  vendor/Haldor a plain tied bag, Hildir a tent with pennant, BogWitch a cauldron,
+  `AncientUpgradeStation` (the Forge of Potential) a ward stone on a plinth with a gem on top,
+  after the game's own icon, which follows the vanilla ward. These five are all the locations
+  vanilla's minimap lists icons for (`Minimap.m_locationIcons` in SoftRef bundle `17245031`,
+  names checked against the SoftRef manifest).
   **Pins are drawn into the sheet** (the user's design), at a fixed size like every other glyph:
   `AtlasMap.KeepPins` builds the list (`SheetPin`: place, glyph, checked) from the snapshot's
   pen-drawn pins the settings show on explored ground (`AtlasView.InSheet`), plus the
@@ -98,8 +101,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   middle on the place. The stones take the peaks' rock wash, not the ground's (`PinMark.m_rock`,
   marked as Mountain body by `InkCanvas.Pin`), and the ground inside the ring is not cleared:
   only the stones scrape what lies behind them.
-  Anything else is traced from its sprite (other locations such as the Forge of Potential, other
-  mods' pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
+  Anything else is traced from its sprite and stays a marker (other mods' locations and
+  pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
   parts inked); every body reaches `Gap` past the lines, the engraver's break that keeps trees
   off the outline: for pins drawn into the sheet half a pen past the ink (`SheetGap`), the
   halo a tree's crown scrapes round its own line, so pins and trees stand off each other alike.

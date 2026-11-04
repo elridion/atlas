@@ -670,6 +670,9 @@ namespace Atlas
                 else if (name.Contains("vendor") || name.Contains("haldor")) drawn[data.m_icon.name] = PinGlyph.Trader;
                 else if (name.Contains("hildir")) drawn[data.m_icon.name] = PinGlyph.Tent;
                 else if (name.Contains("bogwitch")) drawn[data.m_icon.name] = PinGlyph.Cauldron;
+                // The Forge of Potential (AncientUpgradeStation), the one other location vanilla's
+                // minimap lists an icon for.
+                else if (name.Contains("upgradestation")) drawn[data.m_icon.name] = PinGlyph.Forge;
             }
             return drawn;
         }

@@ -74,6 +74,7 @@ namespace Atlas
             foreach (Vector4 box in boxes) AddGlyphBox(box);
             m_canvas.m_layer = InkLayer.Background;
             DrawScarps();
+            DrawStumps();
             m_canvas.m_layer = InkLayer.Tree;
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             // The sheet's other glyphs (peaks, spires, hills) are sorted in with the tile's own

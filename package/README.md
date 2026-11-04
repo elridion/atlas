@@ -39,6 +39,11 @@ carries its biome's wood colour, as the peaks carry the mountains' grey. The ope
 biomes gets a light ground fill (the first mark in each row); the Deep North's open land is a
 near-blank snowfield.
 
+Biome variants change their woods too. A felled Black Forest (Kalhygge) has no trees, only a few
+stands of stumps, hills and a light stipple. Pine and rocky Black Forests, small-tree Meadows, drake and fortress Mountains
+and lox and death Plains have sparser woods, about half the trees. Wolf Mountains and tree-filled
+Mistlands have denser woods, and bog Swamps more dead trees.
+
 | Biome | Marks |
 | --- | --- |
 | Ocean | A fine coastline traced on the game's own water line, and groups of up to seven level wave strokes at bays, headlands and here and there along straight coasts, each starting at the shore and running out to sea, long and short in turn; islets outside the Mistlands that lie clear of the coast are gathered into clusters, each with a small group of level strokes sized to it, long and short in turn, starting at an islet's shore or lying in the open water beside it and never crossing land, larger islands getting the coast's waves instead, while the Mistlands' islet fields, lone specks and the open sea get no waves. Far out in the widest open water a few sea monsters are inked, at most three of each: sea serpents, serpent coils and the odd leviathan in the open ocean, the bonemaw's bare bones in the Ashlands' boiling sea, none in the northern sea; each lies in a slightly darker wash of the sea's blue, laid in its body, and shows whole once its stretch of sea is mostly explored. Water is washed in indigo; lakes, ponds and swamp pools share the same shore line, and lakes get stacks of straight lines instead of waves, each touching the shore and running into the lake, at its bends and along its straight shores, while ponds stay bare |

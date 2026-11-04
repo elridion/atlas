@@ -501,7 +501,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   factor; the small firs' 1.05-1.15 thresholds are ignored), altitude 2 (0) to 280 m above
   `p.y - 30`, `maxTilt` 30. The alt biomes change counts only: Wolf Mountain adds
   `firtree_mountain2` (10-20), Drake and Fortress Mountain block `firtree_mountain`, the small
-  firs stay everywhere. Gentle ground (12 m central differences, under 30 degrees) is about 45%
+  firs stay everywhere (the atlas draws them sparse or dense, see alt biomes below). Gentle ground (12 m central differences, under 30 degrees) is about 45%
   of mountain land in every height band and mixed pixel by pixel; mountain land under
   `PeakHeight` 50 m is only about 2%, so a height split like the Deep North's would draw almost
   no woods. `WorldSource.MarkMountainForest` therefore fills the mask's red where most land
@@ -514,7 +514,37 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   front of the base and is left out; trees north of a foot are hidden behind the peak. The peaks
   are recorded (`InkRecord.AddPeak`) so close-ups test the same. The mountain wash is not
   darkened under the woods. The preview's mountain woods sit where the game's do, as no forest
-  factor is involved, except that alt biomes cannot be seen offline.
+  factor is involved; alt biomes only show offline when forced (`--alt`, below).
+- **Alt biomes** (Valheim 1.0's per-patch variants, chosen once per world from the seed) only
+  change how many trees stand in the same wood shapes (`Grove` in `WorldSource.cs`).
+  `WorldSource.Capture` keeps the `WorldGenerator` only when `m_world.m_biomeData.IsReady`
+  (otherwise one warning per session and no groves); `Decode` on the worker reads
+  `GetBiomeSector` for every map pixel's centre (a plain read of arrays built at world load) into
+  `m_grove`, only on pixels whose decoded biome is the sector's. `GroveOf` maps `AltBiome.m_name`:
+  Kalhygge Black Forest `ClearCut` (no trees; `IsClearCut` keeps it out of the canvas wood and
+  the samplers' wood, so ground fills and clearances treat it as open land; its stones give way
+  to `Stump`s on one sheet grid, salt 35, `StumpStep` 3.8 G: a short trunk stroke with two or
+  three roots (solid trunks with a sawn top are too heavy, felled logs read as axes), gathered
+  loosely into stands by a slow noise (`StumpStand` 40 px, `StumpOdds` 0.5 inside them, `StumpFloor`
+  0.5 of that between), as an even scatter reads as a stipple and bare ground between stands as lumps.
+  Stumps are drawn once every glyph is placed (`DrawStumps`, after `DrawScarps` on the sheet and
+  in tiles) and keep `StumpClear` off every glyph's footprint (`ClearOfGlyphs`), so none stands
+  on a hill. Between them a light stipple, `ClearCutStipple`, and hills on its hilltops
+  by the normal hill rule, so the felled wood is not a blank; the Meadows' finer hilltop search
+  crowds it); Pinetree/Rock Black
+  Forest, Smalltree Meadows, Drake/Fortress Mountain, Lox/Death Plains `Sparse` (`SparseKeep` 0.5
+  by the cell's hash `SparseRoll`); Wolf Mountain, Trees Mistlands `Dense` (the rule's grids are
+  already 90-95% full, so `ScatterTrees` gives dense spots a grid of their own, `DenseSpacing`
+  0.85 of the step, salt +`DenseSalt`, every cell taken, about 1.4-1.5 times the trees) and Bog
+  Swamp `Dense` (dead trees at `BogDeadTreeOdds` 0.85 instead of 0.45); all others none. Spots
+  take the grove from `WorldSource.GroveAt` on the sheet and in close-ups alike, which in
+  close-ups falls back to the nearest pixel of the spot's own biome, so the generator's finer
+  border does not leave a fringe of plain woods. Mountain woods are mostly hidden by the peaks'
+  bases, so Wolf and Drake show little there. The preview cannot compute alt biomes
+  (`UnityEngine.Random`): `run.ps1 -Alt 'NAME:wx:wz:radiusMetres',...` (`--alt`, repeatable) lays
+  one on its biome's cells within the radius via `SetGroves`. Untested in game, including
+  whether the data is always ready when the minimap is; a sheet cached in a session without the
+  data keeps plain woods while close-ups show the variants.
 - Ground fills on open land stay sparse, since the wash tells biomes apart. The Deep North is
   a deliberate near-blank snowfield with rare chevrons, like the classic map's northern waste,
   not snow stars, drifts, ice shards or cracked ice. Its woods (above) are the one dense mark;
@@ -640,7 +670,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `InkPainter` by reflection; painting the whole world takes about 2.5 s. It is a separate
   project, never shipped: `Atlas.csproj` removes `tools\**` from its items and the package holds
   only the DLL. `run.ps1 -World <name> -Views ...` renders into `tools/preview/img/` (ignored);
-  `samples.ps1 -Publish` refreshes the 21 samples in `screenshots/` (committed). Refresh them
+  `samples.ps1 -Publish` refreshes the 31 samples in `screenshots/` (16-21 are views forced to biome variants with `-Alt`) (committed). Refresh them
   after visual changes. It needs Valheim's Managed DLLs (`VALHEIM_INSTALL` overrides the Steam
   path) and BepInEx's core DLLs from a Gale profile copied beside the exe, which `run.ps1` does,
   and writes `System.Console`, as `assembly_valheim` has a global `Console` class.

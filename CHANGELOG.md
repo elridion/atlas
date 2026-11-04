@@ -21,6 +21,10 @@
   near-blank snowfield with ice ridges in the Deep North, kept clear of the shore, the peaks and each other.
 - The Deep North's snowy forests are drawn as woods of dense dark pines, as in the Black Forest,
   wherever the game grows its firs and pines there; its ice ridges keep to the open snow.
+- Biome variants show in their woods: a felled Black Forest is drawn with stands of stumps among its hills,
+  variants where the game grows fewer trees (pine and rocky Black Forests, small-tree Meadows,
+  drake and fortress Mountains, lox and death Plains) get sparser woods, and those where it grows
+  more (wolf Mountains, tree-filled Mistlands, bog Swamps) get denser woods or more dead trees.
 - The Mountains' fir woods are drawn too, as dark pine woods on the gentler slopes where the game
   grows its firs, from the lush woods at the mountains' feet up between the peaks, which stand
   in front of them; the ground under the trees keeps the mountains' grey.

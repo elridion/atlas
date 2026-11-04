@@ -207,6 +207,25 @@ namespace Atlas
         // open-country glyphs keep from a wood (canvas pixels), so the outer crowns alone bound it.
         private const float WoodEdge = 0.5f;
         private const float WoodClearance = 5f;
+        // Alt biomes (Grove): a sparse grove keeps this share of its trees, by the cell's hash
+        // number SparseRoll; a dense grove's own grid is DenseSpacing of the rule's step with
+        // every cell taken (about 1.4-1.5 times the trees; the rule's grids are already 90-95%
+        // full), salted DenseSalt past the rule's; a Bog Swamp's dead trees stand with
+        // BogDeadTreeOdds instead of 0.45. A clear-cut's stumps are few, as the Meadows' tufts
+        // are, on one sheet grid of StumpStep glyph units, with StumpOdds inside the stands a slow
+        // noise of StumpStand sheet pixels gathers them into.
+        private const float SparseKeep = 0.5f;
+        private const int SparseRoll = 90;
+        private const float DenseSpacing = 0.85f;
+        private const int DenseSalt = 50;
+        private const float BogDeadTreeOdds = 0.85f;
+        private const float StumpStep = 3.8f;
+        private const float StumpOdds = 0.5f;
+        private const float StumpFloor = 0.5f;
+        // How far (glyph units) round a stump the other glyphs' footprints must keep.
+        private const float StumpClear = 0.6f;
+        private const float StumpStand = 40f;
+        private const float ClearCutStipple = 0.3f;
         // Mountain trees keep off the peaks' bases (ClearOfPeakBases): the base reaches this share
         // of the peak's width either side of its foot (its corners lie at most 0.56 out), and
         // PeakBaseGap sheet pixels below it (the body's skirt is 2); a pine's crown is about
@@ -430,6 +449,8 @@ namespace Atlas
             public float m_x, m_y, m_worldX, m_worldZ, m_above, m_slope, m_roll;
             public int m_pixel, m_seed;
             public Land m_land;
+            // What the biome patch's alt biome does to its trees.
+            public Grove m_grove;
             public bool m_isLand, m_wood, m_mist, m_lava;
             // The lava field's value here, 0.5 at a lava field's edge.
             public float m_lavaLevel;
@@ -518,6 +539,7 @@ namespace Atlas
             }
             m_canvas.m_layer = InkLayer.Background;
             DrawScarps();
+            DrawStumps();
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             foreach (Glyph glyph in m_glyphs)
             {
@@ -651,7 +673,9 @@ namespace Atlas
                     if (m_world.Sample(m_coast, wx, wz) > m_world.m_waterLevel)
                     {
                         m_land[pixel] = 1;
-                        if (m_world.Sample(m_world.m_wood, wx, wz) > WoodEdge) m_wood[pixel] = 1;
+                        // A felled Black Forest (Grove.ClearCut) keeps the wood's shape and wash
+                        // but is open land: no trees, and the ground fills may enter it.
+                        if (m_world.Sample(m_world.m_wood, wx, wz) > WoodEdge && !m_world.IsClearCut(wx, wz)) m_wood[pixel] = 1;
                         continue;
                     }
                     // Sea if any of the four map pixels around it is sea water.
@@ -768,6 +792,7 @@ namespace Atlas
             spot.m_water = m_waterDistance[spot.m_pixel] / DistanceScale;
             int source = m_world.Index(spot.m_worldX, spot.m_worldZ);
             spot.m_land = m_world.m_biome[source];
+            spot.m_grove = m_world.GroveAt(spot.m_worldX, spot.m_worldZ, spot.m_land);
             spot.m_above = m_world.HeightAt(spot.m_worldX, spot.m_worldZ) - m_world.m_waterLevel;
             spot.m_slope = m_world.SlopeAt(spot.m_worldX, spot.m_worldZ);
             spot.m_wood = m_wood[spot.m_pixel] != 0;
@@ -793,6 +818,9 @@ namespace Atlas
             spot.m_above = m_grid.Sample(m_grid.m_height, x, y) - m_grid.m_waterLevel;
             spot.m_isLand = spot.m_above > 0f;
             spot.m_land = m_grid.m_land[m_grid.Nearest(x, y)];
+            // From the sheet's own map pixels, so a close-up thins, thickens or fells the same
+            // woods as the sheet.
+            spot.m_grove = m_world.GroveAt(spot.m_worldX, spot.m_worldZ, spot.m_land);
             spot.m_slope = m_grid.Slope(x, y);
             spot.m_wood = m_grid.IsWood(x, y);
             spot.m_shore = m_grid.Distance(m_grid.m_shore, x, y) * m_lod;
@@ -1053,9 +1081,22 @@ namespace Atlas
             // Black Forest: scattered stones on the open ground between the woods.
             Scatter(10f * m_g, 17, s =>
             {
-                if (!IsOpenLand(s, Land.BlackForest, 3f) || !(s.m_roll < 0.4f)) return;
+                if (!IsOpenLand(s, Land.BlackForest, 3f) || s.m_grove == Grove.ClearCut || !(s.m_roll < 0.4f)) return;
                 Stone(s.m_x, s.m_y, m_g, s.m_seed);
             });
+            // A felled Black Forest (Kalhygge): a few stumps instead of the stones, so the
+            // clear-cut reads as felled forest rather than open ground. Like the Meadows' tufts,
+            // on one sheet grid with margins in sheet pixels, so every zoom shows the same stumps.
+            if (m_world.HasGrove(Grove.ClearCut))
+            {
+                // Between the stumps a light stipple of the cleared ground, sparser than the
+                // Plains' heath, so the felled wood does not read as a blank.
+                Scatter(5f * m_g, 36, s =>
+                {
+                    if (s.m_grove != Grove.ClearCut || !IsOpenLand(s, Land.BlackForest, 2f) || !(s.m_roll < ClearCutStipple)) return;
+                    m_canvas.Dot(s.m_x, s.m_y, StippleRadius * m_pen);
+                });
+            }
             // Swamp: the classic map's marsh sign, short flat water lines with tufts of reeds on
             // many, gathered into patches by a slow noise: crowded fen in places, thin open bog
             // between. Even rows over the whole swamp read as messy and ruled, so the grid is
@@ -1152,6 +1193,27 @@ namespace Atlas
                 if (OnRiver(s.m_x, s.m_y) || OnRiver(s.m_x + along.x, s.m_y + along.y) || OnRiver(s.m_x - along.x, s.m_y - along.y)) return;
                 Scarp(s.m_x, s.m_y, m_g, s.m_seed, down);
             });
+        }
+
+        // A clear-cut's stumps, once every glyph is placed, so they keep off the hills and the
+        // other glyphs' footprints (ClearOfGlyphs), on the background layer under every glyph.
+        private void DrawStumps()
+        {
+            if (!m_world.HasGrove(Grove.ClearCut)) return;
+            Scatter(StumpStep * G, StumpStep * G, 0.9f, 0f, 35, s =>
+            {
+                s.m_shore /= m_lod;
+                s.m_woodDistance /= m_lod;
+                if (s.m_grove != Grove.ClearCut || !IsOpenLand(s, Land.BlackForest, 3f)) return;
+                // Felled in stands: a slow noise thins the stumps between loose groups, so an
+                // even scatter does not read as a stipple, while thin ground keeps StumpFloor
+                // of them, as stands with bare ground between read as lumps.
+                float stand = Mathf.Lerp(StumpFloor, 1f, Mathf.Clamp01((Noise(s.m_x / StumpStand, s.m_y / StumpStand, m_world.m_seed + 35) - 0.35f) / 0.4f));
+                if (!(s.m_roll < StumpOdds * stand)) return;
+                // Off the hills and every other glyph, which would stand over the stumps.
+                if (!ClearOfGlyphs(s.m_x, s.m_y - 0.8f * m_g, StumpClear * m_g, 0.5f * StumpClear * m_g)) return;
+                Stump(s.m_x, s.m_y, m_g, s.m_seed);
+            }, sheetGrid: true);
         }
 
         // The drawn footprint of every placed glyph but the mist (left, top, right, bottom),
@@ -1412,8 +1474,10 @@ namespace Atlas
                     if (above < 3f) continue;
                     Land land = m_world.m_biome[i];
                     bool high = (land == Land.Mountain && above >= PeakHeight) || (land == Land.DeepNorth && above >= DeepNorthPeakHeight);
+                    // A clear-cut is open country too: with its trees felled its rises show.
+                    bool clearCut = land == Land.BlackForest && m_world.m_grove != null && m_world.m_grove[i] == Grove.ClearCut;
                     bool hillCountry = ((land == Land.Meadows || land == Land.Plains) && m_world.m_wood[i] < WoodEdge)
-                        || (land == Land.Mountain && above < PeakHeight);
+                        || (land == Land.Mountain && above < PeakHeight) || clearCut;
                     if (land == Land.Mistlands)
                     {
                         PlaceSummitSpire(h, size, x, z);
@@ -1806,37 +1870,43 @@ namespace Atlas
         {
             int first = m_glyphs.Count;
             // Meadows: egg-shaped broadleaf crowns.
-            Scatter(5.2f * m_t, 23, s =>
-            {
-                if (!InWood(s, Land.Meadows, 8f * m_t) || !(s.m_roll < 0.95f)) return;
-                Add(s, Kind.Broadleaf, m_t);
-            });
+            ScatterTrees(5.2f * m_t, 23, 0.95f, Kind.Broadleaf, s => InWood(s, Land.Meadows, 8f * m_t));
             // Black Forest, the Deep North and the Mountains: dense pines. Vanilla's Deep North
             // woods are snowy firs and pines and its Mountain woods firs, the same dark conifer
             // mass on the map. Mountain firs keep off the peaks' bases (ClearOfPeakBases).
             float pine = 11f * m_t;
-            Scatter(5.5f * m_t, 24, s =>
-            {
-                if (!(s.m_roll < 0.95f)) return;
-                bool wood = InWood(s, Land.BlackForest, pine) || InWood(s, Land.DeepNorth, pine)
-                    || (InWood(s, Land.Mountain, pine) && ClearOfPeakBases(s.m_x, s.m_y, pine));
-                if (!wood) return;
-                Add(s, Kind.Conifer, m_t);
-            });
+            ScatterTrees(5.5f * m_t, 24, 0.95f, Kind.Conifer, s => InWood(s, Land.BlackForest, pine) || InWood(s, Land.DeepNorth, pine)
+                || (InWood(s, Land.Mountain, pine) && ClearOfPeakBases(s.m_x, s.m_y, pine)));
             // Plains: copses of small round trees where vanilla grows its sparse woods.
-            Scatter(5f * m_t, 25, s =>
-            {
-                if (!InWood(s, Land.Plains, 6f * m_t) || !(s.m_roll < 0.9f)) return;
-                Add(s, Kind.PlainsTree, m_t);
-            });
+            ScatterTrees(5f * m_t, 25, 0.9f, Kind.PlainsTree, s => InWood(s, Land.Plains, 6f * m_t));
             // Mistlands: gnarled trees packed closely enough that their canopies mass into one dark
             // wood, as the Black Forest's pines do, off the steep ground where the spires stand.
-            Scatter(7f * m_t, 29, s =>
-            {
-                if (s.m_slope >= SpireSlope || !InWood(s, Land.Mistlands, 13f * m_t) || !(s.m_roll < 0.9f)) return;
-                Add(s, Kind.GiantTree, m_t);
-            });
+            ScatterTrees(7f * m_t, 29, 0.9f, Kind.GiantTree, s => s.m_slope < SpireSlope && InWood(s, Land.Mistlands, 13f * m_t));
             HideCoveredCrowns(first);
+        }
+
+        // One biome's trees: a candidate on each cell of a spacing grid, kept with odds, where
+        // inWood holds. The alt biomes change only how many stand in the same wood shapes: a
+        // clear-cut has none, a sparse grove keeps SparseKeep of them by a hash of their own, and a
+        // dense grove, which the rule's own grid cannot pack fuller (it is already nearly full),
+        // takes every cell of a finer grid of its own (DenseSpacing, salt DenseSalt on), its own
+        // grid leaving those spots out so the two do not overlap. Decided from hashes and the
+        // map pixel's grove alone, so the sheet and every close-up agree.
+        private void ScatterTrees(float spacing, int salt, float odds, Kind kind, Func<Spot, bool> inWood)
+        {
+            Scatter(spacing, salt, s =>
+            {
+                if (!(s.m_roll < odds) || s.m_grove == Grove.ClearCut || s.m_grove == Grove.Dense) return;
+                if (s.m_grove == Grove.Sparse && !(Unit(s.m_seed, SparseRoll) < SparseKeep)) return;
+                if (!inWood(s)) return;
+                Add(s, kind, m_t);
+            });
+            if (!m_world.HasGrove(Grove.Dense)) return;
+            Scatter(spacing * DenseSpacing, salt + DenseSalt, s =>
+            {
+                if (s.m_grove != Grove.Dense || !inWood(s)) return;
+                Add(s, kind, m_t);
+            });
         }
 
         // Whether a glyph has a round crown (Glyphs: BroadleafCrown, PlainsCrown, GiantCrown).
@@ -1970,7 +2040,10 @@ namespace Atlas
             // Swamp: a few tall ancient dead trees among the marsh lines, standing clear of water.
             Scatter(30f * T, 27, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f || !(s.m_roll < 0.45f)) return;
+                // A Bog Swamp (Grove.Dense) has more of them: vanilla adds dead small firs and
+                // other trees there.
+                float odds = s.m_grove == Grove.Dense ? BogDeadTreeOdds : 0.45f;
+                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f || !(s.m_roll < odds)) return;
                 if (!IsLandColumn(s.m_x, s.m_y, 14f * T)) return;
                 Add(s, Kind.DeadTree, T);
             });

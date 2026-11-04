@@ -223,7 +223,9 @@ namespace Atlas
                 {
                     var record = new InkRecord();
                     byte[] ink = InkPainter.Paint(source, cancel, record);
-                    InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
+                    // A sheet drawn without the alt biomes' groves is not cached: the cache is keyed by seed
+                    // alone, so it would stand in for the variants in every later session.
+                    if (source.m_grove != null) InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
                     return new PaintResult { m_ink = ink, m_record = record, m_density = InkDensity.FromSheet(ink) };
                 });
                 return;

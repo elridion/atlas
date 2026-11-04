@@ -16,6 +16,7 @@ using UnityEngine;
 //                                  as a detail tile at scale, or magnified from the sheet with :sheet
 //   tilesNAME:wx:wz:scale          3x3 separately rendered 256 px tiles at scale, stitched
 // --layers also writes the biome map, land wash and body masks of the whole sheet.
+// --alt NAME:wx:wz:radiusMetres forces an alt biome's effect on the woods there (ForceAltBiomes).
 internal static class Program
 {
     const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -155,6 +156,7 @@ internal static class Program
             }
             return 0;
         }
+        ForceAltBiomes(args, source, wsType, land, size);
         System.Console.WriteLine($"decode {sw.ElapsedMilliseconds} ms");
         sw.Restart();
 
@@ -221,7 +223,7 @@ internal static class Program
         const float half = 10800f, mpp = 2f * half / canvas;
         for (int a = 2; a < args.Length; a++)
         {
-            if (args[a].StartsWith("--")) continue;
+            if (args[a].StartsWith("--") || args[a - 1] == "--alt") continue;
             string[] p = args[a].Split(':');
             sw.Restart();
             if (p[0].StartsWith("tiles"))
@@ -242,14 +244,16 @@ internal static class Program
             }
             else if (p[0] == "biomes")
             {
-                // biomes:wx:wz:radiusMetres prints land cell counts per biome and the height range.
+                // biomes:wx:wz:radiusMetres prints land cell counts per biome, how many are wood, and
+                // the height range.
                 float wx = float.Parse(p[1]), wz = float.Parse(p[2]), radius = float.Parse(p[3]);
                 var biomes = (Array)Get(source, "m_biome");
                 var heights = (float[])Get(source, "m_height");
+                var woods = (float[])Get(source, "m_wood");
                 var counts = new System.Collections.Generic.SortedDictionary<string, string>();
                 foreach (object landValue in Enum.GetValues(land))
                 {
-                    int count = 0;
+                    int count = 0, wooded = 0;
                     float lo = float.MaxValue, hi = float.MinValue;
                     for (int z = 0; z < size; z++)
                         for (int x = 0; x < size; x++)
@@ -259,10 +263,11 @@ internal static class Program
                             int i = z * size + x;
                             if (Convert.ToInt32(biomes.GetValue(i)) != Convert.ToInt32(landValue) || heights[i] <= 30f) continue;
                             count++;
+                            if (woods[i] > 0.5f) wooded++;
                             lo = Math.Min(lo, heights[i] - 30f);
                             hi = Math.Max(hi, heights[i] - 30f);
                         }
-                    if (count > 0) System.Console.WriteLine($"BIOME {landValue} {count} cells, {lo:F0}-{hi:F0} m above water");
+                    if (count > 0) System.Console.WriteLine($"BIOME {landValue} {count} cells ({wooded} wood), {lo:F0}-{hi:F0} m above water");
                 }
             }
             else if (p[0].StartsWith("fog"))
@@ -829,6 +834,45 @@ internal static class Program
     static float Lerp(float a, float b, float t) => a + (b - a) * t;
 
     static Type T(string name) => s_atlas.GetType(name, true);
+
+    // --alt NAME:wx:wz:radiusMetres (repeatable) lays vanilla's alt biome NAME (AltBiome.m_name,
+    // such as "Kalhygge Black Forest") on the map cells of its own biome within the radius. The
+    // game picks alt biomes with UnityEngine.Random, which the preview cannot run, so without it
+    // the preview draws every wood plain.
+    static void ForceAltBiomes(string[] args, object source, Type wsType, Type land, int size)
+    {
+        MethodInfo groveOf = wsType.GetMethod("GroveOf", All);
+        Array groves = null;
+        var biomes = (Array)Get(source, "m_biome");
+        for (int a = 2; a < args.Length - 1; a++)
+        {
+            if (args[a] != "--alt") continue;
+            string[] q = args[a + 1].Split(':');
+            string name = string.Join(":", q, 0, q.Length - 3);
+            float ax = float.Parse(q[q.Length - 3]), az = float.Parse(q[q.Length - 2]), radius = float.Parse(q[q.Length - 1]);
+            var call = new object[] { name, null, null };
+            if (!(bool)groveOf.Invoke(null, call))
+            {
+                System.Console.WriteLine($"ALT '{name}' does not change the woods");
+                continue;
+            }
+            if (groves == null) groves = Array.CreateInstance(T("Atlas.Grove"), size * size);
+            int want = Convert.ToInt32(call[1]), cells = 0;
+            int x0 = Math.Max(0, (int)((ax - radius) / 12f) + size / 2 - 1), x1 = Math.Min(size - 1, (int)((ax + radius) / 12f) + size / 2 + 1);
+            int z0 = Math.Max(0, (int)((az - radius) / 12f) + size / 2 - 1), z1 = Math.Min(size - 1, (int)((az + radius) / 12f) + size / 2 + 1);
+            for (int z = z0; z <= z1; z++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    float cx = (x - size / 2 + 0.5f) * 12f, cz = (z - size / 2 + 0.5f) * 12f;
+                    int i = z * size + x;
+                    if ((cx - ax) * (cx - ax) + (cz - az) * (cz - az) > radius * radius || Convert.ToInt32(biomes.GetValue(i)) != want) continue;
+                    groves.SetValue(call[2], i);
+                    cells++;
+                }
+            System.Console.WriteLine($"ALT '{name}' {call[2]} on {cells} {Enum.ToObject(land, want)} cells");
+        }
+        if (groves != null) wsType.GetMethod("SetGroves", All).Invoke(source, new object[] { groves });
+    }
 
     static void Set(object o, string field, object value) => o.GetType().GetField(field, All).SetValue(o, value);
 

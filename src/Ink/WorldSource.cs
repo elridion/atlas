@@ -19,6 +19,23 @@ namespace Atlas
     }
 
     /// <summary>
+    /// What a world's alt biome (Valheim 1.0's variants of one connected biome patch, chosen once
+    /// per world from the seed) does to that patch's woods on the atlas. Vanilla's variants add or
+    /// block vegetation only; they never change the terrain, the ground texture or the minimap, so
+    /// the wood shapes stay and only the trees in them thin out, thicken or go.
+    /// </summary>
+    internal enum Grove : byte
+    {
+        None,
+        // Felled: no trees, stumps instead (Kalhygge Black Forest).
+        ClearCut,
+        // Fewer trees (vanilla blocks or swaps the patch's big trees).
+        Sparse,
+        // More trees (vanilla adds trees to the patch).
+        Dense,
+    }
+
+    /// <summary>
     /// One river or stream as the world generator lays it out: a straight run from start to end,
     /// swung from side to side by a sum of sines (WorldGenerator.RenderRivers), in world metres
     /// (y is the world z axis).
@@ -116,6 +133,16 @@ namespace Atlas
         // Rivers and streams from the world generator. The minimap's 12 m pixels lose the narrow
         // ones (a stream's channel is about 20 m wide), so they are drawn from their courses.
         public readonly List<RiverPath> m_rivers = new List<RiverPath>();
+        // Per map pixel, what its biome patch's alt biome does to its trees (GroveOf); null when
+        // vanilla's alt-biome data was not ready at capture, which draws every wood as vanilla's
+        // plain biome.
+        public Grove[] m_grove;
+        private bool[] m_hasGrove;
+
+        // The world generator whose biome sectors are read on the worker (ReadGroves), set only
+        // once its alt-biome data is built.
+        private WorldGenerator m_altBiomes;
+        private static bool s_altBiomesMissing;
 
         private Color32[] m_colors;
         private Color32[] m_mask;
@@ -174,6 +201,7 @@ namespace Atlas
                 AddRivers(source, generator.GetRivers(), stream: false);
                 AddRivers(source, generator.GetStreams(), stream: true);
             }
+            source.m_altBiomes = AltBiomesReady(generator) ? generator : null;
             // Vanilla paints the ocean plain white (Minimap.GetPixelColor); the other colours come
             // from the minimap prefab, which overrides the code defaults.
             source.m_palette = new[]
@@ -189,6 +217,21 @@ namespace Atlas
                 new PaletteEntry(Color.white, Land.Ocean),
             };
             return source;
+        }
+
+        // Vanilla builds the alt biomes when the world loads (AltBiomeWorldData.VerifyBiomeData, on
+        // the server's world load and on a client's connect), before the minimap is drawn; until
+        // then GetBiomeSector answers with empty placeholder sectors. Main thread.
+        private static bool AltBiomesReady(WorldGenerator generator)
+        {
+            AltBiomeWorldData data = generator?.m_world?.m_biomeData;
+            if (data != null && data.IsReady) return true;
+            if (!s_altBiomesMissing)
+            {
+                s_altBiomesMissing = true;
+                Jotunn.Logger.LogWarning("The atlas found no alt-biome data for this world; its woods are drawn without their variants.");
+            }
+            return false;
         }
 
         private static void AddRivers(WorldSource source, List<WorldGenerator.River> rivers, bool stream)
@@ -259,6 +302,7 @@ namespace Atlas
                     m_swampField[i] = 1f;
                 }
             }
+            if (m_altBiomes != null) ReadGroves();
             MarkSwampSea();
             MarkNorthForest();
             MarkMountainForest();
@@ -277,6 +321,118 @@ namespace Atlas
             m_wood = Woods.Build(this);
             m_lavaField = Woods.BuildLava(this);
         }
+
+        // Each map pixel's biome sector, read once per world. Vanilla's sector grid is the minimap's
+        // (2048 pixels of 12 m, centres at (i - 1024) * 12 + 6), so the pixel centre names its
+        // sector. Reading it off the main thread is safe: GetBiomeSector only reads the sector
+        // array and each sector's AltBiomes list, both built at world load and left alone after.
+        // Sectors are connected patches, so the last one's grove is reused while it repeats.
+        private void ReadGroves()
+        {
+            var groves = new Grove[m_biome.Length];
+            int half = m_size / 2;
+            BiomeSector last = null;
+            Grove lastGrove = Grove.None;
+            for (int i = 0; i < groves.Length; i++)
+            {
+                float wx = (i % m_size - half) * m_pixelSize + m_pixelSize * 0.5f;
+                float wz = (i / m_size - half) * m_pixelSize + m_pixelSize * 0.5f;
+                BiomeSector sector = m_altBiomes.GetBiomeSector(wx, wz);
+                if (sector != last)
+                {
+                    last = sector;
+                    lastGrove = Grove.None;
+                    if (sector != null)
+                    {
+                        foreach (AltBiome alt in sector.AltBiomes)
+                        {
+                            // Felling outranks thinning, thinning outranks thickening; vanilla's
+                            // incompatibilities keep the others from meeting in one patch.
+                            if (alt == null || !GroveOf(alt.m_name, out Land land, out Grove grove)) continue;
+                            if (land != GeneratorSampler.ToLand(sector.Biome)) continue;
+                            if (lastGrove == Grove.None || grove < lastGrove) lastGrove = grove;
+                        }
+                    }
+                }
+                // The decoded biome decides: a pixel decoded as another biome than its sector's
+                // (the minimap's colours and heights against the generator's own biome) keeps
+                // plain woods, so no grove applies outside its biome.
+                if (lastGrove != Grove.None && m_biome[i] == GeneratorSampler.ToLand(sector.Biome)) groves[i] = lastGrove;
+            }
+            SetGroves(groves);
+            m_altBiomes = null;
+        }
+
+        // Keeps the groves and notes which kinds occur, so a world without them skips their extra
+        // scatter passes. The offline preview calls it with groves of its own (--alt).
+        internal void SetGroves(Grove[] groves)
+        {
+            var has = new bool[(int)Grove.Dense + 1];
+            foreach (Grove grove in groves) has[(int)grove] = true;
+            m_grove = groves;
+            m_hasGrove = has;
+        }
+
+        public bool HasGrove(Grove grove) => m_hasGrove != null && m_hasGrove[(int)grove];
+
+        // The alt biomes that change their patch's trees, by vanilla's AltBiome.m_name, with the
+        // biome they belong to; the rest (creatures, locations, small plants) leave the atlas
+        // as it is.
+        public static bool GroveOf(string name, out Land land, out Grove grove)
+        {
+            switch (name)
+            {
+                // A felled forest (kalhygge, a clear-cut).
+                case "Kalhygge Black Forest": land = Land.BlackForest; grove = Grove.ClearCut; return true;
+                case "Pinetree Black Forest":
+                case "Rock Black Forest": land = Land.BlackForest; grove = Grove.Sparse; return true;
+                case "Smalltree Meadows": land = Land.Meadows; grove = Grove.Sparse; return true;
+                // Vanilla blocks the big firtree_mountain; the small firs stay.
+                case "Drake Mountain":
+                case "Fortress Mountain": land = Land.Mountain; grove = Grove.Sparse; return true;
+                // Adds 10-20 firtree_mountain2 a zone.
+                case "Wolf Mountain": land = Land.Mountain; grove = Grove.Dense; return true;
+                // Vanilla blocks birch2_aut_heath.
+                case "Lox Plains":
+                case "Death Plains": land = Land.Plains; grove = Grove.Sparse; return true;
+                // Adds dead small firs and other trees.
+                case "Bog Swamp": land = Land.Swamp; grove = Grove.Dense; return true;
+                case "Trees Mistlands": land = Land.Mistlands; grove = Grove.Dense; return true;
+                default: land = Land.Ocean; grove = Grove.None; return false;
+            }
+        }
+
+        // What the alt biome does to the trees at world point (wx, wz) of the given biome. Close-ups
+        // sample the generator's finer biome border, which runs up to a map pixel off the
+        // minimap's, so a point whose nearest pixel is another biome takes the nearest pixel of
+        // its own biome round it; otherwise a fringe of plain woods would line a clear-cut.
+        public Grove GroveAt(float wx, float wz, Land land)
+        {
+            if (m_grove == null) return Grove.None;
+            float sx = ToSourceX(wx), sz = ToSourceZ(wz);
+            int x = Mathf.Clamp((int)Math.Round(sx), 0, m_size - 1);
+            int z = Mathf.Clamp((int)Math.Round(sz), 0, m_size - 1);
+            int i = z * m_size + x;
+            if (m_biome[i] == land) return m_grove[i];
+            Grove found = Grove.None;
+            float best = float.MaxValue;
+            for (int nz = Math.Max(0, z - 1); nz <= Math.Min(m_size - 1, z + 1); nz++)
+            {
+                for (int nx = Math.Max(0, x - 1); nx <= Math.Min(m_size - 1, x + 1); nx++)
+                {
+                    int j = nz * m_size + nx;
+                    if (m_biome[j] != land) continue;
+                    float d = (nx - sx) * (nx - sx) + (nz - sz) * (nz - sz);
+                    if (d >= best) continue;
+                    best = d;
+                    found = m_grove[j];
+                }
+            }
+            return found;
+        }
+
+        // Whether world point (wx, wz) lies in a felled Black Forest, which counts as open land.
+        public bool IsClearCut(float wx, float wz) => m_grove != null && m_grove[Index(wx, wz)] == Grove.ClearCut;
 
         // A swamp's water counts as its ground (pools traced exactly at the minimap's detail break
         // every swamp into a maze of islets), except its deep water (over SwampShallow) joined to

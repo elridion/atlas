@@ -71,7 +71,8 @@ namespace Atlas
             if (height <= m_waterLevel) return;
             switch (land)
             {
-                case Land.BlackForest: wood = 1f; break;
+                // A felled Black Forest is open land, as on the sheet (InkPainter.BuildFields).
+                case Land.BlackForest: wood = m_world.GroveAt(wx, wz, land) == Grove.ClearCut ? -1f : 1f; break;
                 case Land.Meadows: wood = MeadowsForest - Factor(wx, wz); break;
                 case Land.Plains: wood = PlainsForest - Factor(wx, wz); break;
                 case Land.Mistlands: wood = MistlandsForest - Factor(wx, wz); break;
@@ -90,7 +91,7 @@ namespace Atlas
 
         private static float Factor(float wx, float wz) => WorldGenerator.GetForestFactor(new Vector3(wx, 0f, wz));
 
-        private static Land ToLand(Heightmap.Biome biome)
+        internal static Land ToLand(Heightmap.Biome biome)
         {
             switch (biome)
             {
@@ -122,6 +123,7 @@ namespace Atlas
             height = m_world.HeightAt(wx, wz);
             land = m_world.m_biome[m_world.Index(wx, wz)];
             wood = height > m_world.m_waterLevel ? m_world.Sample(m_world.m_wood, wx, wz) - 0.5f : -1f;
+            if (land == Land.BlackForest && m_world.GroveAt(wx, wz, land) == Grove.ClearCut) wood = -1f;
         }
     }
 }

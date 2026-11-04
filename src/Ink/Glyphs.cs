@@ -995,6 +995,27 @@ namespace Atlas
             m_canvas.Ring(x, y - ry, rx, ry, Pen);
         }
 
+        // A clear-cut's stump: a short trunk stroke, cut flat, with two or three roots splaying
+        // from its foot, their reach and lean by seed, so no two stumps are stamped alike. A solid
+        // trunk with a sawn top is too heavy for the many stumps of a felled stand.
+        private void Stump(float x, float y, float s, int seed)
+        {
+            float height = 1.6f * s * Vary(seed, 70, 0.25f);
+            float lean = (Unit(seed, 71) - 0.5f) * 0.4f * s;
+            float trunk = 1.25f * Pen;
+            m_canvas.Scrape(x, y, x + lean, y - height, trunk + m_pen);
+            m_canvas.Stroke(x, y, x + lean, y - height, trunk);
+            int roots = Unit(seed, 72) < 0.55f ? 2 : 3;
+            float from = y - 0.3f * s;
+            for (int k = 0; k < roots; k++)
+            {
+                // West and east roots, and on some a third one running out in front.
+                float side = k == 0 ? -1f : k == 1 ? 1f : (Unit(seed, 73) < 0.5f ? -0.35f : 0.35f);
+                float reach = Mathf.Lerp(0.8f, 1.4f, Unit(seed, 74 + k)) * s;
+                float drop = Mathf.Lerp(0.15f, 0.45f, Unit(seed, 78 + k)) * s;
+                m_canvas.Stroke(x, from, x + side * reach, y + drop, Pen);
+            }
+        }
         // A tuft of grass: two short strokes.
         private void Grass(float x, float y, float s)
         {

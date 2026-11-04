@@ -17,7 +17,8 @@ nothing changes.
 | Map key (M) anywhere | Unrolls your atlas as it was when you last recorded your discoveries. Close it with the map key or Escape. |
 
 The atlas is a drawing, not a live map: it does not show where you stand, and land you explore or
-pins you place appear only after your next visit to a cartography table.
+pins you place appear only after your next visit to a cartography table. A narrow band round
+what you explored shows on bare parchment in a paler, greyer ink, a glimpse of what lies beyond.
 
 ## Controls
 
@@ -60,9 +61,10 @@ Mistlands have denser woods, and bog Swamps more dead trees.
 
 ## Settings
 
-Atlas uses your map key. Your pins are inked into the atlas itself in its own pen (the game's
-five pin icons and the death marker in their own hand-drawn form), each as large as what it
-stands for beside the trees and filled in the colour of its ground, and always show; pins in land you have not
+Atlas uses your map key. Your pins are inked into the atlas itself in solid red, in its own pen
+(the game's five pin icons and the death marker in their own hand-drawn form, details such as a
+door or a rune left in bare paper), each as large as what it stands for beside the trees, and
+always show; checked pins are struck through in bare paper; pins in land you have not
 explored and other mods' icons stay markers over the parchment. Pin names are left off for now.
 The game's own marks are drawn as map signs too, each kind switched on or off in
 `BepInEx/config/elridion.atlas.cfg` (or a config manager); a change redraws the atlas in the

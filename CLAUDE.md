@@ -27,11 +27,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   as modern stickers on the hand-drawn map. A pin drawn in elevation stands on its place as a
   tree or peak does, its foot on the spot (`PinGlyphs.Lift`, from each glyph's ground line in pin
   units; the images and the name layout are lifted, the holder stays on the place); plan signs
-  (open circle, stone circle) and traced sprites stay centred.
-  `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen (fire: campfire, house: longhouse,
+  (dot, stone circle) and traced sprites stay centred.
+  `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph but the Sacrificial Stones inked solid with its details cut back to paper (the user's call; the Stones keep their outlined blocks): fire: campfire, house: longhouse,
   the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer, not a work hammer;
-  circle: open circle; portal: dolmen; death: memorial stone with the yr rune on a mound, never a
-  cross; checked: struck through). The game's own pins get map signs too: bed (spawn point), a
+  circle: dot; portal: dolmen; death: memorial stone with the yr rune on a mound, never a
+  cross; checked: struck through with paper, `InkCanvas.Pin`, a red strike vanishing on a solid glyph). The game's own pins get map signs too: bed (spawn point), a
   solid horned skull in the language of the game's boss icon (Boss, from Vegvisirs), Hildir1-3
   as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and tower (Sealed Towers); location
   pins by `LocationSpriteData.m_name`: `StartTemple` the Sacrificial Stones (below),
@@ -67,7 +67,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   hand-drawn waver (`PinGlyphs.Waver`: every
   point moved by a smooth noise seeded by the pin's place, straight lines and outlines cut
   into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
-  so the ground's own wash fills it; checked pins are struck through. Recorded as `Op.Pin`, so
+  so the ground's own wash shows round it; checked pins are struck through. Recorded as `Op.Pin`, so
   close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so
   relief and trees in front may cover part of one, together up to `MarkCover` 45% of it (the
   user's rule). Cover is measured on `CoverSamples` 12 x 12 points of the pin's box, only those
@@ -105,8 +105,14 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   unexplored land softened at the explored edge. `AtlasView` lays it over the paper's wash and
   under the ink, so the band shows the map on untinted parchment; close-ups lay it over their
   wash before the glyphs' bodies (`DetailTile.Render`, `DetailTiles.SetGlimpse`, which drops
-  every tile drawn with the old fog). The glyphs' own bodies (crowns, peaks) keep their fills
-  there, as the sheet's ink texture carries them. Names are left off for
+  every tile drawn with the old fog). In the glimpse the glyphs' bodies (crowns, peaks) and the
+  sea illustrations' wash give way to the parchment and the terrain's ink turns greyer
+  (`Paper.GlimpseInkColor`); pins keep their red (the user's design). The sheet bakes that into
+  its ink texture (`Paper.InkWithMips` takes the glimpse), so `AtlasMap` keeps the sheet's planes
+  for the session (`s_sheet`, about 100 MB) and lays the texture again whenever the fog lays a new
+  glimpse (`KeepMips`, `s_glimpseSerial`); the first is laid only once the fog is there, so
+  login does not lay it twice. A second texture split from the ink would cost as much in video
+  memory, and no custom shader is possible without asset bundles. Names are left off for
   now (`s_showNames`), to be given another pass. The preview takes `-Temple wx:wz` and
   `-Pin GLYPH:wx:wz[:checked]`.
   The Sacrificial Stones are a pin like the others (the user's call), `PinGlyphs.StoneCircle`

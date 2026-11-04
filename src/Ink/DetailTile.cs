@@ -38,7 +38,7 @@ namespace Atlas
 
             int paper = Paper.FogSize;
             float perSheet = paper / (float)InkPainter.CanvasSize;
-            Color32 ink = Paper.InkColor, pinInk = Paper.PinInkColor;
+            Color32 ink = Paper.InkColor, pinInk = Paper.PinInkColor, glimpseInk = Paper.GlimpseInkColor;
             // The frame's radius in sheet pixels: beyond it is the sheet's bare margin, not water.
             float frame = InkPainter.EdgeRadius / InkPainter.MetresPerPixel;
             var rgba = new byte[w * h * 4];
@@ -76,24 +76,22 @@ namespace Atlas
                         lg += (wg - lg) * water;
                         lb += (wb - lb) * water;
                     }
-                    // The glimpse round the explored land: bare parchment over the ground's wash
-                    // and the water, as the sheet's Glimpse layer lays it under its ink; the
-                    // glyphs' bodies are laid over it, as the sheet's ink texture carries them.
-                    if (glimpse != null)
+                    // The glimpse round the explored land: bare parchment over the ground's wash,
+                    // the water and the glyphs' bodies, with the terrain's ink greyer, as the sheet
+                    // lays it (Paper.InkWithMips).
+                    float g = glimpse != null ? GlimpseAt(glimpse, paper, px, py) : 0f;
+                    float open = 1f - g;
+                    if (g > 0f)
                     {
-                        float g = GlimpseAt(glimpse, paper, px, py);
-                        if (g > 0f)
-                        {
-                            lr += (PaperAt(wash.m_parchment, paper, px, py, 0) - lr) * g;
-                            lg += (PaperAt(wash.m_parchment, paper, px, py, 1) - lg) * g;
-                            lb += (PaperAt(wash.m_parchment, paper, px, py, 2) - lb) * g;
-                        }
+                        lr += (PaperAt(wash.m_parchment, paper, px, py, 0) - lr) * g;
+                        lg += (PaperAt(wash.m_parchment, paper, px, py, 1) - lg) * g;
+                        lb += (PaperAt(wash.m_parchment, paper, px, py, 2) - lb) * g;
                     }
                     // A peak's or spire's body takes its kind's glaze strictly, over the stained
                     // paper (Paper.BodyGlaze), as the sheet fills it with BodyColor.
                     for (var kind = BodyKind.Mountain; kind <= BodyKind.Mist; kind++)
                     {
-                        float body = canvas.BodyMask(kind)[ty * w + tx] / 255f;
+                        float body = canvas.BodyMask(kind)[ty * w + tx] / 255f * open;
                         if (body <= 0f) continue;
                         Paper.BodyGlaze(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
                             PaperAt(wash.m_parchment, paper, px, py, 2), kind, out float br, out float bg, out float bb);
@@ -105,7 +103,7 @@ namespace Atlas
                     byte wood = canvas.m_bodyWood[ty * w + tx];
                     if (wood != 0)
                     {
-                        float body = InkCanvas.WoodCover(wood);
+                        float body = InkCanvas.WoodCover(wood) * open;
                         Paper.WoodGlaze(PaperAt(wash.m_parchment, paper, px, py, 0), PaperAt(wash.m_parchment, paper, px, py, 1),
                             PaperAt(wash.m_parchment, paper, px, py, 2), InkCanvas.WoodLand(wood), out float br, out float bg, out float bb);
                         lr += (br - lr) * body;
@@ -115,7 +113,7 @@ namespace Atlas
                     // A sea illustration's darker wash, sampled from the same mask the sheet lays.
                     foreach (SeaWash sea in seaWashes)
                     {
-                        float amount = sea.At(sx, sy);
+                        float amount = sea.At(sx, sy) * open;
                         if (amount > 0f) Paper.SeaGlaze(lr, lg, lb, amount, out lr, out lg, out lb);
                     }
                     // A pin's red ink, under any black ink drawn over it later.
@@ -126,9 +124,12 @@ namespace Atlas
                         lg += (pinInk.g - lg) * red;
                         lb += (pinInk.b - lb) * red;
                     }
-                    rgba[o] = (byte)(lr + (ink.r - lr) * a + 0.5f);
-                    rgba[o + 1] = (byte)(lg + (ink.g - lg) * a + 0.5f);
-                    rgba[o + 2] = (byte)(lb + (ink.b - lb) * a + 0.5f);
+                    float ir = ink.r + (glimpseInk.r - ink.r) * g;
+                    float ig = ink.g + (glimpseInk.g - ink.g) * g;
+                    float ib = ink.b + (glimpseInk.b - ink.b) * g;
+                    rgba[o] = (byte)(lr + (ir - lr) * a + 0.5f);
+                    rgba[o + 1] = (byte)(lg + (ig - lg) * a + 0.5f);
+                    rgba[o + 2] = (byte)(lb + (ib - lb) * a + 0.5f);
                     rgba[o + 3] = 255;
                 }
             }

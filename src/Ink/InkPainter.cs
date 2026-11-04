@@ -609,7 +609,7 @@ namespace Atlas
 
         // Thin parts (the boss's horns, a bed's posts, the gap round every line) are eroded away,
         // so the share is of the pin's solid core: counted in, the horns let trees hide the whole
-        // skull. A glyph with too little core left (the open circle) keeps its whole body.
+        // skull. A glyph with too little core left (the dot) keeps its whole body.
         private const int CoverCoreLeast = 10;
 
         private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, bool[]> s_pinBodies =

@@ -246,7 +246,7 @@ namespace Atlas
 
         // A pin glyph (PinGlyphs) in the box of size sheet pixels from (left, top): its body
         // scrapes the ink and every body mask, so the ground's own wash fills it, then its lines
-        // are laid in the pins' red ink (m_pinInk), struck through when checked. Drawn at this canvas's resolution, so a
+        // are laid in the pins' red ink (m_pinInk), struck through with paper when checked. Drawn at this canvas's resolution, so a
         // close-up gets a sharp pin.
         public void Pin(PinGlyph glyph, float left, float top, float size, bool struck)
         {
@@ -292,7 +292,8 @@ namespace Atlas
                     // Rock (the Sacrificial Stones) takes the peaks' wash instead of the ground's.
                     if (mark.m_rock != null && mark.m_rock[j] > m_body[i]) m_body[i] = mark.m_rock[j];
                     byte ink = mark.m_ink[j];
-                    if (strike != null) ink = Math.Max(ink, strike.m_ink[j]);
+                    // Glyphs are inked solid, so the strike is scraped through them as paper.
+                    if (strike != null) ink = (byte)(ink * (255 - strike.m_ink[j]) / 255);
                     if (ink > m_pinInk[i]) m_pinInk[i] = ink;
                 }
             }

@@ -73,10 +73,10 @@ namespace Atlas
     }
 
     /// <summary>
-    /// The pins drawn with the map's own pens: a pen line round a body of bare paper, as every
-    /// glyph on the sheet is drawn, instead of a solid black icon on a parchment ring, which reads
-    /// as a sticker on the hand-drawn map. The body is what keeps a pin legible
-    /// on dark ground: inside it the paper shows with no terrain ink. Pins are laid out in a box of
+    /// The pins drawn with the map's own pens: a solid red sign with its details cut back to paper
+    /// (the Sacrificial Stones keep their outlined blocks), standing in a body that scrapes the
+    /// terrain ink round it, instead of an icon on a parchment ring, which reads as a sticker on
+    /// the hand-drawn map. The body is what keeps a pin legible on dark ground. Pins are laid out in a box of
     /// PinUnits units, standing on the pin's place (Lift); pure math, so the preview draws them too.
     /// </summary>
     internal static class PinGlyphs
@@ -88,7 +88,7 @@ namespace Atlas
         private const float MarkerPen = 2.3f;
         private const float MarkerFinePen = 1.1f;
         private const float MarkerLogWidth = 2.6f;
-        private const float MarkerRunePen = 1.6f;
+        private const float MarkerPaperPen = 1.6f;
         [ThreadStatic] private static float s_pen;
         // While a glyph is drawn, the parts of it that are rock (the Sacrificial Stones), filled
         // with the peaks' wash on the sheet instead of the ground's.
@@ -100,7 +100,9 @@ namespace Atlas
         private static float FinePen => s_pen > 0f ? s_pen : MarkerFinePen;
         // The logs are solid bars rather than lines, a little heavier than the pen.
         private static float LogWidth => s_pen > 0f ? s_pen * 1.6f : MarkerLogWidth;
-        private static float RunePen => s_pen > 0f ? s_pen * 1.2f : MarkerRunePen;
+        // Details cut back to paper through a solid glyph: wider than the pen, as a gap in red
+        // ink reads thinner than a red line of the same width.
+        private static float PaperPen => s_pen > 0f ? s_pen * 1.2f : MarkerPaperPen;
         // The engraver's gap: terrain ink stops this far short of the pin's lines, as pen lines
         // break off round a symbol on a hand-drawn map, so trees do not run into its outline. A
         // pin drawn into the sheet keeps the halo a tree's crown scrapes round its own line, half
@@ -120,7 +122,7 @@ namespace Atlas
 
         // How far a glyph is lifted off its pin's place, as a share of the pin's size: a pin drawn
         // in elevation stands on its place as a tree or a peak does, its foot (the ground line it
-        // is drawn on, in pin units) on the spot; the open circle and icons traced from sprites
+        // is drawn on, in pin units) on the spot; the dot and icons traced from sprites
         // stay centred on it, and the stone circle has the middle of its ring there.
         public static float Lift(PinGlyph glyph) => (FootOf(glyph) - PinUnits * 0.5f) / PinUnits;
 
@@ -223,7 +225,7 @@ namespace Atlas
             }
         }
 
-        // A campfire: two crossed logs under a flame with a tongue inside it.
+        // A campfire: two crossed logs under a solid flame with a tongue of paper inside it.
         private static void Fire(InkCanvas ink, InkCanvas body)
         {
             List<Vector2> flame = Curve(new[]
@@ -234,9 +236,8 @@ namespace Atlas
             Log(ink, body, 5.5f, 22.2f, 20.5f, 17.2f);
             Log(ink, body, 5.5f, 17.2f, 20.5f, 22.2f);
             body.EraseOutline(flame, Pen * 0.5f);
-            ink.EraseOutline(flame, 0f);
-            Loop(ink, flame, Pen);
-            ink.Polyline(Curve(new[] { new Vector2(13f, 15.6f), new Vector2(11.6f, 12.4f), new Vector2(12.6f, 9.6f) }, closed: false), FinePen);
+            SolidInFront(ink, flame);
+            PaperLine(ink, Curve(new[] { new Vector2(13f, 15.2f), new Vector2(11.6f, 12.4f), new Vector2(12.6f, 9.6f) }, closed: false), PaperPen);
         }
 
         // A log as one thick stroke.
@@ -246,8 +247,8 @@ namespace Atlas
             ink.Stroke(x0, y0, x1, y1, LogWidth);
         }
 
-        // A longhouse: plain walls under a gable roof with crossed ridge ends, its eastern
-        // roof plane hatched as the map shades every glyph's eastern side.
+        // A longhouse: solid walls under a gable roof with crossed ridge ends, a line of paper
+        // under the eaves and a paper door.
         private static void House(InkCanvas ink, InkCanvas body)
         {
             var outline = new List<Vector2>
@@ -256,11 +257,12 @@ namespace Atlas
                 new Vector2(20.4f, 21.6f), new Vector2(5.6f, 21.6f), new Vector2(5.6f, 13.2f),
             };
             body.EraseOutline(outline, Pen * 0.5f);
-            ink.Polyline(new[] { new Vector2(3.6f, 13.2f), new Vector2(13f, 4.4f), new Vector2(22.4f, 13.2f), new Vector2(3.6f, 13.2f) }, Pen);
-            ink.Polyline(new[] { new Vector2(5.6f, 13.2f), new Vector2(5.6f, 21.6f), new Vector2(20.4f, 21.6f), new Vector2(20.4f, 13.2f) }, Pen);
+            Solid(ink, outline);
             ink.Stroke(13f, 4.4f, 11.2f, 2.2f, FinePen);
             ink.Stroke(13f, 4.4f, 14.8f, 2.2f, FinePen);
-            for (float x = 15.2f; x < 21.5f; x += 2.1f) ink.Stroke(x, 4.4f + (x - 13f) * 0.936f + 0.9f, x, 12.6f, FinePen);
+            // The eaves' line stops short of the walls, so the roof stays on them.
+            ink.Scrape(6.8f, 14f, 19.2f, 14f, PaperPen);
+            ink.Erase(new[] { new Vector2(11.6f, 16.8f), new Vector2(14.4f, 16.8f), new Vector2(14.4f, 23f), new Vector2(11.6f, 23f) });
         }
 
         // The game's "hammer" pin is Mjolnir, Thor's hammer as the Norse wore it on pendants, a
@@ -287,22 +289,53 @@ namespace Atlas
             FillSolid(ink, outline);
         }
 
-        // Inks a simple polygon, concave or not, solid: a scratch canvas starts all ink and has
-        // the outline scraped from it in one pass, and what was scraped is the fill.
-        private static void FillSolid(InkCanvas ink, IList<Vector2> outline)
+        // Inks a simple polygon, concave or not, solid, its edge pushed out by grow pin units: a
+        // scratch canvas starts all ink and has the outline scraped from it in one pass, and what
+        // was scraped is the fill.
+        private static void FillSolid(InkCanvas ink, IList<Vector2> outline, float grow = 0f)
         {
             var shape = new InkCanvas(ink.m_width, ink.m_height, 0f, 0f, ink.m_width / PinUnits) { m_warp = ink.m_warp };
             shape.Fill(new[] { new Vector2(-1f, -1f), new Vector2(PinUnits + 1f, -1f), new Vector2(PinUnits + 1f, PinUnits + 1f), new Vector2(-1f, PinUnits + 1f) });
-            shape.EraseOutline(outline, 0f);
+            shape.EraseOutline(outline, grow);
             for (int i = 0; i < ink.m_ink.Length; i++)
                 ink.m_ink[i] = Math.Max(ink.m_ink[i], (byte)(255 - shape.m_ink[i]));
         }
 
-        // An open circle; its body is the paper inside.
+        // A part inked solid out to where its outline's pen reached, so a solid glyph keeps the
+        // size the outlined one had.
+        private static void Solid(InkCanvas ink, IList<Vector2> outline) => FillSolid(ink, outline, Pen * 0.5f);
+
+        // A part inked solid in front of what is already drawn, a line of paper apart from it.
+        private static void SolidInFront(InkCanvas ink, IList<Vector2> outline)
+        {
+            ink.EraseOutline(outline, Pen * 0.5f + PaperPen);
+            Solid(ink, outline);
+        }
+
+        // Scrapes a line of paper through the ink along the points.
+        private static void PaperLine(InkCanvas ink, IList<Vector2> points, float width)
+        {
+            for (int i = 1; i < points.Count; i++) ink.Scrape(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y, width);
+        }
+
+        // A circle as an outline.
+        private static List<Vector2> Circle(float cx, float cy, float r)
+        {
+            const int Sides = 24;
+            var circle = new List<Vector2>(Sides);
+            for (int k = 0; k < Sides; k++)
+            {
+                float a = Mathf.PI * 2f * k / Sides;
+                circle.Add(new Vector2(cx + Mathf.Cos(a) * r, cy + Mathf.Sin(a) * r));
+            }
+            return circle;
+        }
+
+        // A dot; its body is the paper round it.
         private static void Point(InkCanvas ink, InkCanvas body)
         {
             body.EraseEllipse(13f, 13f, 5.8f, 5.8f);
-            ink.Ring(13f, 13f, 4.8f, 4.8f, Pen);
+            Solid(ink, Circle(13f, 13f, 4.8f));
         }
 
         // A dolmen, two standing stones under a capstone, for the rune icon players set on
@@ -314,14 +347,10 @@ namespace Atlas
             var east = new List<Vector2> { new Vector2(15.8f, 10.6f), new Vector2(19.6f, 10.5f), new Vector2(20.2f, 21.6f), new Vector2(15.6f, 21.6f) };
             foreach (List<Vector2> stone in new[] { cap, west, east }) body.EraseOutline(stone, Pen * 0.5f);
             body.Scrape(3.6f, 21.8f, 22.4f, 21.8f, Pen);
-            foreach (List<Vector2> stone in new[] { west, east, cap })
-            {
-                ink.EraseOutline(stone, 0f);
-                Loop(ink, stone, Pen);
-            }
+            Solid(ink, west);
+            Solid(ink, east);
+            SolidInFront(ink, cap);
             ink.Stroke(3.6f, 21.8f, 22.4f, 21.8f, Pen);
-            for (float x = 17.6f; x < 19.6f; x += 1.5f) ink.Stroke(x, 12f, x + 0.3f, 20.4f, FinePen);
-            for (float x = 8.6f; x < 10.2f; x += 1.5f) ink.Stroke(x, 12f, x + 0.2f, 20.4f, FinePen);
         }
 
         // Where a player died, their grave: a Norse memorial stone (bautasten) on a low mound,
@@ -337,13 +366,12 @@ namespace Atlas
             List<Vector2> mound = Curve(new[] { new Vector2(4.2f, 22f), new Vector2(8.6f, 19.6f), new Vector2(17.4f, 19.6f), new Vector2(21.8f, 22f) }, closed: false);
             body.EraseOutline(stone, Pen * 0.5f);
             body.EraseOutline(mound, Pen * 0.5f);
-            ink.EraseOutline(stone, 0f);
-            Loop(ink, stone, Pen);
-            ink.Polyline(mound, Pen);
+            Solid(ink, mound);
             ink.Stroke(4.2f, 22f, 21.8f, 22f, FinePen);
-            ink.Stroke(13f, 7f, 13f, 15.4f, RunePen);
-            ink.Stroke(13f, 11.2f, 10.6f, 14.9f, RunePen);
-            ink.Stroke(13f, 11.2f, 15.4f, 14.9f, RunePen);
+            SolidInFront(ink, stone);
+            ink.Scrape(13f, 7f, 13f, 15.4f, PaperPen);
+            ink.Scrape(13f, 11.2f, 10.6f, 14.9f, PaperPen);
+            ink.Scrape(13f, 11.2f, 15.4f, 14.9f, PaperPen);
         }
 
         // The game's own pins, each a plain map sign for what the place is rather than a copy of
@@ -358,12 +386,11 @@ namespace Atlas
                 new Vector2(21.6f, 21.6f), new Vector2(4.4f, 21.6f),
             };
             body.EraseOutline(outline, Pen * 0.5f);
-            // Headboard, the mattress as one block, and the foot post: nothing more, to keep it
-            // simple.
+            // Headboard, the mattress as one solid block, and the foot post: nothing more, to keep
+            // it simple.
             ink.Stroke(5.6f, 7.6f, 5.6f, 21.6f, Pen);
             ink.Stroke(20.4f, 12.6f, 20.4f, 21.6f, Pen);
-            ink.EraseOutline(new[] { new Vector2(5.6f, 13.2f), new Vector2(20.4f, 13.2f), new Vector2(20.4f, 17.6f), new Vector2(5.6f, 17.6f) }, 0f);
-            Loop(ink, new[] { new Vector2(5.6f, 13.2f), new Vector2(20.4f, 13.2f), new Vector2(20.4f, 17.6f), new Vector2(5.6f, 17.6f) }, Pen);
+            Solid(ink, new[] { new Vector2(5.6f, 13.2f), new Vector2(20.4f, 13.2f), new Vector2(20.4f, 17.6f), new Vector2(5.6f, 17.6f) });
         }
 
         // A boss's altar, as Vegvisirs reveal it: a horned skull inked solid, in the language of
@@ -397,19 +424,29 @@ namespace Atlas
             ink.Scrape(14.2f, 19f, 14.2f, 21.6f, 0.7f);
         }
 
-        // Hildir's first request, the Smouldering Tombs: a barrow with a dark doorway.
+        // Hildir's first request, the Smouldering Tombs: a solid barrow with a paper doorway under
+        // a lintel.
         private static void Tomb(InkCanvas ink, InkCanvas body)
         {
             List<Vector2> mound = Curve(new[] { new Vector2(2.8f, 21.4f), new Vector2(7f, 12.6f), new Vector2(13f, 9.2f), new Vector2(19f, 12.6f), new Vector2(23.2f, 21.4f) }, closed: false);
             body.EraseOutline(mound, Pen * 0.5f);
-            ink.Polyline(mound, Pen);
+            Solid(ink, mound);
             ink.Stroke(2.8f, 21.4f, 23.2f, 21.4f, Pen);
-            FillSolid(ink, new[] { new Vector2(10.8f, 21.4f), new Vector2(10.8f, 16.6f), new Vector2(13f, 15f), new Vector2(15.2f, 16.6f), new Vector2(15.2f, 21.4f) });
-            ink.Stroke(9.6f, 15.6f, 16.4f, 15.6f, Pen);
-            for (float x = 17.4f; x < 22f; x += 1.9f) ink.Stroke(x, 13.4f + (x - 17.4f) * 1.1f, x, 20.6f, FinePen);
+            ink.Scrape(10f, 13.2f, 16f, 13.2f, PaperPen);
+            ink.EraseOutline(Doorway(10.8f, 15.2f, 16.6f, 15f, 21.4f), 0f);
         }
 
-        // Hildir's second, the Howling Caverns: a rocky height with a cave mouth.
+        // A door with a pointed top, open at the bottom through the ground line below it.
+        private static List<Vector2> Doorway(float left, float right, float shoulder, float top, float ground)
+        {
+            float middle = (left + right) * 0.5f;
+            var door = Curve(new[] { new Vector2(left, ground), new Vector2(left, shoulder), new Vector2(middle, top), new Vector2(right, shoulder), new Vector2(right, ground) }, closed: false);
+            door.Add(new Vector2(right, ground + 1.5f));
+            door.Add(new Vector2(left, ground + 1.5f));
+            return door;
+        }
+
+        // Hildir's second, the Howling Caverns: a solid rocky height with a paper cave mouth.
         private static void Cavern(InkCanvas ink, InkCanvas body)
         {
             var outline = new List<Vector2>
@@ -418,15 +455,12 @@ namespace Atlas
                 new Vector2(15.2f, 9.2f), new Vector2(18.2f, 7.8f), new Vector2(21f, 13.6f), new Vector2(23.4f, 21.6f),
             };
             body.EraseOutline(outline, Pen * 0.5f);
-            ink.EraseOutline(outline, 0f);
-            Loop(ink, outline, Pen);
-            List<Vector2> mouth = Curve(new[] { new Vector2(8.8f, 21.6f), new Vector2(9.6f, 16.8f), new Vector2(13f, 14.6f), new Vector2(16.4f, 16.8f), new Vector2(17.2f, 21.6f) }, closed: false);
-            FillSolid(ink, mouth);
-            for (float x = 17.8f; x < 22.6f; x += 1.9f) ink.Stroke(x, 10.6f + (x - 17.8f) * 1.4f, x + 0.4f, 20.8f, FinePen);
+            Solid(ink, outline);
+            ink.EraseOutline(Doorway(8.8f, 17.2f, 16.8f, 14.6f, 21.6f), 0f);
         }
 
-        // Hildir's third, the Sealed Towers: a plain flat-topped tower with a window slit and a
-        // dark door; battlements are too fine to read at a pin's size.
+        // Hildir's third, the Sealed Towers: a plain flat-topped solid tower with a window slit
+        // and a door in paper; battlements are too fine to read at a pin's size.
         private static void Tower(InkCanvas ink, InkCanvas body)
         {
             var outline = new List<Vector2>
@@ -434,10 +468,9 @@ namespace Atlas
                 new Vector2(8.2f, 21.8f), new Vector2(8.8f, 4.4f), new Vector2(17.2f, 4.4f), new Vector2(17.8f, 21.8f),
             };
             body.EraseOutline(outline, Pen * 0.5f);
-            ink.EraseOutline(outline, 0f);
-            Loop(ink, outline, Pen);
-            ink.Stroke(13f, 8.6f, 13f, 11.6f, Pen);
-            FillSolid(ink, Curve(new[] { new Vector2(11.4f, 21.8f), new Vector2(11.4f, 18f), new Vector2(13f, 16.4f), new Vector2(14.6f, 18f), new Vector2(14.6f, 21.8f) }, closed: false));
+            Solid(ink, outline);
+            ink.Scrape(13f, 8.6f, 13f, 11.6f, PaperPen);
+            ink.EraseOutline(Doorway(11.4f, 14.6f, 18f, 16.4f, 21.8f), 0f);
         }
 
         // The Sacrificial Stones, where every Viking wakes: a ring of standing stones round a low
@@ -495,7 +528,7 @@ namespace Atlas
             ink.Stroke(topRight.x, topRight.y, bottomRight.x, bottomRight.y, Pen);
         }
 
-        // Haldor the trader: a plain tied bag.
+        // Haldor the trader: a solid tied bag, the tie a line of paper.
         private static void Trader(InkCanvas ink, InkCanvas body)
         {
             List<Vector2> sack = Curve(new[]
@@ -507,26 +540,25 @@ namespace Atlas
             var tuft = new List<Vector2> { new Vector2(9.6f, 4f), new Vector2(16.4f, 4f), new Vector2(14.2f, 8.8f), new Vector2(11.8f, 8.8f) };
             body.EraseOutline(sack, Pen * 0.5f);
             body.EraseOutline(tuft, Pen * 0.5f);
-            ink.EraseOutline(sack, 0f);
-            Loop(ink, sack, Pen);
-            ink.EraseOutline(tuft, 0f);
-            Loop(ink, tuft, Pen);
-            ink.Stroke(10.2f, 9.4f, 15.8f, 9.4f, Pen);
+            Solid(ink, sack);
+            Solid(ink, tuft);
+            ink.Scrape(10.2f, 9.6f, 15.8f, 9.6f, PaperPen);
         }
 
-        // Hildir's camp: a tent with a pennant on its pole and a dark door.
+        // Hildir's camp: a solid tent with a pennant on its pole and a paper door.
         private static void Tent(InkCanvas ink, InkCanvas body)
         {
             var tent = new List<Vector2> { new Vector2(3.2f, 21.6f), new Vector2(13f, 6.4f), new Vector2(22.8f, 21.6f) };
             body.EraseOutline(tent, Pen * 0.5f);
-            Loop(ink, tent, Pen);
+            Solid(ink, tent);
             ink.Stroke(13f, 6.4f, 13f, 2f, FinePen * 1.3f);
             FillSolid(ink, new[] { new Vector2(13f, 2f), new Vector2(17.8f, 3.3f), new Vector2(13f, 4.6f) });
-            FillSolid(ink, new[] { new Vector2(13f, 12.4f), new Vector2(16.2f, 21.6f), new Vector2(9.8f, 21.6f) });
-            for (float x = 17.2f; x < 21.6f; x += 1.8f) ink.Stroke(x, 6.4f + (x - 13f) * 1.55f + 0.8f, x, 21f, FinePen);
+            // The door's sides run on through the ground line, so it opens at the bottom.
+            ink.Erase(new[] { new Vector2(13f, 12.4f), new Vector2(16.55f, 22.6f), new Vector2(9.45f, 22.6f) });
         }
 
-        // The Bog Witch: a cauldron on short legs with bubbles over its rim.
+        // The Bog Witch: a solid cauldron on short legs, a line of paper under its rim, with
+        // bubbles over it.
         private static void Cauldron(InkCanvas ink, InkCanvas body)
         {
             List<Vector2> pot = Curve(new[]
@@ -535,20 +567,19 @@ namespace Atlas
                 new Vector2(17f, 20.6f), new Vector2(20.4f, 16.6f), new Vector2(21.2f, 11.4f),
             }, closed: false);
             body.EraseOutline(pot, Pen * 0.5f);
-            ink.EraseOutline(pot, 0f);
-            ink.Polyline(pot, Pen);
+            Solid(ink, pot);
             ink.Stroke(3.8f, 11.4f, 22.2f, 11.4f, Pen);
             ink.Stroke(8.6f, 20.2f, 7.2f, 23.4f, Pen);
             ink.Stroke(17.4f, 20.2f, 18.8f, 23.4f, Pen);
-            ink.Ring(10.4f, 8f, 1.3f, 1.3f, FinePen);
-            ink.Ring(14.2f, 5.4f, 1.1f, 1.1f, FinePen);
-            ink.Ring(15.8f, 8.8f, 0.8f, 0.8f, FinePen);
-            for (float x = 14.6f; x < 20f; x += 1.9f) ink.Stroke(x, 12.6f, x, 20f - (x - 14.6f) * 0.5f, FinePen);
+            ink.Scrape(6.2f, 13f, 19.8f, 13f, PaperPen);
+            Solid(ink, Circle(10.4f, 8f, 1.3f));
+            Solid(ink, Circle(14.2f, 5.4f, 1.1f));
+            Solid(ink, Circle(15.8f, 8.8f, 0.8f));
         }
 
-        // The Forge of Potential, whose map icon the game draws after its ward: a standing stone on
-        // a low plinth under a wider cap, a gem set on top, its eastern face hatched as the map
-        // shades every glyph's eastern side.
+        // The Forge of Potential, whose map icon the game draws after its ward: a solid standing
+        // stone on a low plinth under a wider cap, each a line of paper apart, a gem set on top
+        // and a rune in paper down the stone's face.
         private static void Forge(InkCanvas ink, InkCanvas body)
         {
             var plinth = new List<Vector2> { new Vector2(6.8f, 19.4f), new Vector2(19.2f, 19.4f), new Vector2(19.2f, 22f), new Vector2(6.8f, 22f) };
@@ -556,20 +587,17 @@ namespace Atlas
             var cap = new List<Vector2> { new Vector2(8.4f, 6.6f), new Vector2(17.6f, 6.6f), new Vector2(17.6f, 8.4f), new Vector2(8.4f, 8.4f) };
             var gem = new List<Vector2> { new Vector2(13f, 1.8f), new Vector2(15f, 4.3f), new Vector2(13f, 6.6f), new Vector2(11f, 4.3f) };
             foreach (List<Vector2> part in new[] { plinth, pillar, cap, gem }) body.EraseOutline(part, Pen * 0.5f);
-            foreach (List<Vector2> part in new[] { pillar, plinth, cap })
-            {
-                ink.EraseOutline(part, 0f);
-                Loop(ink, part, Pen);
-            }
-            FillSolid(ink, gem);
-            // A rune down the stone's face, and the hatching on its eastern side.
-            ink.Stroke(13f, 10.6f, 13f, 16.4f, FinePen);
-            ink.Stroke(13f, 12.2f, 11.6f, 13.8f, FinePen);
-            ink.Stroke(13f, 12.2f, 14.4f, 13.8f, FinePen);
-            for (float x = 15.2f; x < 16.4f; x += 1f) ink.Stroke(x, 9.6f, x + 0.4f, 18.6f, FinePen);
+            Solid(ink, pillar);
+            SolidInFront(ink, plinth);
+            SolidInFront(ink, cap);
+            SolidInFront(ink, gem);
+            ink.Scrape(13f, 10.8f, 13f, 16.4f, PaperPen);
+            ink.Scrape(13f, 12.2f, 11.6f, 13.8f, PaperPen);
+            ink.Scrape(13f, 12.2f, 14.4f, 13.8f, PaperPen);
         }
 
-        // A checked pin is struck through with two pen strokes, drawn over its glyph.
+        // A checked pin is struck through with two pen strokes, scraped through its solid glyph
+        // as paper (InkCanvas.Pin).
         private static void Checked(InkCanvas ink)
         {
             ink.Stroke(4.4f, 4.4f, 21.6f, 21.6f, Pen);

@@ -21,6 +21,26 @@ namespace Atlas
         // The pins' ink: red, as places were rubricated on maps of the period, a vermilion dulled
         // by age, so a pin reads apart from the terrain's black ink at any zoom.
         public static readonly Color32 PinInkColor = new Color32(152, 44, 28, 255);
+        // The terrain's ink in the glimpse past the explored land: a paler, greyer brown, as if
+        // sketched rather than inked, so what is only glimpsed reads apart from what is known.
+        public static readonly Color32 GlimpseInkColor = new Color32(92, 86, 78, 255);
+
+        // The glimpse's opacity (Fog's glimpse, RGBA at FogSize, rows from the south) at a sheet
+        // point (x from the west, y from the south, in sheet pixels), bilinear; 0 without one.
+        public static float GlimpseAt(byte[] glimpse, float x, float y)
+        {
+            if (glimpse == null) return 0f;
+            float scale = FogSize / (float)InkPainter.CanvasSize;
+            x = Mathf.Clamp(x * scale - 0.5f, 0f, FogSize - 1.001f);
+            y = Mathf.Clamp(y * scale - 0.5f, 0f, FogSize - 1.001f);
+            int x0 = (int)x, y0 = (int)y;
+            float fx = x - x0, fy = y - y0;
+            int i = (y0 * FogSize + x0) * 4 + 3;
+            const int Right = 4, Down = FogSize * 4;
+            float bottom = glimpse[i] + (glimpse[i + Right] - glimpse[i]) * fx;
+            float top = glimpse[i + Down] + (glimpse[i + Down + Right] - glimpse[i + Down]) * fx;
+            return (bottom + (top - bottom) * fy) / 255f;
+        }
 
         // How strongly the paper is mottled and darkened towards its corners.
         private const float Mottle = 0.07f;
@@ -738,9 +758,12 @@ namespace Atlas
         // coverage, then the body masks in BodyKind order (InkPainter.Paint), each body filled
         // with its BodyColor under the ink (a spire's and a tree's as a glaze, MistInk and
         // WoodInk), with the wash of its
-        // sea illustrations (marks, or null for none). The planes are read in place, not copied
-        // out: each is 16 MB. Levels are averaged premultiplied, so ink and body mix rightly.
-        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks)
+        // sea illustrations (marks, or null for none). In the glimpse past the explored land
+        // (glimpse, Fog's, or null for none) the bodies and washes give way to the bare parchment
+        // the Glimpse layer lays under this one, and the terrain's ink turns GlimpseInkColor; the
+        // pins keep their red. The planes are read in place, not copied out: each is 16 MB.
+        // Levels are averaged premultiplied, so ink and body mix rightly.
+        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks, byte[] glimpse)
         {
             int n = InkPainter.CanvasSize;
             int plane = n * n;
@@ -773,19 +796,25 @@ namespace Atlas
                 {
                     int i = from + x;
                     float a = ink[i] / 255f;
+                    float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
+                    // Bodies fade out in the glimpse, leaving the parchment under them.
+                    float open = (1f - a) * (1f - g);
                     float m = bodyAt >= 0 ? sheet[bodyAt + i] / 255f : 0f;
                     float q = northAt >= 0 ? sheet[northAt + i] / 255f : 0f;
                     float k = mistAt >= 0 ? sheet[mistAt + i] / 255f : 0f;
                     byte wood = woodAt >= 0 ? sheet[woodAt + i] : (byte)0;
                     int code = wood >> 5;
-                    float mu = m * (1f - a), qu = q * (1f - a), ku = k * mistAlpha * (1f - a);
-                    float wu = InkCanvas.WoodCover(wood) * woodAlpha[code] * (1f - a);
+                    float mu = m * open, qu = q * open, ku = k * mistAlpha * open;
+                    float wu = InkCanvas.WoodCover(wood) * woodAlpha[code] * open;
                     // A pin's red ink lies under any black ink drawn over it later.
                     float pr = pinInkAt >= 0 ? sheet[pinInkAt + i] / 255f * (1f - a) : 0f;
+                    float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
+                    float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
+                    float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
                     int o = (y * n + x) * 4;
-                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + woodR[code] * wu + PinInkColor.r * pr + InkColor.r * a);
-                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + woodG[code] * wu + PinInkColor.g * pr + InkColor.g * a);
-                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + woodB[code] * wu + PinInkColor.b * pr + InkColor.b * a);
+                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + woodR[code] * wu + PinInkColor.r * pr + inkR * a);
+                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + woodG[code] * wu + PinInkColor.g * pr + inkG * a);
+                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + woodB[code] * wu + PinInkColor.b * pr + inkB * a);
                     level[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + wu + pr + a) * 255f);
                 }
             }
@@ -806,11 +835,15 @@ namespace Atlas
                             float su = wash.At(x + 0.5f, sy + 0.5f) * seaAlpha;
                             if (su <= 0f) continue;
                             float a = ink[from + x] / 255f;
-                            su *= 1f - a;
+                            float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
+                            su *= (1f - a) * (1f - g);
+                            float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
+                            float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
+                            float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
                             int o = (y * n + x) * 4;
-                            level[o] = ToByte(seaR * su + InkColor.r * a);
-                            level[o + 1] = ToByte(seaG * su + InkColor.g * a);
-                            level[o + 2] = ToByte(seaB * su + InkColor.b * a);
+                            level[o] = ToByte(seaR * su + inkR * a);
+                            level[o + 1] = ToByte(seaG * su + inkG * a);
+                            level[o + 2] = ToByte(seaB * su + inkB * a);
                             level[o + 3] = ToByte(Math.Min(1f, su + a) * 255f);
                         }
                     }

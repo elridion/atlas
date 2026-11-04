@@ -144,7 +144,7 @@ namespace Atlas
             // The atlas is up to date once its fog is laid and its sheet is there with the current
             // pins (or failed).
             bool pinsBehind = s_ink && s_sheetKey != s_pinsKey && !(s_hasFailedKey && s_failedKey == s_pinsKey);
-            s_sparkles.Update(s_fogDirty || s_fogTask != null || (!s_ink && !s_inkFailed) || pinsBehind);
+            s_sparkles.Update(s_fogDirty || s_fogTask != null || s_mipsTask != null || (!s_ink && !s_inkFailed) || pinsBehind);
 
             if (!s_view.IsOpen && s_view.ClosedFrames > 2 && OpenPressed() && CanOpen(player)) Open(player);
             s_view.Update();
@@ -213,32 +213,24 @@ namespace Atlas
                 s_cacheTask = Workers.Run(() =>
                 {
                     byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks, out long key);
-                    return ink == null ? null : new CachedSheet { m_mips = Paper.InkWithMips(ink, marks), m_marks = marks, m_density = InkDensity.FromSheet(ink), m_key = key };
+                    return ink == null ? null : new CachedSheet { m_sheet = ink, m_marks = marks, m_density = InkDensity.FromSheet(ink), m_key = key };
                 });
             }
             if (s_cacheTask != null && s_cacheTask.IsCompleted)
             {
                 if (s_cacheTask.IsFaulted) Jotunn.Logger.LogWarning($"The cached atlas could not be loaded: {s_cacheTask.Exception?.GetBaseException()}");
-                else if (s_cacheTask.Result != null && !s_ink)
+                else if (s_cacheTask.Result != null && s_sheet == null)
                 {
-                    UploadInk(s_cacheTask.Result.m_mips, s_cacheTask.Result.m_marks, s_cacheTask.Result.m_density, s_cacheTask.Result.m_key);
-                    s_cachedKey = s_cacheTask.Result.m_key;
+                    CachedSheet cached = s_cacheTask.Result;
+                    SetSheet(cached.m_sheet, cached.m_marks, cached.m_density, cached.m_key);
+                    s_cachedKey = cached.m_key;
                     s_hasCachedKey = true;
                 }
                 s_cacheTask = null;
                 // Painting failed while the cache was loading, and the cache had no sheet either.
-                if (!s_ink && s_paintError != null) Fail(s_paintError);
+                if (s_sheet == null && s_paintError != null) Fail(s_paintError);
             }
-            if (s_mipsTask != null && s_mipsTask.IsCompleted)
-            {
-                if (s_mipsTask.IsFaulted)
-                {
-                    if (!s_ink) Fail(s_mipsTask.Exception);
-                    else Jotunn.Logger.LogWarning($"The atlas could not lay its new pins: {s_mipsTask.Exception?.GetBaseException()}");
-                }
-                else UploadInk(s_mipsTask.Result, s_record.m_seaMarks.ToArray(), s_mipsDensity, s_mipsKey);
-                s_mipsTask = null;
-            }
+            KeepMips();
 
             if (s_paintTask == null)
             {
@@ -263,7 +255,7 @@ namespace Atlas
                     {
                         s_washFailed = true;
                         s_paintError = decoded.Exception;
-                        if (!s_ink && s_cacheTask == null) Fail(decoded.Exception);
+                        if (s_sheet == null && s_cacheTask == null) Fail(decoded.Exception);
                         else Jotunn.Logger.LogWarning($"The atlas could not read the world: {decoded.Exception?.GetBaseException()}");
                         s_decodeFailed = true;
                         return;
@@ -279,8 +271,8 @@ namespace Atlas
                 // (pins are drawn into it), and, behind a cached sheet with the right pins, once the
                 // atlas is first opened, for the record close-ups are drawn from: most sessions
                 // never zoom in, and painting beside the cache load doubled the work after login.
-                if (s_cacheTask != null || s_mipsTask != null) return;
-                bool stale = !s_ink || s_sheetKey != s_pinsKey;
+                if (s_cacheTask != null) return;
+                bool stale = s_sheet == null || s_rawKey != s_pinsKey;
                 if (!stale && (s_record != null || !s_opened)) return;
                 // The Sacrificial Stones are drawn too; a client gets their place from the server
                 // shortly after joining, so a first painting waits a little for it.
@@ -318,7 +310,7 @@ namespace Atlas
                 s_paintError = painted.Exception;
                 s_hasFailedKey = true;
                 s_failedKey = s_paintKey;
-                if (!s_ink && s_cacheTask == null) Fail(painted.Exception);
+                if (s_sheet == null && s_cacheTask == null) Fail(painted.Exception);
                 else Jotunn.Logger.LogWarning($"The atlas could not be drawn again: {painted.Exception?.GetBaseException()}");
                 return;
             }
@@ -331,13 +323,74 @@ namespace Atlas
             // Close-ups are drawn from the new record from now on.
             s_record = result.m_record;
             s_tiles.Clear();
-            if (s_ink && result.m_key == s_sheetKey) return;
-            byte[] sheet = result.m_ink;
-            InkRecord record = result.m_record;
-            s_mipsKey = result.m_key;
-            s_mipsDensity = result.m_density;
-            s_mipsTask = Workers.Run(() => Paper.InkWithMips(sheet, record.m_seaMarks));
+            if (s_sheet != null && result.m_key == s_rawKey) return;
+            SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_density, result.m_key);
         }
+
+        // A painted (or cached) sheet's planes, kept for the session so its ink texture can be
+        // laid again when the glimpse changes (Paper.InkWithMips), with its sea illustrations,
+        // density and pins key. The fog is laid again for its sea illustrations.
+        private static void SetSheet(byte[] sheet, SeaMark[] marks, InkDensity density, long key)
+        {
+            s_sheet = sheet;
+            s_sheetMarks = marks;
+            s_sheetDensity = density;
+            s_rawKey = key;
+            s_seaMarks = marks;
+            s_fogDirty = true;
+        }
+
+        // Lays the sheet's ink texture from its planes whenever the sheet or the glimpse changed.
+        // The first is laid only once the fog has laid its glimpse (or failed), so the atlas is not
+        // laid twice after login.
+        private static void KeepMips()
+        {
+            if (s_mipsTask != null)
+            {
+                if (!s_mipsTask.IsCompleted) return;
+                Task<byte[]> done = s_mipsTask;
+                s_mipsTask = null;
+                if (done.IsFaulted)
+                {
+                    s_mipsFailedSheet = s_mipsSheet;
+                    if (!s_ink) Fail(done.Exception);
+                    else Jotunn.Logger.LogWarning($"The atlas could not lay its ink: {done.Exception?.GetBaseException()}");
+                    return;
+                }
+                s_inkSheet = s_mipsSheet;
+                s_inkGlimpse = s_mipsGlimpse;
+                UploadInk(done.Result, s_mipsDensity, s_mipsKey);
+                return;
+            }
+            byte[] sheet = s_sheet;
+            if (sheet == null || sheet == s_mipsFailedSheet) return;
+            if (sheet == s_inkSheet && s_inkGlimpse == s_glimpseSerial) return;
+            if (s_glimpseSerial == 0 && !s_fogFailed) return;
+            byte[] glimpse = s_glimpseSerial == 0 ? null : s_glimpseCopy;
+            SeaMark[] marks = s_sheetMarks;
+            s_mipsSheet = sheet;
+            s_mipsGlimpse = s_glimpseSerial;
+            s_mipsDensity = s_sheetDensity;
+            s_mipsKey = s_rawKey;
+            s_mipsTask = Workers.Run(() => Paper.InkWithMips(sheet, marks, glimpse));
+        }
+
+        // The sheet's planes (SetSheet), and the planes and glimpse (s_glimpseSerial) the
+        // uploaded ink and the ink being laid were made from.
+        private static byte[] s_sheet;
+        private static SeaMark[] s_sheetMarks;
+        private static InkDensity s_sheetDensity;
+        private static long s_rawKey;
+        private static byte[] s_inkSheet;
+        private static int s_inkGlimpse;
+        private static byte[] s_mipsSheet;
+        private static byte[] s_mipsFailedSheet;
+        private static int s_mipsGlimpse;
+        // Counts the glimpses the fog laid (0 for none yet), with a copy of the last one that
+        // workers may read while the next is being laid.
+        private static int s_glimpseSerial;
+        private static byte[] s_glimpseCopy;
+        private static bool s_fogFailed;
 
         private sealed class PaintResult
         {
@@ -350,7 +403,7 @@ namespace Atlas
 
         private sealed class CachedSheet
         {
-            public byte[] m_mips;
+            public byte[] m_sheet;
             public SeaMark[] m_marks;
             public InkDensity m_density;
             public long m_key;
@@ -422,12 +475,10 @@ namespace Atlas
             Jotunn.Logger.LogError($"The atlas could not be drawn: {error?.GetBaseException()}");
         }
 
-        // The fog is laid again for the sheet's sea illustrations before the atlas opens. A sheet
-        // painted again for new pins replaces the old one, in an open atlas too.
-        private static void UploadInk(byte[] data, SeaMark[] marks, InkDensity density, long key)
+        // A sheet laid again, for new pins or a new glimpse, replaces the old one, in an open
+        // atlas too.
+        private static void UploadInk(byte[] data, InkDensity density, long key)
         {
-            s_seaMarks = marks;
-            s_fogDirty = true;
             s_density = density;
             s_sheetKey = key;
             Texture2D old = s_ink;
@@ -455,6 +506,8 @@ namespace Atlas
                 if (done.IsFaulted)
                 {
                     Jotunn.Logger.LogError($"The atlas fog could not be laid: {done.Exception?.GetBaseException()}");
+                    // The sheet's ink is laid without a glimpse rather than not at all.
+                    s_fogFailed = true;
                     return;
                 }
                 s_parchment = done.Result;
@@ -577,9 +630,11 @@ namespace Atlas
             s_glimpse.LoadRawTextureData(s_glimpsePixels);
             s_glimpse.Apply(updateMipmaps: false);
             s_view.SetGlimpse(s_glimpse);
-            // Close-ups lay the same bare parchment over their wash in the glimpse, so they are
-            // drawn again for the new fog.
-            s_tiles.SetGlimpse((byte[])s_glimpsePixels.Clone());
+            // The sheet's ink and close-ups lay the same bare parchment and greyer ink in the
+            // glimpse, so they are laid again for the new fog (KeepMips).
+            s_glimpseCopy = (byte[])s_glimpsePixels.Clone();
+            s_glimpseSerial++;
+            s_tiles.SetGlimpse(s_glimpseCopy);
             if (s_view.IsOpen) s_view.Refresh(s_fog, s_snapshot);
         }
 
@@ -644,6 +699,18 @@ namespace Atlas
             s_glimpse = null;
             s_glimpsePixels = null;
             s_glimpses = new Vector2[0];
+            s_sheet = null;
+            s_sheetMarks = null;
+            s_sheetDensity = null;
+            s_rawKey = 0L;
+            s_inkSheet = null;
+            s_inkGlimpse = 0;
+            s_mipsSheet = null;
+            s_mipsFailedSheet = null;
+            s_mipsGlimpse = 0;
+            s_glimpseSerial = 0;
+            s_glimpseCopy = null;
+            s_fogFailed = false;
             if (s_dirt) UnityEngine.Object.Destroy(s_dirt);
             s_dirt = null;
             s_ink = null;

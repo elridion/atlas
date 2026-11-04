@@ -207,10 +207,16 @@ internal static class Program
         sw.Restart();
         // The game's own composite: the sheet's ink and its sea illustrations' wash (when this
         // Atlas has it; older builds take the sheet alone, or the marks are left out with --nosea).
+        MethodInfo withGlimpse = Array.Find(paper.GetMethods(All), m => m.Name == "InkWithMips" && m.GetParameters().Length == 3);
         MethodInfo withMarks = Array.Find(paper.GetMethods(All), m => m.Name == "InkWithMips" && m.GetParameters().Length == 2);
-        byte[] inkMips = withMarks != null
-            ? (byte[])withMarks.Invoke(null, new object[] { sheet, Array.IndexOf(args, "--nosea") >= 0 ? null : Get(record, "m_seaMarks") })
-            : (byte[])paper.GetMethod("InkWithMips", All, null, new[] { typeof(byte[]) }, null).Invoke(null, new object[] { sheet });
+        object seaMarks = Array.IndexOf(args, "--nosea") >= 0 ? null : Get(record, "m_seaMarks");
+        // The sheet's ink as the game lays it, with the glimpse when this Atlas has one (null: none).
+        Func<byte[], byte[]> inkWith = glimpse => withGlimpse != null
+            ? (byte[])withGlimpse.Invoke(null, new object[] { sheet, seaMarks, glimpse })
+            : withMarks != null
+                ? (byte[])withMarks.Invoke(null, new object[] { sheet, seaMarks })
+                : (byte[])paper.GetMethod("InkWithMips", All, null, new[] { typeof(byte[]) }, null).Invoke(null, new object[] { sheet });
+        byte[] inkMips = inkWith(null);
         object minimap = Activator.CreateInstance(T("Atlas.MinimapSampler"), All, null, new object[] { source }, null);
         object sampler = Activator.CreateInstance(T("Atlas.SampleCache"), All, null, new object[] { minimap }, null);
         const int canvas = 4096;
@@ -323,7 +329,7 @@ internal static class Program
                     float g = glimpseRgba[i * 4 + 3] / 255f;
                     for (int c = 0; c < 3; c++) glimpsed[i * 3 + c] = (byte)(washed[i * 3 + c] + (glimpseRgba[i * 4 + c] - washed[i * 3 + c]) * g + 0.5f);
                 }
-                byte[] rgba = Sheet(inkMips, glimpsed, fog, left, top, w, scale);
+                byte[] rgba = Sheet(withGlimpse != null ? inkWith(glimpseRgba) : inkMips, glimpsed, fog, left, top, w, scale);
                 int ow = w * scale;
                 var texel = new float[4];
                 for (int oy = 0; oy < ow; oy++)
@@ -454,7 +460,7 @@ internal static class Program
             new[] { "Fire", "Fire (Icon0)", "campfire" },
             new[] { "House", "House (Icon1)", "longhouse" },
             new[] { "Hammer", "Hammer (Icon2)", "Mjolnir pendant" },
-            new[] { "Point", "Circle (Icon3)", "open circle" },
+            new[] { "Point", "Circle (Icon3)", "dot" },
             new[] { "Portal", "Portal (Icon4)", "dolmen" },
             new[] { "Death", "Death (tombstone)", "memorial stone, yr rune" },
             new[] { "Bed", "Bed (spawn point)", "game's pin: bed" },

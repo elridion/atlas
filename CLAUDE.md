@@ -48,8 +48,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   server). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, part of the map
   (the user's design): sized for what it stands for against a tree of about 13 sheet pixels
   (`PinSheetSize`: campfire, bed and circle 10, a longhouse or tent about a tree at 16, a boss
-  altar 18, a barrow 20, a cave or tower 22, the Sacrificial Stones 26), standing on its place by `PinGlyphs.Lift`, inked
-  by `InkCanvas.Pin` in red (`Paper.PinInkColor`, a dulled vermilion, as places were rubricated
+  altar 18, a barrow 20, a cave or tower 22, the Sacrificial Stones 26), standing on its place by `PinGlyphs.Lift`. That
+  size is levelled to the trees: close-ups draw pins smaller by their level of detail as they
+  draw their trees (`InkCanvas.Pin` scales the box about the pin's foot by the canvas's pen
+  scale, `FindMarks` sizes a tile's marks by `1 / lod`), so on a screen above 1080p, whose
+  close-ups are 8x (lod 2), pins keep their size beside the trees. Inked by `InkCanvas.Pin` in red (`Paper.PinInkColor`, a dulled vermilion, as places were rubricated
   on maps of the period; black pins in the terrain's ink were lost in woods and ranges and at
   the opening zoom), on a plane of its own (`InkCanvas.m_pinInk`, the sheet's sixth plane,
   scraped by glyphs drawn in front like black ink), with the map's own pen for inner lines and

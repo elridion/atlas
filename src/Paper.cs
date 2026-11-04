@@ -26,13 +26,30 @@ namespace Atlas
         private const float PaperScale = FogSize / 1024f;
         // Fog is lifted inside this band at the world edge, so the frame always shows.
         private const float FrameBand = 120f;
+        // The fog's edge is a torn sheet, not a fade: the explored cover is blurred over RipBlur
+        // 3x3 passes (about 5 fog pixels, 53 m, either side of the edge), and noise moves its
+        // middle within that band: RipTear by a slow fBm every RipGrain pixels for bays and
+        // tongues, RipFibres by fine noise every RipFibre pixels for the fibres. The edge is
+        // crisp over RipEdge of the cover (about half a pixel), with a paler rim RipRim deep
+        // (the torn paper's core) and a shadow RipShadow pixels to the south-east on the map.
+        private const int RipBlur = 5;
+        private const float RipGrain = 9f;
+        private const float RipTear = 0.85f;
+        private const float RipFibre = 1.3f;
+        private const float RipFibres = 0.16f;
+        private const float RipEdge = 0.04f;
+        private const float RipRim = 0.12f;
+        private const float RipRimLight = 0.35f;
+        private const int RipShadow = 1;
+        private const float RipShadowStrength = 0.22f;
+        private const int RipSeed = 4127;
         // A sea illustration is shown or hidden whole (SeaMarkFog): the fog is lifted over its box
         // when at least SeaMarkShown of the box is explored and laid over it when less is, out to
-        // SeaMarkMargin metres round it, past the soft edge the blur gives the fog (two 3x3
-        // passes, about 21 m), so that edge never crosses the glyph. The box is sampled every
-        // SeaMarkStep metres, finer than vanilla's 12 m exploration grid.
+        // SeaMarkMargin metres round it, past the torn edge (which stays within RipBlur pixels,
+        // about 53 m, of the explored edge), so that edge never crosses the glyph. The box is
+        // sampled every SeaMarkStep metres, finer than vanilla's 12 m exploration grid.
         private const float SeaMarkShown = 0.5f;
-        private const float SeaMarkMargin = 40f;
+        private const float SeaMarkMargin = 60f;
         private const float SeaMarkStep = 6f;
 
         // The biome wash: per biome (in Land order) a tint and how far the paper is moved towards
@@ -846,17 +863,72 @@ namespace Atlas
             }
             if (snapshot != null && marks != null)
                 foreach (SeaMark mark in marks) SeaMarkFog(cover, n, metres, snapshot, mark);
-            Blur(cover, n);
-            Blur(cover, n);
+            for (int pass = 0; pass < RipBlur; pass++) Blur(cover, n);
+            // The blurred cover runs from 0 to 1 across about 2 * RipBlur pixels of the edge. Noise
+            // on it moves the 0.5 crossing back and forth inside that band, so the edge tears in
+            // ragged bays and tongues with fine fibres on them; nowhere else changes.
+            for (int i = 0; i < n * n; i++)
+            {
+                float c = cover[i];
+                if (c <= 0f || c >= 1f) continue;
+                int x = i % n, y = i / n;
+                float tear = (Fbm(x / RipGrain, y / RipGrain, RipSeed) - 0.5f) * RipTear
+                    + (Noise.Value(x / RipFibre, y / RipFibre, RipSeed + 5) - 0.5f) * RipFibres;
+                cover[i] = c + tear;
+            }
             for (int i = 0; i < n * n; i++)
             {
                 int o = i * 4, p = i * 3;
-                rgba[o] = parchment[p];
-                rgba[o + 1] = parchment[p + 1];
-                rgba[o + 2] = parchment[p + 2];
+                int x = i % n, y = i / n;
                 float c = cover[i];
-                rgba[o + 3] = ToByte(c * c * (3f - 2f * c) * 255f);
+                // The torn sheet, crisp over about half a pixel.
+                float a = Smooth(0.5f - RipEdge, 0.5f + RipEdge, c);
+                if (a > 0f)
+                {
+                    // Tearing pulls the paper's paler core out along the edge, as a fuzzy rim.
+                    float rim = a * (1f - Smooth(0.5f, 0.5f + RipRim, c)) * RipRimLight;
+                    rgba[o] = ToByte(parchment[p] + (255 - parchment[p]) * rim);
+                    rgba[o + 1] = ToByte(parchment[p + 1] + (255 - parchment[p + 1]) * rim);
+                    rgba[o + 2] = ToByte(parchment[p + 2] + (255 - parchment[p + 2]) * rim);
+                    rgba[o + 3] = ToByte(a * 255f);
+                    if (a >= 1f) continue;
+                }
+                // The torn sheet lies on the map and casts a faint shadow away from the light in
+                // the north-west, as the map's own shading has it: rows run north, so the sheet
+                // throwing it lies up and to the left.
+                int sx = Math.Max(0, x - RipShadow), sy = Math.Min(n - 1, y + RipShadow);
+                float shadow = Smooth(0.5f - RipEdge, 0.5f + RipEdge, cover[sy * n + sx]) * (1f - a) * RipShadowStrength;
+                if (shadow <= 0f)
+                {
+                    if (a > 0f) continue;
+                    // Clear, but still paper-coloured: filtering blends a clear pixel's colour
+                    // into the edge beside it.
+                    rgba[o] = parchment[p];
+                    rgba[o + 1] = parchment[p + 1];
+                    rgba[o + 2] = parchment[p + 2];
+                    rgba[o + 3] = 0;
+                    continue;
+                }
+                // Paper over shadow, by their coverage, as one colour and opacity.
+                float total = a + shadow;
+                float share = a / total;
+                rgba[o] = ToByte(rgba[o] * share + InkColor.r * (1f - share));
+                rgba[o + 1] = ToByte(rgba[o + 1] * share + InkColor.g * (1f - share));
+                rgba[o + 2] = ToByte(rgba[o + 2] * share + InkColor.b * (1f - share));
+                if (a <= 0f)
+                {
+                    rgba[o] = InkColor.r;
+                    rgba[o + 1] = InkColor.g;
+                    rgba[o + 2] = InkColor.b;
+                }
+                rgba[o + 3] = ToByte(Mathf.Min(1f, total) * 255f);
             }
+        }
+
+        private static float Smooth(float from, float to, float value)
+        {
+            float t = Mathf.Clamp01((value - from) / (to - from));
+            return t * t * (3f - 2f * t);
         }
 
         // Shows or hides one sea illustration whole, before the fog is blurred: the fog's own soft

@@ -41,7 +41,7 @@ namespace Atlas
         private static Texture2D s_ink;
         // The sea illustrations on the uploaded sheet, those the uploaded fog showed or hid whole,
         // and those the fog being laid does. The atlas opens only once the first two agree, so a
-        // monster never shows cut by the fog's soft edge.
+        // monster never shows cut by the fog's torn edge.
         private static SeaMark[] s_seaMarks;
         private static SeaMark[] s_fogMarks;
         private static SeaMark[] s_fogTaskMarks;

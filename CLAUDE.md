@@ -277,10 +277,16 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the `Illustration` layer, one record group each, which close-ups replay whole after their
   floes.
   The fog: a glyph shows or hides whole. Its box is kept in `InkRecord.m_seaMarks` and in the
-  cache's header; `Paper.Fog` lifts the fog over the box and `SeaMarkMargin` 40 m round it when
+  cache's header; `Paper.Fog` lifts the fog over the box and `SeaMarkMargin` 60 m round it when
   at least `SeaMarkShown` half the box is explored, and lays it there when less is, before the
-  blur, so the fog's soft edge (about 21 m) never crosses the glyph (left to the fog alone, a
-  pass over a glyph shows half a monster). Since the box lies far out in open water, only water
+  blur, so the fog's torn edge (within about 53 m of the explored edge) never crosses the glyph (left to the fog alone, a
+  pass over a glyph shows half a monster). The fog's edge is torn paper, not a fade (the user's
+  design): the explored cover is blurred over `RipBlur` passes and fBm and fine noise move its
+  middle within that band (ragged bays and tongues with fibres), crisp over half a fog pixel,
+  with a paler rim just inside (the paper's torn core) and a faint ink-coloured shadow a fog
+  pixel to the south-east, the light coming from the north-west as on the map's own shading.
+  The fog is 2048² (10.5 m a pixel), so close in the tear softens; a finer fog would cost a
+  four times bigger upload per recording. Since the box lies far out in open water, only water
   is shown or hidden; a pass along its edge shows as a rounded bulge or bite in the explored
   strip. `AtlasMap` opens the atlas only once the fog was laid with the uploaded sheet's marks
   (`s_fogMarks`).

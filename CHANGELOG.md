@@ -4,7 +4,7 @@
 
 - In worlds without a map, "Record discoveries" at a cartography table now also updates your atlas,
   and the map key unrolls it: a hand-inked map in the style of a classic fantasy novel, with
-  unexplored lands left as blank parchment. Golden sparkles rise from the table while the atlas
+  unexplored lands left as blank parchment, torn away with a ragged edge where you have explored. Golden sparkles rise from the table while the atlas
   is being updated and burst once it is done.
 - Every biome has a faint colour wash of its own under the ink, so biomes read apart at any zoom,
   and water is one even indigo wash ending crisply at the shore. The colours are thin glazes of pigments a northern illuminator of the

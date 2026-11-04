@@ -167,9 +167,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - **Deterministic drawing.** Glyph placement hashes the world seed, a per-rule salt and the grid
   cell (`Noise`), never a shared `System.Random`, so tuning one rule never moves another's glyphs.
   Any change to the drawing bumps `InkCache.Version`, or players keep the old cached sheet;
-  until the first release it stays at 24, since no player has a cached sheet yet (24 added the
-  pins' key to the header and their red plane; a 24 file with fewer planes ends early on load
-  and is drawn again).
+  it starts at 1 for the first release. Sheets cached during development carry versions up to
+  26; for now any version over `DevVersions` 15 is never read, so they are drawn again. That
+  guard is temporary (the user's call) and comes out later.
 - **Persisted config.** Section and key names (`Pins`, `BedPin`, `DeathPin`, `BossPins`,
   `TraderPins`, `HildirPins`, `PlacePins`): renaming one resets players' settings.
 - **Docs follow code.** `package/README.md` keeps the settings table in sync with

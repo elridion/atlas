@@ -384,6 +384,8 @@ namespace Atlas
                 case Minimap.PinType.Hildir2:
                 case Minimap.PinType.Hildir3: return AtlasPlugin.HildirPins.Value;
                 case Minimap.PinType.None:
+                    // The Sacrificial Stones are drawn on the sheet itself (Glyphs.Stones).
+                    if (glyph == PinGlyph.StoneCircle) return false;
                     if (glyph == PinGlyph.Trader || glyph == PinGlyph.Tent || glyph == PinGlyph.Cauldron) return AtlasPlugin.TraderPins.Value;
                     return AtlasPlugin.PlacePins.Value;
                 default: return true;

@@ -53,12 +53,14 @@
   the portal icon, a rune-carved memorial stone where you died, and boss, trader and other icons
   traced in outline. The game's own marks are drawn as map signs too: your bed, your last
   death, a horned skull for a boss's altar, a barrow, a cave mouth and a tower for Hildir's
-  requests, a stone circle for the Sacrificial Stones, a bag for Haldor, a tent for Hildir's
+  requests, a bag for Haldor, a tent for Hildir's
   camp and a cauldron for the Bog Witch; other places the game marks, such as the Forge of
   Potential, are traced in outline. Each pin stands on its place as the trees and peaks do, is filled in the colour of the biome it stands in and
   the ground's pen marks break off round it, so it reads on the darkest woods. Names are
   lettered beside their pins on the clearest ground round them, the pen lines breaking off round
   their letters, and give way where pins crowd; checked pins are struck through.
+- The Sacrificial Stones are drawn into the map itself, as a ring of standing stones in a
+  clearing among the trees round them, instead of a pin.
 - Settings choose which of the game's own marks the atlas shows: your bed, your last death,
   boss altars, the traders, Hildir's dungeons and other places the game marks. All are on by
   default; your own pins always show.

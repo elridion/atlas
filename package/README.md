@@ -56,6 +56,7 @@ Mistlands have denser woods, and bog Swamps more dead trees.
 | Ashlands | Burnt, ash-clouded ground stippled with cinders, thickest by the lava; red lava fields toned with fine engraved hatching; small rocky peaks and volcano cones with open craters |
 | Deep North | A near-blank snowfield crossed by thin bands of ice ridges, woods of dense dark pines where the game grows its snowy forests, high peaks and snow-white ice floes in the northern sea |
 | Rivers | Wide rivers show as water between two banks; narrow rivers and streams as ink lines that taper toward their source |
+| Sacrificial Stones | A ring of standing stones round a low altar, in a clearing among the trees round it, where you first arrived |
 
 ## Settings
 

@@ -35,7 +35,17 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   solid horned skull in the language of the game's boss icon (Boss, from Vegvisirs), Hildir1-3
   as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and tower (Sealed Towers); location
   pins by `LocationSpriteData.m_name`: `StartTemple` a stone circle seen from above (survey-map
-  sign), vendor/Haldor a plain tied bag, Hildir a tent with pennant, BogWitch a cauldron.
+  sign, never shown: the Stones are drawn on the sheet, below), vendor/Haldor a plain tied bag,
+  Hildir a tent with pennant, BogWitch a cauldron.
+  The Sacrificial Stones are a glyph on the sheet, not a pin (the user's design): `Glyphs.Stones`,
+  a ring of standing stones round a low altar in the map's oblique view, each a block with a lit
+  front, a solid east face and a thin top, drawn back to front, `TempleRadius` 9 G either side
+  (the size of a large peak; the real ring would be under 7 sheet pixels). Its place comes from
+  `ZoneSystem.GetLocationIcon("StartTemple")` at `WorldSource.Capture`; a sheet painted before
+  the icons arrived has no Stones and is not cached. Every scatter mark and glyph keeps
+  `TempleClear` off its footprint (`ClearOfTemple` in `Add`, `InTempleClearing` in `Scatter`,
+  the rest removed after placement), so it stands in a clearing among the trees; close-ups
+  test the same and replay the glyph from the record. The preview places it with `-Temple wx:wz`.
   Anything else is traced from its sprite (other locations such as the Forge of Potential, other
   mods' pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner
   parts inked); every body reaches `Gap` past the lines, the engraver's break that keeps trees

@@ -17,6 +17,7 @@ using UnityEngine;
 //   tilesNAME:wx:wz:scale          3x3 separately rendered 256 px tiles at scale, stitched
 // --layers also writes the biome map, land wash and body masks of the whole sheet.
 // --alt NAME:wx:wz:radiusMetres forces an alt biome's effect on the woods there (ForceAltBiomes).
+// --temple wx:wz places the Sacrificial Stones there.
 internal static class Program
 {
     const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -157,6 +158,14 @@ internal static class Program
             return 0;
         }
         ForceAltBiomes(args, source, wsType, land, size);
+        // --temple wx:wz stands in for the Sacrificial Stones the game's location icons give.
+        int templeArg = Array.IndexOf(args, "--temple");
+        if (templeArg >= 0)
+        {
+            string[] t = args[templeArg + 1].Split(':');
+            Set(source, "m_hasTemple", true);
+            Set(source, "m_temple", new Vector2(float.Parse(t[0]), float.Parse(t[1])));
+        }
         System.Console.WriteLine($"decode {sw.ElapsedMilliseconds} ms");
         sw.Restart();
 
@@ -223,7 +232,7 @@ internal static class Program
         const float half = 10800f, mpp = 2f * half / canvas;
         for (int a = 2; a < args.Length; a++)
         {
-            if (args[a].StartsWith("--") || args[a - 1] == "--alt") continue;
+            if (args[a].StartsWith("--") || args[a - 1] == "--alt" || args[a - 1] == "--temple") continue;
             string[] p = args[a].Split(':');
             sw.Restart();
             if (p[0].StartsWith("tiles"))

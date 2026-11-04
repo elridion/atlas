@@ -127,6 +127,11 @@ namespace Atlas
         // plain biome.
         public Grove[] m_grove;
         private bool[] m_hasGrove;
+        // The Sacrificial Stones (vanilla's StartTemple location), in world metres, drawn as a
+        // glyph of their own on the sheet; unknown when the game's location icons had not
+        // arrived at capture.
+        public bool m_hasTemple;
+        public Vector2 m_temple;
 
         // The world generator whose biome sectors are read on the worker (ReadGroves), set only
         // once its alt-biome data is built.
@@ -191,6 +196,13 @@ namespace Atlas
                 AddRivers(source, generator.GetStreams(), stream: true);
             }
             source.m_altBiomes = AltBiomesReady(generator) ? generator : null;
+            // Clients get the location icons from the server, the Stones' among them (it is the
+            // pin vanilla shows at the world's centre); a host or single player has them at once.
+            if (ZoneSystem.instance && ZoneSystem.instance.GetLocationIcon("StartTemple", out Vector3 temple))
+            {
+                source.m_hasTemple = true;
+                source.m_temple = new Vector2(temple.x, temple.z);
+            }
             // Vanilla paints the ocean plain white (Minimap.GetPixelColor); the other colours come
             // from the minimap prefab, which overrides the code defaults.
             source.m_palette = new[]

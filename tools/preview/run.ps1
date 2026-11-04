@@ -1,4 +1,4 @@
-param([string]$World = 'Velen', [string[]]$Views, [switch]$Layers, [string[]]$Alt)
+param([string]$World = 'Velen', [string[]]$Views, [switch]$Layers, [string[]]$Alt, [string]$Temple)
 # Builds Atlas (Release) and the preview, then renders the views into img/ from the vanilla minimap
 # cache of a local world (one you have explored with the map on). -Alt 'NAME:wx:wz:radius',...
 # forces alt biomes there (the preview cannot compute the game's), e.g. 'Wolf Mountain:-3408:-1008:500'.
@@ -28,5 +28,6 @@ Copy-Item "$atlas\bin\Release\Atlas.dll" "$s\out\" -Force
 $extra = @()
 if ($Layers) { $extra += '--layers' }
 foreach ($a in $Alt) { $extra += '--alt'; $extra += $a }
+if ($Temple) { $extra += '--temple'; $extra += $Temple }
 New-Item -ItemType Directory -Force "$s\img" | Out-Null
 & "$s\out\Preview.exe" "$env:USERPROFILE\AppData\LocalLow\IronGate\Valheim\worlds_local\$World" "$s\img" @Views @extra

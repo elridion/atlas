@@ -432,7 +432,41 @@ namespace Atlas
             Crag,
             Mist,
             IceFloe,
+            Stones,
         }
+
+        // The Sacrificial Stones (Glyphs.Stones): a ring of standing stones seen from the map's
+        // oblique view, TempleRadius wide either side of its centre, the size of a large peak so it
+        // reads at the opening zoom (the real ring is about 35 m, under 7 sheet pixels). Every
+        // glyph, tree and ground mark keeps TempleClear off its footprint, so it stands in a
+        // clearing among the trees round it.
+        private const float TempleRadius = 9f * G;
+        private const float TempleClear = 3f * G;
+        private bool m_hasTemple;
+        private Vector2 m_templeFoot;
+        private Vector4 m_templeBox;
+
+        // Finds the Stones on the sheet, for the sheet and every close-up alike.
+        private void FindTemple()
+        {
+            if (m_world == null || !m_world.m_hasTemple) return;
+            float cx = (m_world.m_temple.x + HalfExtent) / MetresPerPixel, cy = (HalfExtent - m_world.m_temple.y) / MetresPerPixel;
+            m_hasTemple = true;
+            m_templeFoot = new Vector2(cx, cy + TempleRadius * StonesTilt);
+            Vector4 box = GlyphBox(new Glyph { m_x = m_templeFoot.x, m_y = m_templeFoot.y, m_size = TempleRadius, m_kind = Kind.Stones });
+            m_templeBox = new Vector4(box.x - TempleClear, box.y - TempleClear, box.z + TempleClear, box.w + TempleClear);
+        }
+
+        // Whether a glyph keeps clear of the Stones' clearing.
+        private bool ClearOfTemple(Glyph g)
+        {
+            if (!m_hasTemple || g.m_kind == Kind.Stones) return true;
+            Vector4 box = GlyphBox(g);
+            return !(box.x < m_templeBox.z && m_templeBox.x < box.z && box.y < m_templeBox.w && m_templeBox.y < box.w);
+        }
+
+        private bool InTempleClearing(float x, float y) =>
+            m_hasTemple && x > m_templeBox.x && x < m_templeBox.z && y > m_templeBox.y && y < m_templeBox.w;
 
         private struct Glyph
         {
@@ -467,6 +501,7 @@ namespace Atlas
             m_cancel = cancel;
             m_canvas = new InkCanvas(CanvasSize);
             m_right = m_bottom = CanvasSize;
+            FindTemple();
         }
 
         // A painter for one detail tile: draws into canvas from grid, at the given level of detail.
@@ -485,6 +520,7 @@ namespace Atlas
             m_top = region.yMin;
             m_right = region.xMax;
             m_bottom = region.yMax;
+            FindTemple();
         }
 
         // Throws OperationCanceledException between stages once cancel is set, so a drawing for a
@@ -865,6 +901,7 @@ namespace Atlas
                     // Inside the frame's inner ring, with room for the glyph above its foot.
                     float limit = edge * EdgeFraction;
                     if (dx * dx + dy * dy > limit * limit) continue;
+                    if (InTempleClearing(x, y)) continue;
                     Spot spot = Look(x, y);
                     spot.m_roll = Unit(seed, 3);
                     spot.m_seed = seed;
@@ -1053,7 +1090,8 @@ namespace Atlas
 
         private void Add(Spot spot, Kind kind, float size)
         {
-            m_glyphs.Add(new Glyph { m_x = spot.m_x, m_y = spot.m_y, m_size = size, m_kind = kind, m_seed = spot.m_seed });
+            var glyph = new Glyph { m_x = spot.m_x, m_y = spot.m_y, m_size = size, m_kind = kind, m_seed = spot.m_seed };
+            if (ClearOfTemple(glyph)) m_glyphs.Add(glyph);
         }
 
         private static float Unit(int seed, int k) => Atlas.Noise.Unit(seed, k);
@@ -1307,6 +1345,12 @@ namespace Atlas
                 case Kind.DeadTree:
                     half = 5f * s;
                     height = 14f * s;
+                    break;
+                case Kind.Stones:
+                    // The ring and its stones' east faces; from the foot (the ring's near edge)
+                    // up over its far edge and the stones standing there.
+                    half = s * (1f + StonesWidth * (1f + StonesSide));
+                    height = s * (2f * StonesTilt + StonesHeight + StonesSide * StonesWidth);
                     break;
                 default:
                     // Broadleaf and plains trees.
@@ -2131,6 +2175,13 @@ namespace Atlas
                 if (!WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
                 m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
+            // The Sacrificial Stones in their clearing: glyphs placed without Add (summits, hills,
+            // spires) give way to them too.
+            if (m_hasTemple)
+            {
+                m_glyphs.RemoveAll(g => !ClearOfTemple(g));
+                m_glyphs.Add(new Glyph { m_x = m_templeFoot.x, m_y = m_templeFoot.y, m_size = TempleRadius, m_kind = Kind.Stones, m_seed = m_world.m_seed });
+            }
         }
 
         private void DrawCoast()

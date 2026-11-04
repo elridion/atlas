@@ -260,9 +260,9 @@ namespace Atlas
                     var record = new InkRecord();
                     byte[] ink = InkPainter.Paint(source, cancel, record);
                     // The cache already holds this sheet when it came from there. A sheet drawn without
-                    // the alt biomes' groves is not cached: the cache is keyed by seed alone, so it
-                    // would stand in for the variants in every later session.
-                    if (!cached && source.m_grove != null) InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
+                    // the alt biomes' groves or the Sacrificial Stones is not cached: the cache is
+                    // keyed by seed alone, so it would stand in for them in every later session.
+                    if (!cached && source.m_grove != null && source.m_hasTemple) InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks);
                     return new PaintResult { m_ink = ink, m_record = record, m_density = cached ? null : InkDensity.FromSheet(ink) };
                 });
                 return;

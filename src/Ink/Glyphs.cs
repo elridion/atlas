@@ -57,6 +57,77 @@ namespace Atlas
                 case Kind.Crag: Crag(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Mist: MistBank(g.m_x, g.m_y - MistFoot(g.m_seed), g.m_seed); break;
                 case Kind.IceFloe: IceFloe(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+                case Kind.Stones: Stones(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+            }
+        }
+
+        // The Sacrificial Stones' shape, as shares of the ring's half width: the ring's depth in
+        // the map's oblique view, each stone's height and width, and its east face's depth (a
+        // share of its width), drawn back and up as a block seen from the south-west.
+        private const float StonesTilt = 0.42f;
+        private const float StonesHeight = 0.62f;
+        private const float StonesWidth = 0.24f;
+        private const float StonesSide = 0.5f;
+        private const int StonesCount = 9;
+
+        // The Sacrificial Stones, from the foot (the ring's near edge): a ring of standing stones
+        // round a low altar, each a block with a lit front, a solid east face and a thin top, as
+        // the peaks are lit from the west. The ground inside the ring is scraped clean and the
+        // ring traced on it, then the stones are drawn from the back of the ring to the front, each
+        // scraping its own silhouette so it stands in front of those behind.
+        private void Stones(float x, float y, float radius, int seed)
+        {
+            float ry = radius * StonesTilt;
+            var centre = new Vector2(x, y - ry);
+            float height = radius * StonesHeight, width = radius * StonesWidth;
+            m_canvas.EraseEllipse(centre.x, centre.y, radius + width, ry + width * 0.6f);
+            m_canvas.Ring(centre.x, centre.y, radius, ry, Pen);
+            float start = Unit(seed, 60) * Mathf.PI * 2f / StonesCount;
+            var order = new List<Vector3>(StonesCount + 1);
+            for (int k = 0; k < StonesCount; k++)
+            {
+                float angle = start + Mathf.PI * 2f * k / StonesCount;
+                order.Add(new Vector3(centre.x + Mathf.Cos(angle) * radius, centre.y + Mathf.Sin(angle) * ry, k));
+            }
+            // The altar stands in the middle, sorted in with the ring.
+            order.Add(new Vector3(centre.x, centre.y, -1f));
+            order.Sort((a, b) => a.y.CompareTo(b.y));
+            foreach (Vector3 stone in order)
+            {
+                int s = seed + 7 * (int)stone.z;
+                if (stone.z < 0f) StoneBlock(stone.x, stone.y, width * 2.2f, height * 0.28f, width, s, altar: true);
+                else StoneBlock(stone.x, stone.y, width * Vary(s, 61, 0.15f), height * Vary(s, 62, 0.18f), width, s, altar: false);
+            }
+        }
+
+        // One stone as a block: its front face from the foot up, its east face drawn back and up
+        // by depth, its top between them. Standing stones lean and taper a little and have an
+        // uneven top; the altar is a plain low slab.
+        private void StoneBlock(float x, float y, float width, float height, float depth, int seed, bool altar)
+        {
+            var back = new Vector2(depth * StonesSide, -depth * StonesSide * 0.6f);
+            float lean = altar ? 0f : (Unit(seed, 63) - 0.5f) * 0.25f * width;
+            float taper = altar ? 0f : 0.12f * width;
+            var bottomLeft = new Vector2(x - width * 0.5f, y);
+            var bottomRight = new Vector2(x + width * 0.5f, y);
+            var topLeft = new Vector2(x - width * 0.5f + taper + lean, y - height * (altar ? 1f : Vary(seed, 64, 0.08f)));
+            var topRight = new Vector2(x + width * 0.5f - taper + lean, y - height);
+            // Silhouette: front face and the east face and top behind it.
+            Poly(bottomLeft, bottomRight, bottomRight + back, topRight + back, topLeft + back, topLeft);
+            m_canvas.EraseOutline(m_points, BodyGrow * m_pen);
+            // The east face in shade, solid as a peak's wedge.
+            Poly(bottomRight, bottomRight + back, topRight + back, topRight);
+            m_canvas.Fill(m_points);
+            // The outline and the edges between the faces.
+            Poly(bottomLeft, bottomRight, bottomRight + back, topRight + back, topLeft + back, topLeft, bottomLeft);
+            m_canvas.Polyline(m_points, Pen);
+            m_canvas.Stroke(topLeft.x, topLeft.y, topRight.x, topRight.y, Pen);
+            m_canvas.Stroke(topRight.x, topRight.y, bottomRight.x, bottomRight.y, Pen);
+            // A weathered crack down some standing stones' fronts.
+            if (!altar && Unit(seed, 65) < 0.4f)
+            {
+                float cx = Mathf.Lerp(bottomLeft.x, bottomRight.x, 0.35f + 0.3f * Unit(seed, 66));
+                m_canvas.Stroke(cx + lean * 0.5f, y - height * 0.85f, cx + lean * 0.2f, y - height * 0.5f, Pen);
             }
         }
 

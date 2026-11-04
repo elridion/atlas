@@ -119,9 +119,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (`SwampFloor`, below). Water joined to the
   world's edge (`MarkSea`, four-way flood fill) is the sea and gets the water lines, as do wide
   lakes; every shore, sea or inland, has the same pen (a thinner lake shore reads as unexplained
-  inland lines; the water's blue tells lakes apart). The coast pen is 1.4 px on the sheet and 2.2
-  screen pixels in close-ups, barely heavier than the waves as on the classic map; rivers are
-  1.2. Water is one even indigo wash (`Paper.WaterColor`; shading by depth is too exact for a
+  inland lines; the water's blue tells lakes apart). The coast pen is 1.4 px on the sheet, barely
+  heavier than the waves as on the classic map; rivers are 1.2. Close-ups draw the coast and
+  waves with the same `Pen` as their trees, under the tile's pen scale: thinner screen-pixel
+  pens for them read as a lighter hand than the glyphs beside them. Water is one even indigo wash (`Paper.WaterColor`; shading by depth is too exact for a
   hand-tinted map). Rivers and the coast are drawn before the glyphs, so crowns over a bank or
   shore hide the line instead of being cut by it, and trees keep off river courses
   (`m_riverMask` on the sheet, `MarkTileRivers` from the record in close-ups) so streams still
@@ -217,9 +218,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
     never under two; `Claim` keeps strokes in a row apart.
 - Each wave is also kept as an `InkRecord.Wave` (position, length, crests, phase, lift and
   anchor; every stroke is level, so no direction is kept).
-  Close-ups do not replay the sheet's strokes but redraw them (`DrawTileWaves`) at their own
-  1.3 screen-pixel pen. An anchored stroke is moved to the close-up's own coast (`TileShore`,
-  within `TileWaveSearch`, `TileWaveGapPixels` clear) and its crests cut to the water ahead;
+  Close-ups do not replay the sheet's strokes but redraw them (`DrawTileWaves`) in the close-up's
+  pen. An anchored stroke is moved to the close-up's own coast (`TileShore`,
+  within `TileWaveSearch`, `TileWaveGapPens` clear) and its crests cut to the water ahead;
   replayed strokes would stand a few sheet pixels off the finer coast. Anchors outside the
   tile's sampled ground stay put.
 - **Lakes** get straight hairlines instead of waves, distinct from the sea's, in two sizes

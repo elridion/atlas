@@ -18,23 +18,16 @@ namespace Atlas
         // The farthest a tile-drawn glyph reaches from its foot (the Mistlands' giant trees, 15 T
         // tall), at level of detail 1, in sheet pixels.
         private const float GlyphReach = 16f * T;
-        // The tile coast's and waves' pens in screen pixels, the coast heavier: the smaller waves
-        // stay a hairline that does not compete with it.
-        private const float TileCoastPixels = 2.2f;
-        private const float TileRipplePixels = 1.3f;
 
         // How far beyond a tile its ground must be sampled, in sheet pixels: glyphs standing outside
         // it, plus the margins their rules test, so a tile's neighbours decide alike at the edge.
         public static float TileMargin(float lod) => (GlyphReach + 8f) / lod;
 
-        // A tile's magnification, tile pixels per sheet pixel.
-        private float m_tileScale = 1f;
-
         // Worker thread. Draws into canvas, which shows region (sheet pixels) at its magnification.
         public static void PaintTile(WorldSource world, InkRecord record, TileGrid grid, InkCanvas canvas, RectInt region,
             float lod, int scale, CancellationToken cancel)
         {
-            var painter = new InkPainter(world, canvas, grid, lod, region, cancel) { m_tileScale = scale };
+            var painter = new InkPainter(world, canvas, grid, lod, region, cancel);
             painter.RunTile(record);
         }
 
@@ -107,23 +100,21 @@ namespace Atlas
             return mask;
         }
 
-        // The coast on the tile's own heights, one pen for sea and inland water alike. Its width
-        // is set in screen pixels, divided back out of the pen scale: the sheet's coast thinned
-        // only by the level of detail stands 6 pixels wide at 4x.
+        // The coast on the tile's own heights, one pen for sea and inland water alike: the same
+        // pen as the trees and every other line in the close-up. Thinner screen-pixel pens for
+        // the coast and waves read as a lighter hand than the glyphs beside them.
         private void DrawTileCoast()
         {
-            float width = TileCoastPixels / m_tileScale / m_pen;
-            Contour(m_grid.m_height, m_grid.m_waterLevel, (p, q) => m_canvas.Stroke(p.x, p.y, q.x, q.y, width));
+            Contour(m_grid.m_height, m_grid.m_waterLevel, (p, q) => m_canvas.Stroke(p.x, p.y, q.x, q.y, Pen));
         }
 
         // How far either side of a wave's sheet anchor the tile looks for its own coast, in sheet
-        // pixels, and the paper left between that coast and the wave, in screen pixels: enough to
-        // clear the coast's pen so the wave starts right at it without touching.
+        // pixels, and the paper left between that coast and the wave, in pens: enough to clear
+        // the coast's pen so the wave starts right at it without touching.
         private const float TileWaveSearch = 4f;
-        private const float TileWaveGapPixels = 2.6f;
+        private const float TileWaveGapPens = 1.2f;
 
-        // The sheet's waves drawn again, at a pen of their own in screen pixels, finer than the
-        // coast's (thinned by the level of detail alone they stand almost as heavy as it at 4x).
+        // The sheet's waves drawn again, in the close-up's pen like everything else.
         // A wave that starts at the coast is moved to the tile's own coast, which runs up to a few
         // sheet pixels from the sheet's: replayed where the sheet drew them, they stand off it.
         // Its crests are then cut to the water ahead. An anchor outside the
@@ -137,9 +128,7 @@ namespace Atlas
             if (waves.Count == 0) return;
             TileGrid grid = m_grid;
             float gridRight = grid.m_left + (grid.m_columns - 1) * grid.m_step;
-            float gap = TileWaveGapPixels / m_tileScale;
-            float pen = m_canvas.m_penScale;
-            m_canvas.m_penScale = TileRipplePixels / m_tileScale;
+            float gap = TileWaveGapPens * Pen * m_pen;
             foreach (InkRecord.Wave wave in waves)
             {
                 float x = wave.m_x, y = wave.m_y, length = wave.m_length;
@@ -176,7 +165,6 @@ namespace Atlas
                 }
                 WaveStroke(new Vector2(x, y), Vector2.right, length, crests, wave.m_phase, wave.m_lift);
             }
-            m_canvas.m_penScale = pen;
         }
 
         // The tile's coast on the row through y nearest x within TileWaveSearch, where land gives

@@ -199,6 +199,26 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   of `vfx_odin_despawn`'s particle material; untested in game.
 - `src/Snapshot.cs` the recorded exploration and pins, in `Player.m_customData`.
 - `src/Paper.cs` parchment, the biome wash, fog and the ink texture's pixel data (mip chain).
+- `src/SheetEdge.cs` the parchment's outer edge, trimmed by hand (the user's design, chosen
+  over a deckle and an out-of-square skin edge): a cut wandering a few pixels in and out
+  (`Wander`, `Uneven`, `Fibre`), worn round corners of `CornerMin`-`CornerMax`, a few small
+  rounded nicks (never a V, which reads as a tear), the vellum thinning over `Fringe` with a
+  browned cut line, and a soft shadow south-east on the backdrop. The sheet's layers stay
+  square: `AtlasView`'s `Edge`, the last child of the sheet (after `Dirt`), holds four strips
+  (north and south the full width, west and east between, `Depth` in and `Pad` out, `Texels` 2
+  a sheet pixel, mipmapped) in the backdrop's colour over what lies outside the cut, so paper,
+  ink, glimpse, close-ups, fog, markers and dirt are cut alike and the edge moves and scales
+  with the sheet. Their texture holds only the shadow's factor and the cover; `RawImage.color`
+  is the frame's `s_border`, the flat colour behind the sheet, so they match it exactly (not
+  `Alpha8`: its RGB samples as black). A UI `Mask` would cut with a hard 1-bit edge (the stock
+  shader's alpha clip) and per-layer alpha would leave each layer's edge at its own resolution,
+  so **the backdrop behind the sheet must stay one flat colour**; a textured backdrop needs
+  another approach. The darker worn rim is a stain in the dirt (`AddRim`, from `Paper.Dirt`).
+  The cut lies at most about 15 px in, keeping at least 40 px (about 210 m) of bare margin off
+  the frame's ring where it comes nearest. Built once per world on the workers (own salt,
+  `Salt`), uploaded once (`AtlasMap.KeepEdge`, about 12 MB with mips); a failed upload only
+  leaves the square edge. Not cached, so `InkCache.Version` does not change with it. The
+  preview's `trim:fit`, `trim:north` and `trim:corner` views show it over the backdrop.
 - `src/Ink/`: `WorldSource.cs` vanilla minimap data, `Woods.cs` the wood field, `InkPainter.cs`
   the drawing pipeline and scatter rules, `Glyphs.cs` the
   pen glyphs, `InkCanvas.cs` the anti-aliased rasterizer, `InkRecord.cs` the recorded pen calls
@@ -401,9 +421,18 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the offline harness cannot load. Each glyph at most `IllustrationsEach` 3 times. Candidates
   are the peaks of the open water: the distance from any land, islets included, and from the
   frame's inner ring, on `OpenCell` 4 px cells, with no farther cell within two; at least
-  `OpenWaterMin` 60 px (about 315 m; the user's choice over 90 and 75, measured in
-  `../reports/sea-glyph-review/round2/`), ranked by that distance times a seed-set 0.85-1.15. In
-  rank order a spot takes the illustration of its sea placed fewest times so far (ties from a
+  `OpenWaterMin` 60 px (about 315 m; the user's choice over 90 and 75), ranked by that distance
+  times a seed-set factor 0.85-1.15. They are taken in farthest-point order (the user's choice,
+  `NextFigureSpot`): the best-ranked first, then each time the remaining spot with the highest
+  min(distance to the nearest figure placed, `FrameNeighbour` 2 x its distance to the frame's
+  inner ring) x its seed factor x sqrt(open water / `OpenWaterMin`), ties to the lower cell
+  index. Ranked by open water alone the figures crowded the outer ocean and the Ashlands' rim
+  (about 56% within 2 km of the frame on Velen) and left interior basins bare; without the
+  frame term the order runs straight to the rim, and the square root keeps a region's figure
+  in its roomier pocket. Figures now sit in somewhat narrower water (mean open water about
+  97 px, was 117) and a view shows two of a kind a little more often (about a quarter of
+  opening views, was about a sixth). In that
+  order a spot takes the illustration of its sea placed fewest times so far (ties from a
   seed-set first), skipping any kind already within `SameKindSpacing` 2000 px (about 10.5 km;
   `KindNear`: two copies of one figure in the opening view read as stamped) and skipping the
   spot when every kind of its sea is near, if its box (measured by drawing the glyph on a
@@ -417,10 +446,39 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   other way round, since its hatched east flank is the map's shade. Drawn after the floes on
   the `Illustration` layer, one record group each, which close-ups replay whole after their
   floes.
-  The fog: a glyph is drawn only when it lies wholly in the coloured, explored part of the map
-  (the user's rule): its box and `SeaMarkMargin` 60 m round it all explored
-  (`Paper.SeaMarkSeen`, sampled every `SeaMarkStep` 6 m), past the glimpse's softening of the
-  explored edge (about 21 m) and its wash's reach, so neither the glimpse's parchment nor the
+  **Stand-ins** (the user's design): every spot a figure was considered for and ruled out,
+  whatever the reason (spacing, the kind rule, the count cap, the box's clearance, a corner in
+  another sea, ink near), is a candidate, sorted back into rank order (not the figures'
+  farthest-point order, so they keep their own spread; `PlaceStandIns`). One in the Ashlands'
+  sea takes boiling water (`SeaGlyphs.Boil`), one in the open ocean a leaping fish
+  (`SeaGlyphs.Fish`); the Deep North's sea none, and lakes are never candidates (their own hand
+  of straight hairlines, a navigation map keeps inland water plain). A stand-in needs its own
+  clear water, the figure rule scaled to a mark about 20 px across: open water from land and
+  islets of its box's half diagonal plus `StandInOpenClear` 24 px and never under
+  `StandInOpenMin` 40 px, all four box corners in the same sea, the box inside the frame
+  (`InsideRing`), no ink within `StandInClear` 16 px (coast, waves, islets, figures, other
+  stand-ins), `StandInFigureGap` 150 px from every figure's spot and `StandInSpacing` 400 px
+  (about 2.1 km) from every other stand-in. Every candidate already has `OpenWaterMin`, so the
+  ink clearance and the spacings bind. Velen gets 9 figures, 10 boils and 28 fish. Boils come
+  only so: there is no scatter of its own over the hot sea. Each stand-in is a `SeaMark` (kinds 4
+  and 5, `FigureKinds` 4 marks where the figures end) with its fixed box
+  (`SeaGlyphs.StandInBox`), one Illustration group with its spot's y as foot, so the fog rule
+  below applies unchanged. Its shape comes from a hash of its sheet point (`StandInSeed`, salt
+  64), so `SeaWash` and close-ups draw it again from the mark alone; the cache's header format is
+  unchanged. Two stand-ins on one `OpenCell` row share a foot, so `FogEdge.HidesSeaGroup` also
+  checks that the hidden mark's box reaches the close-up.
+  A leaping fish is drawn in the boil mark's water language (`LeapingFish`): a back line broken
+  by the fish, an unbroken front line, a shorter lower line, all strictly level and `Pen`, a
+  small solid spindle about 7 px long with a short forked tail (strokes along its middle, no
+  seams), splash drops where it left the water. Variants a third each by seed: arched on the
+  way down, two in tandem (the second smaller and still rising), diving back in head first.
+  Caught level at the top of the arc with a big fork tail it read as a swallow; solid and short
+  it does not read as the serpent's tube-like coils.
+  The fog: a sea mark (figure or stand-in) is drawn only when it lies wholly in the coloured,
+  explored part of the map (the user's rule): its box and `SeaMarkMargin` 70 m round it all
+  explored (`Paper.SeaMarkSeen`, sampled every `SeaMarkStep` 6 m), past the glimpse's softening
+  of the explored edge (about 21 m) and its wash's reach (the wedge, up to 8 px or 42 m under a
+  figure's waterline), so neither the glimpse's parchment nor the
   fog lies over any of it, Glimpse on or off. Any other is left out whole: `Paper.Fog` lists it
   in `FogEdge.m_hiddenSea` (its sheet box and its record group's foot), `InkWithMips` clears its
   box from the ink (nothing else is inked within `IllustrationInkGap` of it) and lays no wash,
@@ -469,17 +527,32 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   glyphs and 4,400 wave strokes, and about 0.5 s more for the sheet's ink. The fog is 2048²
   (10.5 m a pixel), so close in its edge softens over a pixel; a finer fog would cost a four
   times bigger upload per recording.
-  Each glyph lies in a slightly darker wash of the sea's blue so it stands out a little:
-  `SeaWash` draws the glyph again from its mark (kind, sheet point, mirror and scale, also kept
-  in the cache's header) at 2x on a scratch canvas that keeps every erase's coverage
-  (`InkCanvas.m_scraped`), so the wash follows the scraped body, not the box, ripples or foam;
-  the bonemaw's bare bones would only get a glow, so the water each arch encloses down to the
-  waterline is washed too (`FillArches`). Box-blurred (about 0.7 sheet px), `Gain`, mottled, and
-  kept within `Reach` 3 px of the box, inside the explored margin a shown mark needs. A glaze
-  `Paper.s_seaWash` (72, 100, 160 at 0.22): close-ups glaze it over their water
-  (`Paper.SeaGlaze`, from `InkRecord.m_seaWashes`); the sheet's ink texture cannot glaze, so
-  `InkWithMips` lays it as the colour and opacity that give the same glaze over clean water
-  (`SeaInk`). The ink sheet itself is unchanged.
+  Each mark has two washes (`SeaWash`, the user's "take 3"), so it stands out from the sea: a
+  wedge of deeper blue in the water under its waterline, its shadow trailing east (the map's
+  shade side), and an iron grey on a figure's body above the water. `SeaWash` draws the glyph
+  again from its mark (kind, sheet point, mirror and scale, also kept in the cache's header) at
+  2x on a scratch canvas that keeps every erase's coverage (`InkCanvas.m_scraped`). The body is
+  that scraped coverage cut at the waterline (`m_y`), so it follows the body, not the box,
+  ripples or foam. The wedge is one triangle across the columns the glyph scrapes within
+  `BreakBand` 2 px above the waterline (where it breaks the surface), padded `WedgePad`, its top
+  on the waterline, `WedgeDepth` 0.25 of its width deep (5-8 px), its tip moved `WedgeEast` 0.3
+  of the width east, fading to `WedgeTip` 0.15; shallower or centred it read as a stain. The
+  bonemaw is bare bone and gets the wedge only; the leaping fish too. Boiling water gets its
+  wedge and the grey filling its bubbles' insides (the user's call; `BoilBubbleEllipses`, each
+  bubble to its ring's middle, the ring's ink over the edge). A stand-in's wedge is built from
+  its front water line (`StandInWater`, about 0.3 of the line either side of its centre),
+  `StandInGrow` 1.3 times as wide and deep and raised `StandInLift` 1.2 px (`BuildStandIn`), so
+  it shows under the small marks. Both washes are box-blurred (about 0.7 sheet px), mottled and
+  faded at their area's edge, the body with `Gain`, within `Reach` 10 px of the box, inside the
+  explored margin a shown mark needs. Glazes `Paper.s_seaBody` (iron grey 92, 92, 96 at 0.36;
+  neutral to cool, so over the indigo it reads blue-grey, never land's green or ochre or a pin's
+  red; a glaze can only darken, so no paler-than-sea body) and `Paper.s_seaWedge` (72, 100, 160
+  at 0.30), the wedge over the body: close-ups glaze them over their water
+  (`Paper.SeaMarkGlaze`, from `InkRecord.m_seaWashes`); the sheet's ink texture cannot glaze, so
+  `InkWithMips` lays each as the colour and opacity that give the same glaze over clean water
+  (`SeaInk`), body then wedge, premultiplied, under the ink. On stained paper sheet and
+  close-ups differ by a level or two. On the Ashlands' warm water the wedge reads violet-blue.
+  The ink sheet itself is unchanged.
 - **The Ashlands' boiling sea** is warmed as vanilla's map warms it: vanilla's mask keeps its
   ocean gradient in blue under water (0 at the biome's edge, 1 far out), so
   `WorldSource.BuildAshSea` takes it on Ashlands and Ocean water only (blue in a swamp or forest
@@ -487,21 +560,21 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   takes the water's heat, not a lava field's (`m_ashSea`). `Paper.WaterColor` with a world point
   glazes `s_ashSea` (burnt red ochre, 0.26) over the water by that heat, on the sheet and in
   close-ups alike, so it fades in with vanilla's gradient and no seam shows at the biome's edge.
-  A few simmer marks (`Simmer`, the user's design) are scattered
-  over it: a column of three bubbles shrinking and swaying as they rise (a speck over most),
-  from a continuous wave line, with three strictly level lines of one wave seen in perspective
-  (`BoilPiece`: crests fixed on the sheet, `BoilWave` long and `BoilLift` high, each row
-  `BoilTrainShift` of a wave on from the one behind). The back row is drawn at `BoilScaleBack`
-  0.8, broken by the column with a long and a short piece; the front, unbroken and 15-18 px
-  wide, runs under the big bubble at scale 1; the lower, about half as wide, at `BoilScaleLow`
-  1.2. Wavelength, lift and length scale together and the gaps between rows are foreshortened
-  alike (`BoilBackRise` 3.6, `BoilLowDrop` 4.4). Every line is `Pen` (the prototype's 0.8 broke
-  the pen rule below). Lone wave strokes far out read as birds; under the bubbles they read as
-  boiling water. Drawn by `DrawBoiling` after the illustrations, on the floes' layer: a hashed `BoilStep` grid
-  (salt 62), `BoilOdds`, `BoilSpacing` 300 px apart, heat at least `BoilHeat` 0.8, and no ink
-  within `BoilClear` (coast, waves, islets, the bonemaw) nor the frame (the whole box,
-  `InsideRing`, since the frame is inked after the marks and `InkNear` cannot see it). Velen gets seven on the
-  whole map; the user asked for very sparse, so err on fewer.
+  Boiling water (`SeaGlyphs.BoilMark`, the user's design) stands there only as a stand-in
+  (above): bubbles rising from a continuous front wave line, with three strictly level lines of
+  one wave seen in perspective (`BoilPiece`: crests fixed on the sheet, `BoilWave` long and
+  `BoilLift` high, each row `BoilTrainShift` of a wave on from the one behind). Two variants,
+  half each by seed (the user's pick of four): a column of three bubbles shrinking and swaying
+  as they rise (a speck over most), and a big bubble with two small ones rising either side
+  and a speck over the middle (front line `BoilClusterWidth` 1.08 wider); two side by side read
+  weaker and a bursting bubble read as a "U". The back row is drawn at `BoilScaleBack` 0.8,
+  broken by every bubble it would cross with a long and a short piece; the front, unbroken and
+  15-18 px wide, runs under the big bubble at scale 1; the lower, about half as wide, at
+  `BoilScaleLow` 1.2. Wavelength, lift and length scale together and the gaps between rows are
+  foreshortened alike (`BoilBackRise` 3.6, `BoilLowDrop` 4.4). Every line is `Pen`. Lone wave
+  strokes far out read as birds; under the bubbles they read as boiling water. Its bubbles are
+  washed grey inside and it has the stand-ins' blue wedge (above). Scattered on a grid of its
+  own over the hot sea (the old rule) it read as a pattern; the user asked for very sparse.
 - Ring lines at fixed distances, short double curves in staggered rows, tildes tilted with the
   coast, tildes at scored points of the shore with a scatter at sea, and a band of short tildes
   along every coast all read badly; keep groups at the bends.
@@ -909,5 +982,6 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 
 Nothing has been confirmed in game yet: the table hooks, opening the interactive map in nomap, the
 `Minimap.IsOpen` input blocking, the view's zoom and drag, pin sprites and labels, the fog edge,
-reading the 4-bit forest mask texture with `GetPixels32`, and running the world reads off the
-main thread.
+reading the 4-bit forest mask texture with `GetPixels32`, running the world reads off the
+main thread, and the sheet's trimmed edge (its strips' upload with their own mip chain, their
+match with the frame's colour, shimmer while zooming).

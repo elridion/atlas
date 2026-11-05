@@ -11,7 +11,7 @@ namespace Atlas
     /// Keeps each world's inked canvas on disk (BepInEx/cache/elridion.atlas), so a world is only
     /// drawn again when its pins change. Files are named by world id and checked against the world
     /// seed and the drawing version, and carry the key of the pins drawn in; bump Version whenever the drawing changes, so old sheets are drawn again. The sea's
-    /// illustrations (their boxes, for the fog, and the glyph drawn, for its wash) and the marks
+    /// marks, figures and stand-ins (their boxes, for the fog, and the glyph drawn, for its wash) and the marks
     /// the fog's edge shows or leaves out whole (SheetMarks) are kept in the header, ahead of the
     /// sheet.
     /// </summary>

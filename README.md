@@ -40,7 +40,7 @@ BepInEx, whose core DLLs the script copies beside the preview. From the repo roo
 # The pin catalogue (every glyph, plain and checked, at sheet size and 4x); run.ps1 must have run once
 .\tools\preview\out\Preview.exe --pincat tools\preview\img\pincat.png
 
-# The sea mark catalogue (sea illustrations with their wash, boil marks, sea waves, lake lines, at sheet size and 4x)
+# The sea mark catalogue (sea figures with their washes, the boil and fish stand-ins, sea waves, lake lines, at sheet size and 4x)
 .\tools\preview\out\Preview.exe --seacat tools\preview\img\seacat.png
 
 # All published samples into tools/preview/img/; -Publish also replaces those in screenshots/

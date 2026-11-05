@@ -141,11 +141,12 @@ namespace Atlas
                         lg += (bg - lg) * body;
                         lb += (bb - lb) * body;
                     }
-                    // A sea illustration's darker wash, sampled from the same mask the sheet lays.
+                    // A sea mark's washes (the body's grey, the blue wedge), sampled from the same
+                    // masks the sheet lays.
                     foreach (SeaWash sea in seaWashes)
                     {
-                        float amount = sea.At(sx, sy) * open;
-                        if (amount > 0f) Paper.SeaGlaze(lr, lg, lb, amount, out lr, out lg, out lb);
+                        float amount = sea.At(sx, sy) * open, wedge = sea.WedgeAt(sx, sy) * open;
+                        if (amount > 0f || wedge > 0f) Paper.SeaMarkGlaze(lr, lg, lb, amount, wedge, out lr, out lg, out lb);
                     }
                     // A pin's red ink, under any black ink drawn over it later.
                     float red = canvas.m_pinInk[p] / 255f;

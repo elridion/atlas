@@ -988,12 +988,9 @@ namespace Atlas
             DrawWaves(waterLines);
             m_canvas.m_layer = InkLayer.Floe;
             foreach (Glyph floe in m_floes) DrawGlyph(floe);
-            // Last before the frame, so they can keep clear of every mark already inked.
+            // Last before the frame, so they can keep clear of every mark already inked. The
+            // figures and then their stand-ins (boils, fish), all on the Illustration layer.
             DrawIllustrations();
-            // The boiling sea's few bubbles after them, keeping clear of them and of every wave.
-            // On the floes' layer, which close-ups replay.
-            m_canvas.m_layer = InkLayer.Floe;
-            DrawBoiling();
             m_cancel.ThrowIfCancellationRequested();
             m_canvas.m_layer = InkLayer.Frame;
             DrawFrame();

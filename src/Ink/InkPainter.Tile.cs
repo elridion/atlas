@@ -107,7 +107,7 @@ namespace Atlas
             // from beside it scrapes and inks exactly as on the sheet.
             // Those the fog leaves out (not wholly in explored land) are left out here too.
             foreach (InkRecord.Group group in record.Groups(InkLayer.Illustration, m_left, m_top, m_right, m_bottom))
-                if (m_edge == null || !m_edge.HidesSeaGroup(group)) record.Replay(m_canvas, group);
+                if (m_edge == null || !m_edge.HidesSeaGroup(group, m_left, m_top, m_right, m_bottom)) record.Replay(m_canvas, group);
             record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Frame), null);
         }
 

@@ -9,7 +9,9 @@ namespace Atlas
     /// each in a wide stretch of open water of its own sea, ranked by how far the water reaches
     /// round it and spread over the map. The serpents and the leviathan keep to
     /// the open ocean, the bonemaw to the Ashlands' boiling sea, and the Deep North's sea stays
-    /// blank. Placement hashes the world seed, so a world always gets the same ones.
+    /// blank. Spots ruled out for a figure may take a small stand-in instead (boiling water or a
+    /// leaping fish, PlaceStandIns). Placement hashes the world seed, so a world always gets the
+    /// same ones.
     /// </summary>
     internal sealed partial class InkPainter
     {
@@ -40,32 +42,19 @@ namespace Atlas
         private const float SameKindSpacing = 2000f;
         // Hash salt of the placement rule (see Scatter's salts).
         private const int IllustrationSalt = 61;
-        // The boiling sea's bubbles (Simmer): very few, one at most in a cell of BoilStep sheet
-        // pixels (about 630 m) with BoilOdds, jittered within BoilJitter of the cell, and none
-        // within BoilSpacing (about 1.6 km) of another, taken in grid order: pairs from
-        // neighbouring cells read as a cluster, not a scatter. Only where the sea is at least
-        // BoilHeat hot (vanilla's gradient, WorldSource.m_ashSea), out in the Ashlands' sea, with
-        // no ink within BoilClear (coast, waves, islets, the bonemaw) nor the frame. Velen gets
-        // about ten on the whole map.
-        private const float BoilStep = 120f;
-        private const float BoilOdds = 0.3f;
-        private const float BoilJitter = 0.6f;
-        private const float BoilSpacing = 300f;
-        private const float BoilHeat = 0.8f;
-        private const float BoilClear = 16f;
-        private const int BoilSalt = 62;
-        // The simmer mark's water: one wave of BoilWave px crests lifting BoilLift (lower than
-        // the coast's WaveLift, a ruffle, not a group), seen at three distances: the back row
-        // drawn at BoilScaleBack of the front, the lower one at BoilScaleLow, each row
-        // BoilTrainShift of a wave on from the one behind. The rows' gaps are foreshortened with
-        // them (in proportion to the mean scale of the two rows, 0.9 and 1.1 of 4 px).
-        private const float BoilWave = 3.4f;
-        private const float BoilLift = 0.45f;
-        private const float BoilScaleBack = 0.8f;
-        private const float BoilScaleLow = 1.2f;
-        private const float BoilTrainShift = 1f / 3f;
-        private const float BoilBackRise = 3.6f;
-        private const float BoilLowDrop = 4.4f;
+        // A stand-in (a boil mark or a leaping fish, SeaGlyphs.Boil and Fish) needs its own clear
+        // water, the figure rule (IllustrationClear past the half diagonal, OpenWaterMin) scaled
+        // to a mark about 20 px across: open water from land and islets alike of its box's half
+        // diagonal plus StandInOpenClear, never under StandInOpenMin (about 210 m). No ink within
+        // StandInClear of its box (coast, waves, islets, figures, other stand-ins), and the frame
+        // kept as far. StandInFigureGap from every figure's spot and StandInSpacing (about
+        // 2.1 km) from every other stand-in, so they stay a sprinkle, not a pattern. Every
+        // candidate already has OpenWaterMin, so the ink clearance and the spacings bind.
+        private const float StandInOpenClear = 24f;
+        private const float StandInOpenMin = 40f;
+        private const float StandInClear = 16f;
+        private const float StandInFigureGap = 150f;
+        private const float StandInSpacing = 400f;
 
         // Which sea a point of open water belongs to, for its illustrations.
         private enum Sea
@@ -75,12 +64,23 @@ namespace Atlas
             Ashlands,
         }
 
+        // The figures are taken in farthest-point order (the user's choice; NextFigureSpot): after
+        // the best-ranked spot, each next is the one farthest from every figure placed, the
+        // frame counting as a neighbour at FrameNeighbour times its distance (without it the
+        // order runs straight to the rim), weighed by the spot's seed factor and by the square
+        // root of its open water over OpenWaterMin, so a region's figure still sits in its
+        // roomier pocket. Ranked by open water alone, the figures crowded the outer ocean and the
+        // Ashlands' rim (about 56% within 2 km of the frame on Velen) and left interior basins
+        // bare; so ordered, a third stand near the rim on the local worlds.
+        private const float FrameNeighbour = 2f;
+
         // A candidate spot: an OpenCell cell where the open water peaks, its distance from land
-        // in cells and its rank.
+        // in cells, its seed factor, its rank (open water times the factor) and its distance from
+        // the frame's inner ring in sheet pixels.
         private struct OpenSpot
         {
             public int m_cx, m_cy, m_open;
-            public float m_score;
+            public float m_factor, m_score, m_ring;
         }
 
         private void DrawIllustrations()
@@ -111,11 +111,17 @@ namespace Atlas
                 {
                     int d = open[cy * n + cx];
                     if (d < least || !IsOpenPeak(open, n, cx, cy, d)) continue;
-                    float score = d * Mathf.Lerp(0.85f, 1.15f, Unit(HashInt(cx, cy, salt), 0));
-                    spots.Add(new OpenSpot { m_cx = cx, m_cy = cy, m_open = d, m_score = score });
+                    float factor = Mathf.Lerp(0.85f, 1.15f, Unit(HashInt(cx, cy, salt), 0));
+                    float px = (cx + 0.5f) * OpenCell - centre, py = (cy + 0.5f) * OpenCell - centre;
+                    spots.Add(new OpenSpot
+                    {
+                        m_cx = cx, m_cy = cy, m_open = d, m_factor = factor, m_score = d * factor,
+                        m_ring = ring - Mathf.Sqrt(px * px + py * py),
+                    });
                 }
             }
-            spots.Sort((a, b) => a.m_score != b.m_score ? b.m_score.CompareTo(a.m_score) : (a.m_cy * n + a.m_cx).CompareTo(b.m_cy * n + b.m_cx));
+            Comparison<OpenSpot> byRank = (a, b) => a.m_score != b.m_score ? b.m_score.CompareTo(a.m_score) : (a.m_cy * n + a.m_cx).CompareTo(b.m_cy * n + b.m_cx);
+            spots.Sort(byRank);
 
             var counts = new int[SeaGlyphs.Names.Length];
             var placed = new List<Vector2>();
@@ -123,8 +129,28 @@ namespace Atlas
             int firstKind = (int)(Unit(salt, 1) * 3f) % 3;
             InkLayer layer = m_canvas.m_layer;
             m_canvas.m_layer = InkLayer.Illustration;
-            foreach (OpenSpot spot in spots)
+            // Every spot considered and ruled out, whatever the reason: the stand-ins' candidates.
+            var rejected = new List<OpenSpot>();
+            // The candidates left, swap-removed as they are taken (NextFigureSpot breaks ties by
+            // cell index, not by place in the list), each with its squared distance to the nearest
+            // figure placed, updated as figures are placed: rescanning every figure for every
+            // spot at every pick took about 0.6 s on Velen.
+            OpenSpot[] pool = spots.ToArray();
+            var nearest = new float[pool.Length];
+            for (int i = 0; i < nearest.Length; i++) nearest[i] = float.MaxValue;
+            int left = pool.Length, ranked = 0;
+            while (placed.Count == 0 ? ranked < left : left > 0)
             {
+                // Until the first figure stands, in rank order (the pool is still sorted then).
+                int pick = placed.Count == 0 ? ranked++ : NextFigureSpot(pool, nearest, left, n);
+                OpenSpot spot = pool[pick];
+                if (placed.Count > 0)
+                {
+                    left--;
+                    pool[pick] = pool[left];
+                    nearest[pick] = nearest[left];
+                }
+                rejected.Add(spot);
                 var at = new Vector2((spot.m_cx + 0.5f) * OpenCell, (spot.m_cy + 0.5f) * OpenCell);
                 if (Crowded(placed, at, IllustrationSpacing)) continue;
                 Sea sea = SeaAt(at.x, at.y);
@@ -143,8 +169,20 @@ namespace Atlas
                 if (SeaAt(bounds.m_left, bounds.m_top) != sea || SeaAt(bounds.m_right, bounds.m_top) != sea
                     || SeaAt(bounds.m_left, bounds.m_bottom) != sea || SeaAt(bounds.m_right, bounds.m_bottom) != sea) continue;
                 if (InkNear(bounds, IllustrationInkGap)) continue;
+                rejected.RemoveAt(rejected.Count - 1);
                 counts[kind]++;
                 placed.Add(at);
+                if (placed.Count == 1)
+                {
+                    // The spots before this one are taken: drop them, the pool keeps the rest.
+                    Array.Copy(pool, ranked, pool, 0, left - ranked);
+                    left -= ranked;
+                }
+                for (int i = 0; i < left; i++)
+                {
+                    var other = new Vector2((pool[i].m_cx + 0.5f) * OpenCell, (pool[i].m_cy + 0.5f) * OpenCell);
+                    nearest[i] = Math.Min(nearest[i], (other - at).sqrMagnitude);
+                }
                 placedKinds.Add(kind);
                 m_canvas.BeginGroup(y);
                 SeaGlyphs.Draw(m_canvas, kind, x, y, mirror, scale);
@@ -165,110 +203,81 @@ namespace Atlas
                 m_record.m_seaMarks.Add(mark);
                 m_record.m_seaWashes.Add(SeaWash.Build(mark));
             }
+            // The stand-ins keep the rank order, so boils and fish keep their own spread rather
+            // than the figures' farthest-point one.
+            rejected.Sort(byRank);
+            PlaceStandIns(rejected, placed);
             m_canvas.m_layer = layer;
         }
 
-        // The Ashlands' sea boils: a few simmer marks scattered thinly over its hottest water, on
-        // a hashed grid of their own, so they never move with another rule. Waves read as birds
-        // far out at sea, so the marks are bubbles, not strokes.
-        private void DrawBoiling()
+        // The index of the next figure spot in farthest-point order (FrameNeighbour); ties go to
+        // the lower cell index, so the order is the same on every machine.
+        private static int NextFigureSpot(OpenSpot[] pool, float[] nearest, int count, int n)
         {
-            if (m_world.m_ashSea == null) return;
-            int salt = unchecked(m_world.m_seed + BoilSalt * 7919);
-            float centre = CanvasSize * 0.5f, ring = EdgeRadius / MetresPerPixel - FrameGap - BoilClear;
-            int cells = Mathf.CeilToInt(CanvasSize / BoilStep);
-            var placed = new List<Vector2>();
-            for (int cy = 0; cy < cells; cy++)
+            int best = -1;
+            float bestKey = -1f;
+            for (int i = 0; i < count; i++)
             {
-                for (int cx = 0; cx < cells; cx++)
+                OpenSpot s = pool[i];
+                float key = Math.Min(Mathf.Sqrt(nearest[i]), FrameNeighbour * Math.Max(s.m_ring, 0f)) * s.m_factor
+                    * Mathf.Sqrt(s.m_open * OpenCell / OpenWaterMin);
+                if (key > bestKey || (key == bestKey && s.m_cy * n + s.m_cx < pool[best].m_cy * n + pool[best].m_cx))
                 {
-                    int seed = HashInt(cx, cy, salt);
-                    if (Unit(seed, 0) >= BoilOdds) continue;
-                    float margin = (1f - BoilJitter) * 0.5f;
-                    float x = (cx + margin + BoilJitter * Unit(seed, 1)) * BoilStep;
-                    float y = (cy + margin + BoilJitter * Unit(seed, 2)) * BoilStep;
-                    if (SeaAt(x, y) != Sea.Ashlands) continue;
-                    float wx = x * MetresPerPixel - HalfExtent, wz = HalfExtent - y * MetresPerPixel;
-                    if (m_world.Sample(m_world.m_ashSea, wx, wz) < BoilHeat) continue;
-                    // The mark's own reach: the bubbles and their speck rise about 11 px, the
-                    // lower water line lies about 8 px under the point, and the front line runs
-                    // up to about 10 px either side.
-                    var box = new InkBox { m_left = x - 10.7f, m_top = y - 11.5f, m_right = x + 10.7f, m_bottom = y + 8.8f };
-                    // The frame is inked after the marks, so InkNear cannot see it: the whole box,
-                    // not only its point, keeps BoilClear inside the frame's inner ring.
-                    if (!InsideRing(box, centre, ring)) continue;
-                    if (InkNear(box, BoilClear)) continue;
-                    if (Crowded(placed, new Vector2(x, y), BoilSpacing)) continue;
-                    placed.Add(new Vector2(x, y));
-                    Simmer(x, y, seed);
+                    best = i;
+                    bestKey = key;
                 }
             }
+            return best;
         }
 
-        // A simmer mark (the user's design): a column of three bubbles rising from the water,
-        // shrinking and swaying as they rise, over three level lines of one wave seen in
-        // perspective: a back line broken by the column, an unbroken front line under it and a
-        // shorter lower line. Each row is the front's wave scaled by its distance (BoilScaleBack,
-        // 1, BoilScaleLow): wavelength, lift and length together, and the gaps between rows
-        // foreshortened alike, so the water reads as a surface seen from above, not three rules.
-        // Sizes and sides by seed so no two are stamped alike. At the opening zoom it reads as a
-        // speck, in close-ups as bubbles on the water.
-        private void Simmer(float x, float y, int seed)
+        // The stand-ins: every spot a figure was considered for and ruled out (spacing, the kind
+        // rule, the count cap, the box's clearance, a corner in another sea, ink near) takes, in
+        // rank order, boiling water in the Ashlands' sea or a leaping fish in the open ocean (the
+        // Deep North's sea stays blank, and lakes are never candidates), if the mark has its own
+        // clear water (StandInOpenClear and the rest). Each is one Illustration record group and a
+        // SeaMark with its box, so the fog shows it only wholly explored, as a figure, and
+        // close-ups replay it whole. Boils come only so: scattered over the hot sea on a grid of
+        // their own, they read as a pattern rather than as the sea's life.
+        private void PlaceStandIns(List<OpenSpot> rejected, List<Vector2> figures)
         {
-            float side = Unit(seed, 3) < 0.5f ? -1f : 1f;
-            float r0 = Mathf.Lerp(1.6f, 2.0f, Unit(seed, 4));
-            m_canvas.Ring(x, y, r0, r0 * 0.85f, Pen);
-            float r1 = r0 * Mathf.Lerp(0.58f, 0.68f, Unit(seed, 5));
-            float x1 = x + side * Mathf.Lerp(0.8f, 1.4f, Unit(seed, 6)), y1 = y - r0 - r1 - 1.3f;
-            m_canvas.Ring(x1, y1, r1, r1 * 0.9f, Pen);
-            float r2 = r1 * 0.66f;
-            float x2 = x1 - side * Mathf.Lerp(0.6f, 1.2f, Unit(seed, 7)), y2 = y1 - r1 - r2 - 1.2f;
-            m_canvas.Ring(x2, y2, r2, r2, Pen);
-            if (Unit(seed, 8) < 0.75f) m_canvas.Dot(x2 + side * 0.9f, y2 - r2 - 1.7f, 0.55f);
-
-            // The rows' crests a third of a wave on from the row behind, so they do not stack.
-            float phase = Unit(seed, 153) * Mathf.PI * 2f, shift = BoilTrainShift * Mathf.PI * 2f;
-            // Front: one unbroken line 1.7 px under the big bubble's foot, so a crest under it
-            // still leaves paper between them.
-            float front = y + 0.85f * r0 + 1.7f;
-            float width = Mathf.Lerp(15f, 18f, Unit(seed, 151));
-            float centre = x + Mathf.Lerp(-1.2f, 1.2f, Unit(seed, 152));
-            BoilPiece(centre - width * 0.5f, front, width, x, phase + shift, 1f);
-            // Back: behind the column and broken by it, a long piece on the seed's side and a
-            // short one on the other, so it shows past the column both ways. The hole is the
-            // bubble's own size, not scaled; running up to the bubble the line skewers it.
-            float backSide = Unit(seed, 150) < 0.5f ? -1f : 1f;
-            float back = front - BoilBackRise, hole = r0 + 1.0f;
-            float longer = Mathf.Lerp(4.6f, 5.8f, Unit(seed, 155)) * BoilScaleBack;
-            float shorter = Mathf.Lerp(3.0f, 3.8f, Unit(seed, 156)) * BoilScaleBack;
-            float left = backSide < 0f ? longer : shorter, right = backSide < 0f ? shorter : longer;
-            BoilPiece(x - hole - left, back, left, x, phase, BoilScaleBack);
-            BoilPiece(x + hole, back, right, x, phase, BoilScaleBack);
-            // Lower: about half the front's width, shifted away from the back's long side.
-            float low = front + BoilLowDrop;
-            float lowWidth = width * 0.5f * Mathf.Lerp(0.9f, 1.1f, Unit(seed, 159)) * BoilScaleLow;
-            float lowCentre = x - backSide * Mathf.Lerp(0.8f, 2.2f, Unit(seed, 160));
-            BoilPiece(lowCentre - lowWidth * 0.5f, low, lowWidth, x, phase + 2f * shift, BoilScaleLow);
-        }
-
-        // One level piece of the simmer mark's wave: its crests fall at fixed places on the sheet
-        // (BoilWave times scale long, counted from the column at x), so the pieces of a broken
-        // row keep one wave; the ends run out flat as the sea's strokes do (WaveStroke, which
-        // counts crests per stroke and so cannot keep a train across a break). Strictly level:
-        // the sea's lines always read horizontal.
-        private void BoilPiece(float x0, float level, float length, float x, float phase, float scale)
-        {
-            float wave = BoilWave * scale, lift = BoilLift * scale;
-            // Eight points a crest, as WaveStroke, so close-ups show a curve, not a zigzag.
-            int count = Math.Max(8, Mathf.CeilToInt(length / wave * 8f));
-            m_points.Clear();
-            for (int i = 0; i <= count; i++)
+            float centre = CanvasSize * 0.5f, ring = EdgeRadius / MetresPerPixel - FrameGap - StandInClear;
+            var standIns = new List<Vector2>();
+            foreach (OpenSpot spot in rejected)
             {
-                float u = i / (float)count, px = x0 + u * length;
-                float envelope = Mathf.Clamp01(Mathf.Sin(Mathf.PI * u) * 1.6f);
-                m_points.Add(new Vector2(px, level - Mathf.Sin((px - x) / wave * Mathf.PI * 2f + phase) * lift * envelope));
+                var at = new Vector2((spot.m_cx + 0.5f) * OpenCell, (spot.m_cy + 0.5f) * OpenCell);
+                Sea sea = SeaAt(at.x, at.y);
+                if (sea == Sea.None) continue;
+                int kind = sea == Sea.Ashlands ? SeaGlyphs.Boil : SeaGlyphs.Fish;
+                SeaGlyphs.StandInBox(kind, out float left, out float top, out float right, out float bottom);
+                var box = new InkBox { m_left = at.x + left, m_top = at.y + top, m_right = at.x + right, m_bottom = at.y + bottom };
+                float w = right - left, h = bottom - top;
+                float need = Mathf.Max(StandInOpenMin, 0.5f * Mathf.Sqrt(w * w + h * h) + StandInOpenClear);
+                if (spot.m_open * OpenCell < need) continue;
+                if (SeaAt(box.m_left, box.m_top) != sea || SeaAt(box.m_right, box.m_top) != sea
+                    || SeaAt(box.m_left, box.m_bottom) != sea || SeaAt(box.m_right, box.m_bottom) != sea) continue;
+                // The frame is inked after the marks, so InkNear cannot see it: the whole box,
+                // not only its spot, keeps StandInClear inside the frame's inner ring.
+                if (!InsideRing(box, centre, ring) || InkNear(box, StandInClear)) continue;
+                if (Crowded(figures, at, StandInFigureGap) || Crowded(standIns, at, StandInSpacing)) continue;
+                standIns.Add(at);
+                m_canvas.BeginGroup(at.y);
+                SeaGlyphs.Draw(m_canvas, kind, at.x, at.y);
+                m_canvas.EndGroup();
+                if (m_record == null) continue;
+                var mark = new SeaMark
+                {
+                    m_west = box.m_left * MetresPerPixel - HalfExtent,
+                    m_east = box.m_right * MetresPerPixel - HalfExtent,
+                    m_north = HalfExtent - box.m_top * MetresPerPixel,
+                    m_south = HalfExtent - box.m_bottom * MetresPerPixel,
+                    m_kind = kind,
+                    m_x = at.x,
+                    m_y = at.y,
+                    m_scale = 1f,
+                };
+                m_record.m_seaMarks.Add(mark);
+                m_record.m_seaWashes.Add(SeaWash.Build(mark));
             }
-            m_canvas.Polyline(m_points, Pen);
         }
 
         // A box on the sheet, in sheet pixels, y running south.

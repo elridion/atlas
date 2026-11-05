@@ -69,11 +69,12 @@ namespace Atlas
         private const float GlimpseSteps = 4f;
         // A sea illustration is drawn only when it lies wholly in the explored land's colour
         // (SeaMarkSeen): its box and SeaMarkMargin metres round it all explored, past the glimpse's
-        // softening of the explored edge (about 21 m) and its wash's reach (3 sheet px, 16 m), so
-        // neither the glimpse's parchment nor the fog ever lies over part of it; otherwise it is
-        // left out (FogEdge.m_hiddenSea) and its water stays as the fog lays it. The box is sampled
-        // every SeaMarkStep metres, finer than vanilla's 12 m exploration grid.
-        private const float SeaMarkMargin = 60f;
+        // softening of the explored edge (about 21 m) and its wash's reach (the blue wedge runs up
+        // to 8 sheet px, 42 m, under a figure's waterline), so neither the glimpse's parchment nor
+        // the fog ever lies over part of it; otherwise it is left out (FogEdge.m_hiddenSea) and
+        // its water stays as the fog lays it. The box is sampled every SeaMarkStep metres, finer
+        // than vanilla's 12 m exploration grid.
+        private const float SeaMarkMargin = 70f;
         private const float SeaMarkStep = 6f;
 
         // The biome wash: per biome (in Land order) a tint and how far the paper is moved towards
@@ -108,9 +109,14 @@ namespace Atlas
         // Water is one even indigo wash, so seas, lakes and rivers read as water. A shade by depth
         // would draw the sea floor more exactly than a hand-tinted map does.
         private static readonly Tint s_water = new Tint(100, 135, 190, 0.42f);
-        // The sea illustrations' wash (SeaWash): a second glaze of a deeper indigo laid over the
-        // water in their bodies, so they stand a little darker and bluer than the sea round them.
-        private static readonly Tint s_seaWash = new Tint(72, 100, 160, 0.22f);
+        // The sea marks' washes (SeaWash, the user's "take 3"): a second glaze of a deeper indigo
+        // in the wedge of water under a mark's waterline, the shadow it casts trailing east, and
+        // an iron grey glazed over a figure's body above the water. The grey is neutral to cool:
+        // over the indigo it comes out blue-grey, never toward green or ochre (land) or red
+        // (pins). A glaze can only darken (Filter caps a lighter tint), so the body cannot be
+        // paler than the sea.
+        private static readonly Tint s_seaWedge = new Tint(72, 100, 160, 0.30f);
+        private static readonly Tint s_seaBody = new Tint(92, 92, 96, 0.36f);
         // The Ashlands' boiling sea: a thin glaze of burnt red ochre over the water's indigo, as
         // vanilla's map warms the sea there, by the sea's heat (WorldSource.m_ashSea), so it fades
         // out with vanilla's own gradient instead of stopping at the biome's edge.
@@ -434,6 +440,8 @@ namespace Atlas
             int n = FogSize;
             var rgba = new byte[n * n * 4];
             Stains(seed, out float[] blots, out float[] foxing);
+            // The darker, worn rim inside the sheet's trimmed edge.
+            SheetEdge.AddRim(blots, n, seed);
             System.Threading.Tasks.Parallel.For(0, n, Workers.LoopOptions(), y =>
             {
                 for (int x = 0; x < n; x++)
@@ -683,29 +691,41 @@ namespace Atlas
                 ToByte(PaperColor.b * (1f - s + s * Filter(t.m_color.b, PaperColor.b))), 255);
         }
 
-        // The sea wash glazed over a colour, amount (0 to 1, SeaWash.At) of its strength.
-        public static void SeaGlaze(float r, float g, float b, float amount, out float sr, out float sg, out float sb)
+        // A tint glazed over a colour, amount (0 to 1) of its strength.
+        private static void Glaze(Tint t, float r, float g, float b, float amount, out float sr, out float sg, out float sb)
         {
-            float s = s_seaWash.m_strength * amount;
-            sr = r * (1f - s + s * Filter(s_seaWash.m_color.r, PaperColor.r));
-            sg = g * (1f - s + s * Filter(s_seaWash.m_color.g, PaperColor.g));
-            sb = b * (1f - s + s * Filter(s_seaWash.m_color.b, PaperColor.b));
+            float s = t.m_strength * amount;
+            sr = r * (1f - s + s * Filter(t.m_color.r, PaperColor.r));
+            sg = g * (1f - s + s * Filter(t.m_color.g, PaperColor.g));
+            sb = b * (1f - s + s * Filter(t.m_color.b, PaperColor.b));
         }
 
-        // The sheet's ink texture lies over the paper by alpha, so it cannot glaze. The sea wash is
-        // laid in it as the colour and opacity that, at full wash over clean water, give exactly
-        // the glaze close-ups lay (SeaGlaze): the opacity is the largest channel's loss, so that
-        // channel is a pure glaze and stains under the wash still show through; the others come
-        // within a level or two of it on stained paper.
-        private static void SeaInk(out float alpha, out float r, out float g, out float b)
+        // A sea mark's washes glazed over a colour in close-ups: the body's grey (body, 0 to 1,
+        // SeaWash.At), then the blue wedge over it (wedge, SeaWash.WedgeAt).
+        public static void SeaMarkGlaze(float r, float g, float b, float body, float wedge, out float sr, out float sg, out float sb)
+        {
+            sr = r;
+            sg = g;
+            sb = b;
+            if (body > 0f) Glaze(s_seaBody, sr, sg, sb, body, out sr, out sg, out sb);
+            if (wedge > 0f) Glaze(s_seaWedge, sr, sg, sb, wedge, out sr, out sg, out sb);
+        }
+
+        // The sheet's ink texture lies over the paper by alpha, so it cannot glaze. Each sea mark
+        // wash (the wedge's blue, or the body's grey) is laid in it as the colour and opacity
+        // that, at full wash over clean water, give exactly the glaze close-ups lay
+        // (SeaMarkGlaze): the opacity is the largest channel's loss, so that channel is a pure
+        // glaze and stains under the wash still show through; the others come within a level or
+        // two of it on stained paper.
+        private static void SeaInk(bool wedge, out float alpha, out float r, out float g, out float b)
         {
             Color32 p = PaperColor;
             WaterColor(p.r, p.g, p.b, out float wr, out float wg, out float wb);
-            SeaGlaze(wr, wg, wb, 1f, out float sr, out float sg, out float sb);
+            Glaze(wedge ? s_seaWedge : s_seaBody, wr, wg, wb, 1f, out float sr, out float sg, out float sb);
             alpha = Math.Max(1f - sr / wr, Math.Max(1f - sg / wg, 1f - sb / wb));
             if (alpha <= 0f)
             {
-                r = g = b = 0f;
+                alpha = r = g = b = 0f;
                 return;
             }
             r = wr - (wr - sr) / alpha;
@@ -713,7 +733,7 @@ namespace Atlas
             b = wb - (wb - sb) / alpha;
         }
 
-        // A spire's body on the sheet, as SeaInk lays the sea wash: the colour and opacity that,
+        // A spire's body on the sheet, as SeaInk lays the sea washes: the colour and opacity that,
         // over the Mistlands' ground wash on clean paper, give exactly the rock's glaze there
         // (BodyColor). Laid opaque as a peak's body is, the rock would be its clean-paper colour
         // on a sheet whose Mistlands are darkened by stains and patina, so it would read lighter
@@ -810,7 +830,8 @@ namespace Atlas
             for (int code = 1; code < 8; code++)
                 WoodInk(InkCanvas.WoodLand((byte)(code << 5)), out woodAlpha[code], out woodR[code], out woodG[code], out woodB[code]);
             byte[] ink = sheet;
-            SeaInk(out float seaAlpha, out float seaR, out float seaG, out float seaB);
+            SeaInk(false, out float bodyAlpha, out float bodyR, out float bodyG, out float bodyB);
+            SeaInk(true, out float wedgeAlpha, out float wedgeR, out float wedgeG, out float wedgeB);
             // Premultiplied RGBA of the current level, rows from the south.
             var level = new byte[n * n * 4];
             for (int y = 0; y < n; y++)
@@ -844,9 +865,9 @@ namespace Atlas
                     level[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + wu + pr + a) * 255f);
                 }
             }
-            // The sea illustrations' wash under their ink. They stand in open water far from any
-            // peak, so only the ink lies over it.
-            if (marks != null && seaAlpha > 0f)
+            // The sea marks' washes under their ink: the body's grey, the blue wedge over it. They
+            // stand in open water far from any peak, so only the ink lies over them.
+            if (marks != null)
             {
                 foreach (SeaMark mark in marks)
                 {
@@ -859,18 +880,26 @@ namespace Atlas
                         int from = sy * n, y = n - 1 - sy;
                         for (int x = x0; x <= x1; x++)
                         {
-                            float su = wash.At(x + 0.5f, sy + 0.5f) * seaAlpha;
-                            if (su <= 0f) continue;
+                            float bu = wash.At(x + 0.5f, sy + 0.5f) * bodyAlpha;
+                            float wu = wash.WedgeAt(x + 0.5f, sy + 0.5f) * wedgeAlpha;
+                            if (bu <= 0f && wu <= 0f) continue;
                             float a = ink[from + x] / 255f * (hidden != null ? 1f - hidden[from + x] / 255f : 1f);
                             float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
-                            su *= (1f - a) * (1f - g);
+                            float keep = (1f - a) * (1f - g);
+                            bu *= keep;
+                            wu *= keep;
+                            // Premultiplied: the wedge over the body, the ink over both.
+                            float pr = wedgeR * wu + bodyR * bu * (1f - wu);
+                            float pg = wedgeG * wu + bodyG * bu * (1f - wu);
+                            float pb = wedgeB * wu + bodyB * bu * (1f - wu);
+                            float su = wu + bu * (1f - wu);
                             float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
                             float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
                             float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
                             int o = (y * n + x) * 4;
-                            level[o] = ToByte(seaR * su + inkR * a);
-                            level[o + 1] = ToByte(seaG * su + inkG * a);
-                            level[o + 2] = ToByte(seaB * su + inkB * a);
+                            level[o] = ToByte(pr + inkR * a);
+                            level[o + 1] = ToByte(pg + inkG * a);
+                            level[o + 2] = ToByte(pb + inkB * a);
                             level[o + 3] = ToByte(Math.Min(1f, su + a) * 255f);
                         }
                     }

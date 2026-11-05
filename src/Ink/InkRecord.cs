@@ -17,15 +17,16 @@ namespace Atlas
         Floe,
         Frame,
         Lava,
-        // The sea's illustrations (SeaGlyphs), one group each.
+        // The sea's marks (SeaGlyphs: the figures and their stand-ins), one group each.
         Illustration,
     }
 
-    // Where a sea illustration stands, in world metres: the box round its ink. It is drawn only
-    // when the box lies wholly in explored land (Paper.SeaMarkSeen), so no monster is shown half
-    // explored, on parchment or cut by the fog.
-    // The glyph itself (SeaGlyphs kind, the sheet point it was drawn at, mirroring and scale) is
-    // kept too, so its wash (SeaWash) can be laid again from the cached sheet.
+    // Where a sea mark (a figure or a stand-in) stands, in world metres: the box round its ink.
+    // It is drawn only when the box lies wholly in explored land (Paper.SeaMarkSeen), so no
+    // monster is shown half explored, on parchment or cut by the fog.
+    // The glyph itself (SeaGlyphs kind, the sheet point it was drawn at, mirroring and scale; a
+    // stand-in's shape comes from its point) is kept too, so its wash (SeaWash) can be laid
+    // again from the cached sheet.
     internal struct SeaMark
     {
         public float m_west, m_east, m_south, m_north;

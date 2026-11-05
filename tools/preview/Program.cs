@@ -388,17 +388,20 @@ internal static class Program
             }
             else if (p[0] == "washmasks")
             {
-                // Each sea illustration's wash mask (SeaWash, black = full wash), 8x, for checking its shape.
+                // Each sea mark's washes (SeaWash: the body's grey and the blue wedge together,
+                // black = full wash), 8x, for checking their shape.
                 int k = 0;
                 foreach (object wsh in (System.Collections.IList)Get(record, "m_seaWashes"))
                 {
                     int ww = (int)Get(wsh, "m_width"), wh = (int)Get(wsh, "m_height");
                     var msk = (float[])Get(wsh, "m_mask");
+                    var wdg = (float[])Get(wsh, "m_wedge");
                     var px = new byte[ww * wh * 4];
                     for (int y = 0; y < wh; y++)
                         for (int x = 0; x < ww; x++)
                         {
-                            byte v = (byte)(255 - Mathf.Clamp01(msk[(wh - 1 - y) * ww + x]) * 255f);
+                            int at = (wh - 1 - y) * ww + x;
+                            byte v = (byte)(255 - Mathf.Clamp01(Mathf.Max(msk == null ? 0f : msk[at], wdg[at])) * 255f);
                             int o = (y * ww + x) * 4;
                             px[o] = px[o + 1] = px[o + 2] = v;
                             px[o + 3] = 255;
@@ -442,6 +445,40 @@ internal static class Program
                 DrawPins(all, 768, tx0 * tileSize, ty0 * tileSize + 3 * tileSize, scale, source, sheet, !p[0].StartsWith("pinsbare"), washed, fog);
                 Dirt(all, 768, tx0 * tileSize, ty0 * tileSize, 3 * tileSize, scale, dirt, fog);
                 Save(Path.Combine(outDir, p[0] + ".png"), all, 768, 768, 1);
+            }
+            else if (p[0] == "trim")
+            {
+                // trim:fit (the whole sheet at the least zoom in a 16:9 view, the window's backdrop
+                // either side), trim:north and trim:corner (4x close-up tiles where the frame comes
+                // nearest the edge, and at the north-west corner): the sheet's trimmed edge
+                // (SheetEdge's strips, sampled as the game samples them) over the backdrop.
+                object strips = T("Atlas.SheetEdge").GetMethod("Build", All).Invoke(null, new object[] { 12345 });
+                byte[] src;
+                int sl = 0, span, scale, down, vw, vh;
+                float vl, vt;
+                if (p[1] == "fit")
+                {
+                    span = canvas;
+                    scale = 1;
+                    down = 4;
+                    src = Sheet(inkMips, washed, fog, 0, 0, canvas, 1);
+                    Dirt(src, canvas, 0, 0, canvas, 1, dirt, fog);
+                    vw = 7712; vh = canvas; vl = -(vw - canvas) / 2f; vt = 0f;
+                }
+                else
+                {
+                    span = 240;
+                    scale = 4;
+                    down = 1;
+                    if (p[1] == "north") sl = canvas / 2 - span / 2;
+                    src = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt(sl, 0, span, span), scale, 3f, 4, CancellationToken.None, null, null, null });
+                    Dirt(src, span * scale, sl, 0, span, scale, dirt, fog);
+                    vw = vh = span;
+                    vl = p[1] == "north" ? sl : -50f;
+                    vt = -50f;
+                }
+                byte[] trimmed = Trim(src, sl, 0, span, vl, vt, vw, vh, scale, strips);
+                Save(Path.Combine(outDir, "trim-" + p[1] + ".png"), trimmed, vw * scale, vh * scale, down);
             }
             else if (p[0] == "overview")
             {
@@ -1138,13 +1175,15 @@ internal static class Program
     }
 
     // --seacat <png>: the sea's decorative marks as the map draws them, as a board. Each sea
-    // illustration (SeaGlyphs) lies on the water it is placed in (the open ocean's blue; the
-    // bonemaw on the Ashlands' boiling sea, at full heat) with its darker wash (SeaWash), built
-    // from its mark as the sheet builds it: at sheet size, the wash laid as the ink texture lays
-    // it (Paper.SeaInk), and as a 4x close-up draws it, the pen thinned by the close-up's level
-    // of detail and the wash glazed over the water (Paper.SeaGlaze); plain and mirrored, at
-    // scale 1 and centred as DrawIllustrations centres its box. Then the Ashlands' simmer marks
-    // (InkPainter.Simmer) for a row of seeds, and a sea wave group and the two lake hands' line
+    // figure (SeaGlyphs) lies on the water it is placed in (the open ocean's blue; the bonemaw
+    // on the Ashlands' boiling sea, at full heat) with its washes (SeaWash: the body's grey and
+    // the blue wedge under its waterline), built from its mark as the sheet builds them: at
+    // sheet size, laid as the ink texture lays them (Paper.SeaInk), and as a 4x close-up draws
+    // it, the pen thinned by the close-up's level of detail and the washes glazed over the water
+    // (Paper.SeaMarkGlaze); plain and mirrored, at scale 1 and centred as DrawIllustrations
+    // centres its box. Then the stand-ins with their wedges (SeaGlyphs.DrawStandIn,
+    // SeaWash.BuildStandIn; boiling water's bubbles washed grey inside): boiling water's two
+    // variants and the fish's three, each for two seeds, and a sea wave group and the two lake hands' line
     // groups (InkPainter.DrawWave, rows by RowY, crests by Crests) off a straight stand-in shore
     // facing either way: in game their places come from the traced coast, which needs a world.
     // Seeds are fixed, so the board changes only when the drawing does.
@@ -1158,7 +1197,10 @@ internal static class Program
         MethodInfo drawGlyph = sea.GetMethod("Draw", All);
         MethodInfo boxOf = painterType.GetMethod("IllustrationBox", All);
         MethodInfo buildWash = washType.GetMethod("Build", All), washAt = washType.GetMethod("At", All);
-        MethodInfo simmer = painterType.GetMethod("Simmer", All), drawWave = painterType.GetMethod("DrawWave", All);
+        MethodInfo drawStandIn = sea.GetMethod("DrawStandIn", All), buildStandIn = washType.GetMethod("BuildStandIn", All);
+        MethodInfo wedgeAt = washType.GetMethod("WedgeAt", All), drawWave = painterType.GetMethod("DrawWave", All);
+        int figures = (int)sea.GetField("FigureKinds", All).GetValue(null);
+        int boilKind = (int)sea.GetField("Boil", All).GetValue(null), fishKind = (int)sea.GetField("Fish", All).GetValue(null);
         MethodInfo rowY = painterType.GetMethod("RowY", All), crestsOf = painterType.GetMethod("Crests", All);
         MethodInfo hashInt = noise.GetMethod("HashInt", All), unit = noise.GetMethod("Unit", All);
         MethodInfo stroke = canvasType.GetMethod("Stroke", All);
@@ -1166,13 +1208,17 @@ internal static class Program
         float mpp = Const("MetresPerPixel"), half = Const("HalfExtent");
         Type byRef = typeof(float).MakeByRefType();
         MethodInfo waterColor = paperType.GetMethod("WaterColor", All, null, new[] { typeof(float), typeof(float), typeof(float), byRef, byRef, byRef }, null);
-        MethodInfo ashGlaze = paperType.GetMethod("AshSeaGlaze", All), seaGlaze = paperType.GetMethod("SeaGlaze", All);
+        MethodInfo ashGlaze = paperType.GetMethod("AshSeaGlaze", All), seaGlaze = paperType.GetMethod("SeaMarkGlaze", All);
         var paper = (Color32)paperType.GetField("PaperColor", All).GetValue(null);
         var inkColour = (Color32)paperType.GetField("InkColor", All).GetValue(null);
-        var seaInk = new object[] { 0f, 0f, 0f, 0f };
-        paperType.GetMethod("SeaInk", All).Invoke(null, seaInk);
-        float seaAlpha = (float)seaInk[0];
-        var seaColour = new Vector3((float)seaInk[1], (float)seaInk[2], (float)seaInk[3]);
+        // The body's grey and the wedge's blue as the ink texture lays them (Paper.SeaInk).
+        var bodyInk = new object[] { false, 0f, 0f, 0f, 0f };
+        paperType.GetMethod("SeaInk", All).Invoke(null, bodyInk);
+        var wedgeInk = new object[] { true, 0f, 0f, 0f, 0f };
+        paperType.GetMethod("SeaInk", All).Invoke(null, wedgeInk);
+        float bodyAlpha = (float)bodyInk[1], wedgeAlpha = (float)wedgeInk[1];
+        var bodyColour = new Vector3((float)bodyInk[2], (float)bodyInk[3], (float)bodyInk[4]);
+        var wedgeColour = new Vector3((float)wedgeInk[2], (float)wedgeInk[3], (float)wedgeInk[4]);
 
         // The water over clean parchment (Paper.WaterColor), warmed by the boiling sea at full
         // heat where ash is set (Paper.AshSeaGlaze), as the wash under the sheet lays it.
@@ -1199,14 +1245,14 @@ internal static class Program
             Set(canvas, "m_penScale", 1f / Lod(scale));
             return canvas;
         }
-        // A tile painter on the canvas: it draws the simmer marks and waves in the canvas's pen.
+        // A tile painter on the canvas: it draws the waves in the canvas's pen.
         object Painter(object canvas, int scale) =>
             painterNew.Invoke(new object[] { world, canvas, null, Lod(scale), new RectInt(0, 0, 0, 0), CancellationToken.None });
 
         // The patch of w x h sheet pixels from (left, top) at scale as the map shows it: the water
         // (parchment on the stand-in shore's land side, land -1 west or 1 east of shore), the sea
-        // wash where wash is given, then the ink.
-        Bitmap Patch(object canvas, int w, int h, float left, float top, int scale, bool ash, object wash, float shore, int land)
+        // washes given (or none), then the ink.
+        Bitmap Patch(object canvas, int w, int h, float left, float top, int scale, bool ash, System.Collections.IList washes, float shore, int land)
         {
             int pw = w * scale, ph = h * scale;
             var ink = (byte[])Get(canvas, "m_ink");
@@ -1223,21 +1269,29 @@ internal static class Program
                     float a = ink[y * pw + x] / 255f;
                     bool dry = land != 0 && (sx - shore) * land > 0f;
                     Vector3 c = dry ? clean : water;
-                    float amount = wash == null || dry ? 0f : (float)washAt.Invoke(wash, new object[] { sx, sy });
+                    float amount = 0f, wedge = 0f;
+                    if (washes != null && !dry)
+                        foreach (object wash in washes)
+                        {
+                            amount = Mathf.Max(amount, (float)washAt.Invoke(wash, new object[] { sx, sy }));
+                            wedge = Mathf.Max(wedge, (float)wedgeAt.Invoke(wash, new object[] { sx, sy }));
+                        }
                     if (scale == 1)
                     {
-                        // The sheet's ink texture: the wash's colour at its opacity under the ink,
-                        // laid over the paper (Paper.InkWithMips).
-                        float su = amount * seaAlpha * (1f - a);
-                        c = c * (1f - Mathf.Min(1f, su + a)) + seaColour * su + pen * a;
+                        // The sheet's ink texture: the wedge over the body, premultiplied, under
+                        // the ink, laid over the paper (Paper.InkWithMips).
+                        float bu = amount * bodyAlpha * (1f - a), wu = wedge * wedgeAlpha * (1f - a);
+                        Vector3 washed = wedgeColour * wu + bodyColour * (bu * (1f - wu));
+                        float su = wu + bu * (1f - wu);
+                        c = c * (1f - Mathf.Min(1f, su + a)) + washed + pen * a;
                     }
                     else
                     {
-                        if (amount > 0f)
+                        if (amount > 0f || wedge > 0f)
                         {
-                            var args = new object[] { c.x, c.y, c.z, amount, 0f, 0f, 0f };
+                            var args = new object[] { c.x, c.y, c.z, amount, wedge, 0f, 0f, 0f };
                             seaGlaze.Invoke(null, args);
-                            c = new Vector3((float)args[4], (float)args[5], (float)args[6]);
+                            c = new Vector3((float)args[5], (float)args[6], (float)args[7]);
                         }
                         c += (pen - c) * a;
                     }
@@ -1281,24 +1335,29 @@ internal static class Program
             float left = Mathf.Floor(at.x - w * 0.5f), top = Mathf.Floor(at.y - h * 0.5f);
             object canvas = NewCanvas(w, h, left, top, scale);
             drawGlyph.Invoke(null, new object[] { canvas, kind, x, y, mirror, 1f });
-            return Patch(canvas, w, h, left, top, scale, kind == bonemaw, wash, 0f, 0);
+            return Patch(canvas, w, h, left, top, scale, kind == bonemaw, new[] { wash }, 0f, 0);
         }
 
-        // A row of simmer marks, one per seed, as DrawBoiling seeds them from its grid.
-        const int boils = 6, boilStep = 26, boilHeight = 30;
-        Bitmap Boiling(int scale)
+        // A row of stand-ins of one kind with their wedges: the variants in turn, each seed fixed,
+        // as PlaceStandIns draws them on their spots.
+        const int standIns = 6, standInStep = 26, standInHeight = 32;
+        Bitmap StandIns(int kind, int[] variants, int scale)
         {
-            int w = boils * boilStep + 2 * margin;
-            const float left = 2000f, top = 3000f;
-            object canvas = NewCanvas(w, boilHeight, left, top, scale);
-            object painter = Painter(canvas, scale);
-            int salt = unchecked(12345 + 62 * 7919);
-            for (int k = 0; k < boils; k++)
+            int w = standIns * standInStep + 2 * margin;
+            const float left = 2000f;
+            float top = kind == boilKind ? 3000f : 3200f;
+            object canvas = NewCanvas(w, standInHeight, left, top, scale);
+            int salt = unchecked(12345 + 64 * 7919 + kind);
+            var washes = new System.Collections.ArrayList();
+            for (int k = 0; k < standIns; k++)
             {
                 int seed = (int)hashInt.Invoke(null, new object[] { k, 0, salt });
-                simmer.Invoke(painter, new object[] { left + margin + (k + 0.5f) * boilStep, top + 18f, seed });
+                int variant = variants[k % variants.Length];
+                float x = left + margin + (k + 0.5f) * standInStep, y = top + (kind == boilKind ? 18f : 20f);
+                drawStandIn.Invoke(null, new object[] { canvas, kind, x, y, seed, variant });
+                washes.Add(buildStandIn.Invoke(null, new object[] { kind, x, y, seed, variant }));
             }
-            return Patch(canvas, w, boilHeight, left, top, scale, true, null, 0f, 0);
+            return Patch(canvas, w, standInHeight, left, top, scale, kind == boilKind, washes, 0f, 0);
         }
 
         // One group of a hand's strokes off a straight shore at x = shore with the water on its
@@ -1365,10 +1424,10 @@ internal static class Program
             return Patch(canvas, waveWidth, waveHeight, left, top, scale, false, null, shore, -dir);
         }
 
-        // Every illustration's patch: its larger box, plain or mirrored, and a margin round it.
-        var patchW = new int[names.Length];
-        var patchH = new int[names.Length];
-        for (int k = 0; k < names.Length; k++)
+        // Every figure's patch: its larger box, plain or mirrored, and a margin round it.
+        var patchW = new int[figures];
+        var patchH = new int[figures];
+        for (int k = 0; k < figures; k++)
         {
             Rect a = Box(k, false), b = Box(k, true);
             patchW[k] = Mathf.CeilToInt(Mathf.Max(a.width, b.width)) + 2 * margin;
@@ -1377,11 +1436,12 @@ internal static class Program
         int widest = Mathf.Max(Mathf.Max(patchW), waveWidth);
         int sheetColumn = widest + pad, bigColumn = widest * big + pad;
         int c1 = nameWidth, c2 = c1 + sheetColumn, c3 = c2 + sheetColumn, c4 = c3 + bigColumn;
-        // The boil marks' close-up strip runs on across both close-up columns.
-        int width = Mathf.Max(c4 + bigColumn, c3 + (boils * boilStep + 2 * margin) * big) + pad;
+        // The stand-ins' close-up strips run on across both close-up columns.
+        int width = Mathf.Max(c4 + bigColumn, c3 + (standIns * standInStep + 2 * margin) * big) + pad;
         var heights = new System.Collections.Generic.List<int>();
-        for (int k = 0; k < names.Length; k++) heights.Add(patchH[k] * big + pad);
-        heights.Add(boilHeight * big + pad);
+        for (int k = 0; k < figures; k++) heights.Add(patchH[k] * big + pad);
+        heights.Add(standInHeight * big + pad);
+        heights.Add(standInHeight * big + pad);
         for (int k = 0; k < 3; k++) heights.Add(waveHeight * big + pad);
         int height = header + 40;
         foreach (int h in heights) height += h;
@@ -1416,14 +1476,14 @@ internal static class Program
             }
 
             int rowTop = header, next = 0;
-            for (int k = 0; k < names.Length; k++)
+            for (int k = 0; k < figures; k++)
             {
                 int rowHeight = heights[next++];
                 Rect box = Box(k, false);
                 Label(rowTop, rowHeight, names[k],
                     k == bonemaw ? "the Ashlands' boiling sea" : "the open ocean",
                     $"{box.width:0} x {box.height:0} sheet px box",
-                    k == leviathan ? "mirrored: shell flipped, shade kept east" : "with its sea wash (SeaWash)");
+                    k == leviathan ? "mirrored: shell flipped, shade kept east" : k == bonemaw ? "with its blue wedge (SeaWash)" : "with its grey and blue wedge (SeaWash)");
                 Place(Illustration(k, false, 1, patchW[k], patchH[k]), c1, rowTop, rowHeight);
                 Place(Illustration(k, true, 1, patchW[k], patchH[k]), c2, rowTop, rowHeight);
                 Place(Illustration(k, false, big, patchW[k], patchH[k]), c3, rowTop, rowHeight);
@@ -1431,11 +1491,19 @@ internal static class Program
                 rowTop += rowHeight;
             }
 
-            int boilRow = heights[next++];
-            Label(rowTop, boilRow, "Boil marks", "the Ashlands' boiling sea", $"{boils} seeds (Simmer)", "sheet, then close-up 4x");
-            Place(Boiling(1), c1, rowTop, boilRow);
-            Place(Boiling(big), c3, rowTop, boilRow);
-            rowTop += boilRow;
+            var standInRows = new[]
+            {
+                new object[] { boilKind, new[] { 0, 2 }, "Boiling water", "stand-in, the Ashlands' sea", "variants 0 and 2 in turn", "grey bubbles, blue wedge; sheet, then 4x" },
+                new object[] { fishKind, new[] { 0, 1, 2 }, "Leaping fish", "stand-in, the open ocean", "variants 0, 1, 2 twice", "blue wedge; sheet, then close-up 4x" },
+            };
+            foreach (object[] standIn in standInRows)
+            {
+                int rowHeight = heights[next++];
+                Label(rowTop, rowHeight, (string)standIn[2], (string)standIn[3], (string)standIn[4], (string)standIn[5]);
+                Place(StandIns((int)standIn[0], (int[])standIn[1], 1), c1, rowTop, rowHeight);
+                Place(StandIns((int)standIn[0], (int[])standIn[1], big), c3, rowTop, rowHeight);
+                rowTop += rowHeight;
+            }
 
             var waves = new[]
             {
@@ -1458,6 +1526,60 @@ internal static class Program
         }
         System.Console.WriteLine(path);
         return 0;
+    }
+
+    // The atlas window round the sheet: the frame's backdrop (AtlasView.s_border), the sheet's
+    // layers (src: the square of sw sheet px from (sl, st) at scale, rows from the south) where
+    // the sheet is, and the trimmed edge's strips over them (SheetEdge.Strips, level 0 sampled
+    // bilinearly, tinted by the backdrop as RawImage.color tints them). The view is vw x vh sheet
+    // px from (vl, vt), at scale output px per sheet px; rows from the south.
+    static byte[] Trim(byte[] src, int sl, int st, int sw, float vl, float vt, int vw, int vh, int scale, object strips)
+    {
+        const int canvas = 4096, texels = 2;
+        float br = 51f, bg = 38f, bb = 26f;
+        var rects = (RectInt[])Get(strips, "m_rects");
+        var pixels = (byte[][])Get(strips, "m_pixels");
+        int ow = vw * scale, oh = vh * scale, sn = sw * scale;
+        var rgba = new byte[ow * oh * 4];
+        System.Threading.Tasks.Parallel.For(0, oh, oy =>
+        {
+            float y = vt + vh - (oy + 0.5f) / scale;
+            for (int ox = 0; ox < ow; ox++)
+            {
+                float x = vl + (ox + 0.5f) / scale;
+                float r = br, g = bg, b = bb;
+                int sx = (int)((x - sl) * scale), sy = (int)((st + sw - y) * scale);
+                if (x >= 0f && x < canvas && y >= 0f && y < canvas && sx >= 0 && sx < sn && sy >= 0 && sy < sn)
+                {
+                    int i = (sy * sn + sx) * 4;
+                    r = src[i]; g = src[i + 1]; b = src[i + 2];
+                }
+                for (int k = 0; k < rects.Length; k++)
+                {
+                    RectInt rc = rects[k];
+                    if (x < rc.x || x >= rc.x + rc.width || y < rc.y || y >= rc.y + rc.height) continue;
+                    int w = rc.width * texels, h = rc.height * texels;
+                    // Texture rows run from the south.
+                    float fx = (x - rc.x) * texels - 0.5f, fy = (rc.y + rc.height - y) * texels - 0.5f;
+                    int x0 = Math.Max(0, Math.Min(w - 2, (int)Math.Floor(fx))), y0 = Math.Max(0, Math.Min(h - 2, (int)Math.Floor(fy)));
+                    float tx = Mathf.Clamp01(fx - x0), ty = Mathf.Clamp01(fy - y0);
+                    byte[] q = pixels[k];
+                    int i00 = (y0 * w + x0) * 4, i10 = i00 + 4, i01 = i00 + w * 4, i11 = i01 + 4;
+                    float a = Lerp(Lerp(q[i00 + 3], q[i10 + 3], tx), Lerp(q[i01 + 3], q[i11 + 3], tx), ty) / 255f;
+                    float s = Lerp(Lerp(q[i00], q[i10], tx), Lerp(q[i01], q[i11], tx), ty) / 255f;
+                    r += (br * s - r) * a;
+                    g += (bg * s - g) * a;
+                    b += (bb * s - b) * a;
+                    break;
+                }
+                int o = (oy * ow + ox) * 4;
+                rgba[o] = (byte)(r + 0.5f);
+                rgba[o + 1] = (byte)(g + 0.5f);
+                rgba[o + 2] = (byte)(b + 0.5f);
+                rgba[o + 3] = 255;
+            }
+        });
+        return rgba;
     }
 
     // rgba rows run south first; down is a box downscale factor.

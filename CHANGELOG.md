@@ -17,6 +17,8 @@
   and water is one even indigo wash ending crisply at the shore. The colours are thin glazes of pigments a northern illuminator of the
   period could have had.
 - The parchment is aged all over: an uneven patina, and old water stains with tide lines, dried rings and clusters of small brown spots lying over everything on the map, ink and pins included, as on a real stained sheet.
+- The parchment's edge is trimmed by hand: a slightly wandering cut with worn, rounded corners and
+  a darker, handled rim.
 - Woods are drawn where the game grows its forests, each one a dense mass of trees bounded by its
   outer crowns, with the open land around it kept clear. Every tree carries its biome's wood
   colour, as the peaks carry the mountains' grey, right out to the edge of its wood.
@@ -47,16 +49,22 @@
   into the lake, at the lake's bends and along its straight shores, never across it, so still
   water reads apart from the sea; ponds stay bare. Ice floes in the northern sea are white as the northern snow; rivers and
   streams are drawn as ink lines.
-- A few sea monsters are inked far out in the widest stretches of open water, as on old maps:
+- A few sea monsters are inked out in wide stretches of open water, spread over the seas rather
+  than crowded along the map's rim, as on old maps:
   sea serpents and serpent coils where the game's Serpents swim, the odd leviathan, and the
   bonemaw's bare bones in the Ashlands' boiling sea; the northern sea stays empty. Each appears
   at most three times, spread over the map, some facing the other way and a little larger or
-  smaller, its body laid in a slightly darker wash of the sea's blue so it stands out a little
-  from the water round it. A monster is drawn only once you have explored all the sea round it,
-  so it is never cut by the edge of the unexplored or seen half on bare parchment.
+  smaller, its body washed iron grey above the water and a wedge of deeper blue in the water
+  under it, trailing east like its shadow, so it stands out from the sea round it (the
+  bonemaw's bare bones get the blue wedge alone). Where open water had room for a monster but
+  none fitted, the sea may show a smaller sign instead, well apart from each other: a fish
+  leaping from a short level wave in the open ocean, and a simmering spot in the Ashlands'
+  boiling sea, bubbles washed grey rising from a short level wave, with a wave behind and one
+  in front as if seen across the water; each has a little blue wedge under it too. Monsters and
+  these signs are drawn only once you have explored all the sea round them, so they are never
+  cut by the edge of the unexplored or seen half on bare parchment.
 - The Ashlands' boiling sea takes a faint reddish-brown warmth, as on the game's own map, fading
-  in where the game's does, and a very few spots far out simmer: bubbles rising from a short
-  level wave, with a wave behind and one in front, as if seen across the water.
+  in where the game's does.
 - "Read map" at a cartography table opens the game's own interactive map, where you can place and
   edit pins. Your pins appear on your map the next time you record your discoveries, drawn with
   the map's own pen: a campfire, a longhouse, Thor's hammer Mjolnir, a dot, the stone portal as a

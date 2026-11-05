@@ -21,6 +21,12 @@ namespace Atlas
         public const int SerpentCoil = 1;
         public const int Leviathan = 2;
         public const int BonemawSerpent = 3;
+        // The stand-ins, small marks drawn where a figure was ruled out (InkPainter.PlaceStandIns):
+        // boiling water in the Ashlands' sea, a leaping fish in the open ocean.
+        public const int Boil = 4;
+        public const int Fish = 5;
+        // The figures are the kinds below this; the rest are stand-ins.
+        public const int FigureKinds = 4;
 
         // The finest line, and the outline weight, a shade heavier as the peaks' flanks are.
         private const float Pen = 1f;
@@ -36,15 +42,22 @@ namespace Atlas
         // The glyphs' names, indexed by kind.
         public static readonly string[] Names =
         {
-            "Sea serpent", "Serpent coil", "Leviathan", "Bonemaw serpent",
+            "Sea serpent", "Serpent coil", "Leviathan", "Bonemaw serpent", "Boiling water", "Leaping fish",
         };
 
         // Draws glyph kind centred on (x, y), its waterline at y, scale times its size, turned east
         // for west when mirror is set. The leviathan is not turned: its east flank is hatched as
         // in shade, as every glyph on the map is lit from the west, so it only lays its shell and
-        // barnacles the other way round.
+        // barnacles the other way round. A stand-in is drawn at its spot (x, y), never turned
+        // or scaled, its shape set by a seed from that spot (StandInSeed).
         public static void Draw(InkCanvas canvas, int kind, float x, float y, bool mirror = false, float scale = 1f)
         {
+            if (IsStandIn(kind))
+            {
+                int seed = StandInSeed(x, y);
+                DrawStandIn(canvas, kind, x, y, seed, StandInVariant(kind, seed));
+                return;
+            }
             var c = new Hand(canvas, x, y, mirror && kind != Leviathan, scale);
             switch (kind)
             {
@@ -703,6 +716,330 @@ namespace Atlas
             var points = new List<Vector2>(segments + 1);
             for (int i = 0; i <= segments; i++) points.Add(at(i / (float)segments));
             return points;
+        }
+
+        // ---- The stand-ins: boiling water and leaping fish --------------------------------------
+
+        // A stand-in's shape (sizes, sides, variant) comes from a hash of its sheet point with
+        // StandInSalt, so it is drawn again alike from its mark alone (SeaWash, close-ups) and
+        // never moves with another rule.
+        private const int StandInSalt = 64;
+        // The boil mark's and the fish's water: one wave of BoilWave px crests lifting BoilLift
+        // (lower than the coast's WaveLift, a ruffle, not a group), seen at three distances: the
+        // back row drawn at BoilScaleBack of the front, the lower one at BoilScaleLow, each row
+        // BoilTrainShift of a wave on from the one behind. The rows' gaps are foreshortened with
+        // them (in proportion to the mean scale of the two rows, 0.9 and 1.1 of 4 px).
+        private const float BoilWave = 3.4f;
+        private const float BoilLift = 0.45f;
+        private const float BoilScaleBack = 0.8f;
+        private const float BoilScaleLow = 1.2f;
+        private const float BoilTrainShift = 1f / 3f;
+        private const float BoilBackRise = 3.6f;
+        private const float BoilLowDrop = 4.4f;
+        // The boil mark's variants (the user's pick of four): 0 a column of three bubbles and a
+        // speck, 2 a big bubble with two small ones rising either side; half each by seed. Two
+        // side by side read weaker, and a bursting bubble read as a "U" in close-ups.
+        private const int BoilColumn = 0;
+        private const int BoilCluster = 2;
+        // The cluster's front line is a little wider, as its bubbles spread wider.
+        private const float BoilClusterWidth = 1.08f;
+        // The fish's variants, a third each by seed: 0 one fish arched on the way down, 1 two in
+        // tandem (the second smaller and still rising), 2 one diving back in head first.
+        private const int FishDown = 0;
+        private const int FishTandem = 1;
+        private const int FishDiving = 2;
+        // The stand-ins' wedge (SeaWash.BuildStandIn) spans this share of the front line either
+        // side of its centre: the boil's bubbles, the fish's splash.
+        private const float BoilWedgeShare = 0.32f;
+        private const float FishWedgeShare = 0.3f;
+        // The wedge's top lies this far under the front line.
+        private const float StandInWedgeDrop = 0.5f;
+
+        public static bool IsStandIn(int kind) => kind == Boil || kind == Fish;
+
+        public static int StandInSeed(float x, float y) => Noise.HashInt(Mathf.RoundToInt(x * 8f), Mathf.RoundToInt(y * 8f), StandInSalt);
+
+        public static int StandInVariant(int kind, int seed) =>
+            kind == Boil ? (Noise.Unit(seed, 170) < 0.5f ? BoilColumn : BoilCluster) : (int)(Noise.Unit(seed, 171) * 3f) % 3;
+
+        // A stand-in's ink box relative to its spot: the boil's bubbles and speck rise about
+        // 11 px, its lower water line lies about 8 px under the spot and its front line runs up to
+        // about 10 px either side; the fish leaps about 10 px and its lines run 9 px either side.
+        public static void StandInBox(int kind, out float left, out float top, out float right, out float bottom)
+        {
+            if (kind == Boil)
+            {
+                left = -10.7f;
+                top = -11.5f;
+                right = 10.7f;
+                bottom = 8.8f;
+                return;
+            }
+            left = -9f;
+            top = -10f;
+            right = 9f;
+            bottom = 6.5f;
+        }
+
+        // A stand-in's front water line: its level (sheet y), centre and width.
+        private static void FrontLine(int kind, float x, float y, int seed, int variant, out float front, out float centre, out float width)
+        {
+            if (kind == Boil)
+            {
+                float r0 = BoilRadius(seed);
+                // One unbroken line 1.7 px under the big bubble's foot, so a crest under it still
+                // leaves paper between them.
+                front = y + 0.85f * r0 + 1.7f;
+                width = Mathf.Lerp(15f, 18f, Noise.Unit(seed, 151)) * (variant == BoilCluster ? BoilClusterWidth : 1f);
+                centre = x + Mathf.Lerp(-1.2f, 1.2f, Noise.Unit(seed, 152));
+                return;
+            }
+            front = y;
+            width = Mathf.Lerp(13f, 16f, Noise.Unit(seed, 151));
+            centre = x + Mathf.Lerp(-1f, 1f, Noise.Unit(seed, 152));
+        }
+
+        private static float BoilRadius(int seed) => Mathf.Lerp(1.6f, 2.0f, Noise.Unit(seed, 4));
+
+        // The top of a stand-in's wedge: from x0 to x1 at sheet y water.
+        public static void StandInWater(int kind, float x, float y, int seed, int variant, out float x0, out float x1, out float water)
+        {
+            FrontLine(kind, x, y, seed, variant, out float front, out float centre, out float width);
+            float share = kind == Boil ? BoilWedgeShare : FishWedgeShare;
+            x0 = centre - width * share;
+            x1 = centre + width * share;
+            water = front + StandInWedgeDrop;
+        }
+
+        // Draws a stand-in at its spot with a given seed and variant (the catalogue forces each).
+        public static void DrawStandIn(InkCanvas canvas, int kind, float x, float y, int seed, int variant)
+        {
+            if (kind == Boil) BoilMark(canvas, x, y, seed, variant);
+            else LeapingFish(canvas, x, y, seed, variant);
+        }
+
+        // A bubble of the boil mark.
+        private struct Bubble
+        {
+            public float m_x, m_y, m_r;
+        }
+
+        // The boil mark's bubbles at spot (x, y) for seed and variant: the big one on the water
+        // first, then the risen ones, and the side the column sways to.
+        private static List<Bubble> BoilBubbles(float x, float y, int seed, int variant, out float side)
+        {
+            side = Noise.Unit(seed, 3) < 0.5f ? -1f : 1f;
+            float r0 = BoilRadius(seed);
+            var bubbles = new List<Bubble> { new Bubble { m_x = x, m_y = y, m_r = r0 } };
+            if (variant == BoilCluster)
+            {
+                float r1 = r0 * 0.55f, r2 = r0 * 0.48f;
+                bubbles.Add(new Bubble { m_x = x - (r0 + r1 + 0.7f), m_y = y - r0 - Mathf.Lerp(0.8f, 1.6f, Noise.Unit(seed, 5)), m_r = r1 });
+                bubbles.Add(new Bubble { m_x = x + (r0 + r2 + 0.7f), m_y = y - r0 - Mathf.Lerp(2.2f, 3.2f, Noise.Unit(seed, 6)), m_r = r2 });
+            }
+            else
+            {
+                // A column shrinking and swaying as it rises.
+                float r1 = r0 * Mathf.Lerp(0.58f, 0.68f, Noise.Unit(seed, 5));
+                float x1 = x + side * Mathf.Lerp(0.8f, 1.4f, Noise.Unit(seed, 6)), y1 = y - r0 - r1 - 1.3f;
+                float r2 = r1 * 0.66f;
+                float x2 = x1 - side * Mathf.Lerp(0.6f, 1.2f, Noise.Unit(seed, 7)), y2 = y1 - r1 - r2 - 1.2f;
+                bubbles.Add(new Bubble { m_x = x1, m_y = y1, m_r = r1 });
+                bubbles.Add(new Bubble { m_x = x2, m_y = y2, m_r = r2 });
+            }
+            return bubbles;
+        }
+
+        // A bubble's ring is a little flattened on the water (the big one) and rounder risen.
+        private static float BubbleHeight(List<Bubble> bubbles, int i) => bubbles[i].m_r * 0.85f * (i == 0 ? 1f : 1.06f);
+
+        // The boil mark's bubbles as ellipses (centre x, y, radii across and up, on the ring's
+        // middle), for the grey body wash that fills them (SeaWash.BuildStandIn).
+        public static void BoilBubbleEllipses(float x, float y, int seed, int variant, List<Vector4> into)
+        {
+            List<Bubble> bubbles = BoilBubbles(x, y, seed, variant, out _);
+            for (int i = 0; i < bubbles.Count; i++) into.Add(new Vector4(bubbles[i].m_x, bubbles[i].m_y, bubbles[i].m_r, BubbleHeight(bubbles, i)));
+        }
+
+        // Boiling water (the user's design): bubbles rising from a continuous front wave line,
+        // over three level lines of one wave seen in perspective: a back line broken by every
+        // bubble it would cross, an unbroken front line under them and a lower line about half as
+        // wide. Each row is the front's wave scaled by its distance (BoilScaleBack, 1,
+        // BoilScaleLow): wavelength, lift and length together, and the gaps between rows
+        // foreshortened alike, so the water reads as a surface seen from above, not three rules.
+        // Sizes and sides by seed so no two are stamped alike. At the opening zoom it reads as a
+        // speck, in close-ups as bubbles on the water.
+        private static void BoilMark(InkCanvas canvas, float x, float y, int seed, int variant)
+        {
+            List<Bubble> bubbles = BoilBubbles(x, y, seed, variant, out float side);
+            float r0 = bubbles[0].m_r;
+            // A speck over the cluster's middle, or over most columns' top bubble.
+            if (variant == BoilCluster) canvas.Dot(x + side * 0.4f, y - r0 * 0.85f - 2.6f, 0.55f);
+            else if (Noise.Unit(seed, 8) < 0.75f) canvas.Dot(bubbles[2].m_x + side * 0.9f, bubbles[2].m_y - bubbles[2].m_r - 1.7f, 0.55f);
+            for (int i = 0; i < bubbles.Count; i++)
+                canvas.Ring(bubbles[i].m_x, bubbles[i].m_y, bubbles[i].m_r, BubbleHeight(bubbles, i), Pen);
+
+            // The rows' crests a third of a wave on from the row behind, so they do not stack.
+            float phase = Noise.Unit(seed, 153) * Mathf.PI * 2f, shift = BoilTrainShift * Mathf.PI * 2f;
+            FrontLine(Boil, x, y, seed, variant, out float front, out float centre, out float width);
+            BoilPiece(canvas, centre - width * 0.5f, front, width, x, phase + shift, 1f);
+            // Back: behind the bubbles and broken by every one it would cross, a long piece on
+            // the seed's side and a short one on the other, so it shows past them both ways. The
+            // hole is the bubbles' own size, not scaled; running up to a bubble the line skewers it.
+            float backSide = Noise.Unit(seed, 150) < 0.5f ? -1f : 1f;
+            float back = front - BoilBackRise;
+            float holeL = x - r0 - 1f, holeR = x + r0 + 1f;
+            foreach (Bubble b in bubbles)
+            {
+                if (Math.Abs(b.m_y - back) > b.m_r + 1f) continue;
+                holeL = Math.Min(holeL, b.m_x - b.m_r - 1f);
+                holeR = Math.Max(holeR, b.m_x + b.m_r + 1f);
+            }
+            float longer = Mathf.Lerp(4.6f, 5.8f, Noise.Unit(seed, 155)) * BoilScaleBack;
+            float shorter = Mathf.Lerp(3.0f, 3.8f, Noise.Unit(seed, 156)) * BoilScaleBack;
+            float left = backSide < 0f ? longer : shorter, right = backSide < 0f ? shorter : longer;
+            BoilPiece(canvas, holeL - left, back, left, x, phase, BoilScaleBack);
+            BoilPiece(canvas, holeR, back, right, x, phase, BoilScaleBack);
+            // Lower: about half the front's width, shifted away from the back's long side.
+            float low = front + BoilLowDrop;
+            float lowWidth = width * 0.5f * Mathf.Lerp(0.9f, 1.1f, Noise.Unit(seed, 159)) * BoilScaleLow;
+            float lowCentre = x - backSide * Mathf.Lerp(0.8f, 2.2f, Noise.Unit(seed, 160));
+            BoilPiece(canvas, lowCentre - lowWidth * 0.5f, low, lowWidth, x, phase + 2f * shift, BoilScaleLow);
+        }
+
+        // A leaping fish in the boil mark's water language: a back line broken by the fish, an
+        // unbroken front line, a shorter lower line, all strictly level and Pen, splash drops
+        // where it left the water. The fish is a small solid spindle with a short forked tail,
+        // caught on the flanks of its leap: level at the top of the arc with a big fork tail it
+        // read as a swallow, and solid and short it does not read as the serpent's coils.
+        private static void LeapingFish(InkCanvas canvas, float x, float y, int seed, int variant)
+        {
+            float dir = Noise.Unit(seed, 3) < 0.5f ? -1f : 1f;
+            float phase = Noise.Unit(seed, 153) * Mathf.PI * 2f, shift = BoilTrainShift * Mathf.PI * 2f;
+            FrontLine(Fish, x, y, seed, variant, out float front, out float centre, out float width);
+            float span = Mathf.Lerp(9f, 10.5f, Noise.Unit(seed, 4)), rise = Mathf.Lerp(7f, 8f, Noise.Unit(seed, 5));
+            float length = Mathf.Lerp(6.6f, 7.6f, Noise.Unit(seed, 6));
+            // Each fish: where on its leap it is (0 to 1), its length, the leap's size and its
+            // offset along the water.
+            var fish = new List<Vector4>();
+            float takeOff = x - dir * span * 0.5f;
+            if (variant == FishTandem)
+            {
+                fish.Add(new Vector4(0.64f, length, 1f, dir * 1.5f));
+                fish.Add(new Vector4(0.36f, length * 0.8f, 0.78f, -dir * 3.6f));
+            }
+            else fish.Add(new Vector4(variant == FishDiving ? 0.84f : 0.6f, length, 1f, 0f));
+            // Back line first, broken where the fish cross it, then the fish, then the front.
+            float back = front - BoilBackRise;
+            float holeL = float.MaxValue, holeR = float.MinValue;
+            foreach (Vector4 f in fish)
+            {
+                for (float t = -0.5f; t <= 0.5f; t += 0.05f)
+                {
+                    Vector2 p = Leap(x + f.w, front, dir, span * f.z, rise * f.z, f.x + t * f.y / (span * f.z * 1.6f));
+                    if (Math.Abs(p.y - back) < 2.2f)
+                    {
+                        holeL = Math.Min(holeL, p.x - 1.4f);
+                        holeR = Math.Max(holeR, p.x + 1.4f);
+                    }
+                }
+            }
+            float backLong = Mathf.Lerp(4.4f, 5.4f, Noise.Unit(seed, 155)) * BoilScaleBack, backShort = Mathf.Lerp(2.8f, 3.6f, Noise.Unit(seed, 156)) * BoilScaleBack;
+            if (holeL > holeR)
+            {
+                holeL = x - 0.5f;
+                holeR = x + 0.5f;
+            }
+            BoilPiece(canvas, holeL - (dir > 0 ? backLong : backShort), back, dir > 0 ? backLong : backShort, x, phase, BoilScaleBack);
+            BoilPiece(canvas, holeR, back, dir > 0 ? backShort : backLong, x, phase, BoilScaleBack);
+            foreach (Vector4 f in fish) FishBody(canvas, x + f.w, front, dir, span * f.z, rise * f.z, f.x, f.y);
+            // Drops where it left the water (or, diving, both sides of where it goes in).
+            if (variant == FishDiving)
+            {
+                Vector2 entry = Leap(x, front, dir, span, rise, 1f);
+                canvas.Dot(entry.x - 1.8f, front - 1.6f, 0.55f);
+                canvas.Dot(entry.x + 1.9f, front - 1.9f, 0.55f);
+                canvas.Dot(entry.x - 0.2f, front - 2.9f, 0.5f);
+            }
+            else
+            {
+                canvas.Dot(takeOff - dir * 0.6f, front - 1.7f, 0.55f);
+                canvas.Dot(takeOff + dir * 1.1f, front - 2.6f, 0.5f);
+            }
+            BoilPiece(canvas, centre - width * 0.5f, front, width, x, phase + shift, 1f);
+            float low = front + BoilLowDrop;
+            float lowWidth = width * 0.5f * BoilScaleLow * Mathf.Lerp(0.9f, 1.1f, Noise.Unit(seed, 159));
+            float lowCentre = x + dir * Mathf.Lerp(0.8f, 2f, Noise.Unit(seed, 160));
+            BoilPiece(canvas, lowCentre - lowWidth * 0.5f, low, lowWidth, x, phase + 2f * shift, BoilScaleLow);
+        }
+
+        // A point on a leap from the water at x - dir * span / 2 up rise and back down at
+        // x + dir * span / 2, at t from 0 to 1: a parabola.
+        private static Vector2 Leap(float x, float water, float dir, float span, float rise, float t) =>
+            new Vector2(x + dir * span * (t - 0.5f), water - rise * 4f * t * (1f - t));
+
+        // A small solid fish along its leap, centred at t, length long: a spindle bowed with the
+        // arc, thickest a little forward of the middle, a blunt head and a thin wrist before a
+        // forked tail, scraped clear a little round it so the back line ends cleanly at it.
+        private static void FishBody(InkCanvas canvas, float x, float water, float dir, float span, float rise, float t, float length)
+        {
+            float arc = span * 1.6f;
+            float half = Mathf.Max(1.1f, length * 0.2f);
+            const int steps = 10;
+            var left = new List<Vector2>(steps + 1);
+            var right = new List<Vector2>(steps + 1);
+            for (int i = 0; i <= steps; i++)
+            {
+                float u = i / (float)steps;
+                float tt = t + (u - 0.55f) * length / arc;
+                Vector2 p = Leap(x, water, dir, span, rise, tt);
+                Vector2 q = Leap(x, water, dir, span, rise, tt + 0.01f);
+                Vector2 d = (q - p).normalized;
+                var nrm = new Vector2(-d.y, d.x);
+                float h = half * Mathf.Max(0.28f, Mathf.Pow(Mathf.Sin(Mathf.PI * Mathf.Pow(u, 0.8f)), 0.75f));
+                left.Add(p + nrm * h);
+                right.Add(p - nrm * h);
+            }
+            for (int i = 0; i < steps; i++)
+            {
+                Vector2 a = (left[i] + right[i]) * 0.5f, b = (left[i + 1] + right[i + 1]) * 0.5f;
+                canvas.Scrape(a.x, a.y, b.x, b.y, 2f * half + 1.4f);
+            }
+            // The body as overlapping round strokes along its middle, each as wide as the body
+            // there: filled pieces leave seams between them.
+            for (int i = 0; i < steps; i++)
+            {
+                Vector2 a = (left[i] + right[i]) * 0.5f, b = (left[i + 1] + right[i + 1]) * 0.5f;
+                float w = Mathf.Max(Pen, Mathf.Min((left[i] - right[i]).magnitude, (left[i + 1] - right[i + 1]).magnitude));
+                canvas.Stroke(a.x, a.y, b.x, b.y, w);
+            }
+            // The forked tail at the root (u = 0): two short fins splayed back.
+            Vector2 root = (left[1] + right[1]) * 0.5f, next = (left[2] + right[2]) * 0.5f;
+            Vector2 away = (root - next).normalized, side = new Vector2(-away.y, away.x);
+            float fin = Mathf.Max(1.4f, length * 0.22f);
+            Vector2 tipA = root + away * fin + side * fin * 0.6f, tipB = root + away * fin - side * fin * 0.6f;
+            canvas.Stroke(root.x, root.y, tipA.x, tipA.y, Pen);
+            canvas.Stroke(root.x, root.y, tipB.x, tipB.y, Pen);
+        }
+
+        // One level piece of a stand-in's wave: its crests fall at fixed places on the sheet
+        // (BoilWave times scale long, counted from the mark's spot x), so the pieces of a broken
+        // row keep one wave; the ends run out flat as the sea's strokes do (WaveStroke, which
+        // counts crests per stroke and so cannot keep a train across a break). Strictly level:
+        // the sea's lines always read horizontal.
+        private static void BoilPiece(InkCanvas canvas, float x0, float level, float length, float x, float phase, float scale)
+        {
+            float wave = BoilWave * scale, lift = BoilLift * scale;
+            // Eight points a crest, as WaveStroke, so close-ups show a curve, not a zigzag.
+            int count = Math.Max(8, Mathf.CeilToInt(length / wave * 8f));
+            var points = new List<Vector2>(count + 1);
+            for (int i = 0; i <= count; i++)
+            {
+                float u = i / (float)count, px = x0 + u * length;
+                float envelope = Mathf.Clamp01(Mathf.Sin(Mathf.PI * u) * 1.6f);
+                points.Add(new Vector2(px, level - Mathf.Sin((px - x) / wave * Mathf.PI * 2f + phase) * lift * envelope));
+            }
+            canvas.Polyline(points, Pen);
         }
     }
 }

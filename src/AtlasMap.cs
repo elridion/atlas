@@ -64,6 +64,9 @@ namespace Atlas
         // The sheet's stains and patina, laid over everything (Paper.Dirt); a second or two to make.
         private static Task<byte[]> s_dirtTask;
         private static Texture2D s_dirt;
+        // The sheet's trimmed edge (SheetEdge), its four strips made once per world.
+        private static Task<SheetEdge.Strips> s_edgeStripsTask;
+        private static Texture2D[] s_edgeStrips;
         // The sheet's paper: the parchment under the biome wash, or the bare parchment if the wash
         // failed. The fog keeps the bare parchment.
         private static Task<Paper.Wash> s_washTask;
@@ -133,6 +136,7 @@ namespace Atlas
             KeepFog();
             KeepPaper();
             KeepDirt();
+            KeepEdge();
             if (!s_tiles.Ready && s_record != null && s_wash != null && s_samples != null)
                 s_tiles.SetSource(s_record, s_wash, s_source, s_samples);
             s_tiles.Update(s_view);
@@ -613,6 +617,59 @@ namespace Atlas
             s_view.SetDirt(s_dirt);
         }
 
+        // Makes the sheet's trimmed edge once per world and uploads its strips; until then (or if
+        // it failed) the sheet keeps its square edge.
+        private static void KeepEdge()
+        {
+            if (s_edgeStrips != null) return;
+            if (s_edgeStripsTask == null)
+            {
+                int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
+                s_edgeStripsTask = Workers.Run(() => SheetEdge.Build(seed));
+                return;
+            }
+            if (!s_edgeStripsTask.IsCompleted) return;
+            if (s_edgeStripsTask.IsFaulted)
+            {
+                Jotunn.Logger.LogWarning($"The atlas could not trim its sheet's edge: {s_edgeStripsTask.Exception?.GetBaseException()}");
+                s_edgeStripsTask = Task.FromResult<SheetEdge.Strips>(null);
+                return;
+            }
+            SheetEdge.Strips strips = s_edgeStripsTask.Result;
+            if (strips == null) return;
+            var textures = new Texture2D[strips.m_rects.Length];
+            // A failed upload (a mip chain the device lays out otherwise) costs only the edge,
+            // not the atlas: the sheet keeps its square edge.
+            try
+            {
+                for (int k = 0; k < textures.Length; k++)
+                {
+                    RectInt r = strips.m_rects[k];
+                    textures[k] = new Texture2D(r.width * SheetEdge.Texels, r.height * SheetEdge.Texels, TextureFormat.RGBA32, mipChain: true)
+                    {
+                        name = "Atlas edge",
+                        wrapMode = TextureWrapMode.Clamp,
+                        // Mipmapped: zoomed out, the cut is several texels to a screen pixel and
+                        // would shimmer without them.
+                        filterMode = FilterMode.Trilinear,
+                    };
+                    textures[k].LoadRawTextureData(strips.m_pixels[k]);
+                    textures[k].Apply(updateMipmaps: false, makeNoLongerReadable: true);
+                }
+            }
+            catch (Exception e)
+            {
+                Jotunn.Logger.LogWarning($"The atlas could not upload its sheet's edge: {e.Message}");
+                foreach (Texture2D texture in textures)
+                    if (texture) UnityEngine.Object.Destroy(texture);
+                s_edgeStripsTask = Task.FromResult<SheetEdge.Strips>(null);
+                return;
+            }
+            s_edgeStrips = textures;
+            s_edgeStripsTask = null;
+            s_view.SetEdge(s_edgeStrips);
+        }
+
         private static void UploadFog()
         {
             int size = Paper.FogSize;
@@ -724,6 +781,12 @@ namespace Atlas
             s_fogFailed = false;
             if (s_dirt) UnityEngine.Object.Destroy(s_dirt);
             s_dirt = null;
+            s_edgeStripsTask = null;
+            s_view.SetEdge(null);
+            if (s_edgeStrips != null)
+                foreach (Texture2D strip in s_edgeStrips)
+                    if (strip) UnityEngine.Object.Destroy(strip);
+            s_edgeStrips = null;
             s_ink = null;
             s_paper = null;
             s_fog = null;

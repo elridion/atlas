@@ -98,12 +98,19 @@ namespace Atlas
             return false;
         }
 
-        // Whether an Illustration record group drew a sea illustration left out.
-        public bool HidesSeaGroup(InkRecord.Group group)
+        // Whether an Illustration record group, taken for the sheet rectangle (a close-up's
+        // area), drew a sea mark left out: its foot is the mark's and the mark's box reaches the
+        // rectangle. The stand-ins sit on OpenCell rows, so two in one row share a foot; they
+        // stand StandInSpacing apart, so only one of them reaches a close-up.
+        public bool HidesSeaGroup(InkRecord.Group group, float left, float top, float right, float bottom)
         {
             if (m_hiddenSeaFeet == null) return false;
-            foreach (float foot in m_hiddenSeaFeet)
-                if (System.Math.Abs(foot - group.m_foot) < 0.01f) return true;
+            for (int i = 0; i < m_hiddenSeaFeet.Count; i++)
+            {
+                Vector4 b = m_hiddenSea[i];
+                if (System.Math.Abs(m_hiddenSeaFeet[i] - group.m_foot) < 0.01f
+                    && b.x - 1f <= right && left <= b.z + 1f && b.y - 1f <= bottom && top <= b.w + 1f) return true;
+            }
             return false;
         }
 

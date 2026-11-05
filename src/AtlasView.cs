@@ -97,6 +97,10 @@ namespace Atlas
         private RectTransform m_detailLayer;
         private RawImage m_dirt;
         private RawImage m_fog;
+        // The sheet's trimmed edge (SheetEdge): four strips over everything on the sheet, and
+        // their textures, kept for a window built later.
+        private readonly RawImage[] m_edge = new RawImage[4];
+        private Texture2D[] m_edgeTextures;
         private readonly Vector3[] m_corners = new Vector3[4];
         private readonly List<RectTransform> m_pins = new List<RectTransform>();
         // Each pin's lift (PinGlyphs.Lift), parallel to m_pins.
@@ -173,6 +177,19 @@ namespace Atlas
         }
 
         // The sheet's stains and patina, over everything else; none until they are made.
+        // The trimmed edge's strips, in SheetEdge.Rects order; none until they are made.
+        public void SetEdge(Texture2D[] strips)
+        {
+            m_edgeTextures = strips;
+            for (int k = 0; k < m_edge.Length; k++)
+            {
+                if (!m_edge[k]) continue;
+                Texture2D texture = strips != null ? strips[k] : null;
+                m_edge[k].texture = texture;
+                m_edge[k].enabled = texture;
+            }
+        }
+
         public void SetDirt(Texture dirt)
         {
             if (!m_dirt) return;
@@ -486,6 +503,27 @@ namespace Atlas
             // Dirt lies on top of everything, pins and names included, as on a real map.
             m_dirt = NewLayer("Dirt");
             m_dirt.enabled = false;
+            // The trimmed edge, last on the sheet so it cuts every layer, close-ups and markers
+            // included, and moves and scales with it. Tinted with the frame's own colour, which is
+            // what shows behind the sheet, so the strips match it exactly whatever the colour
+            // space; their texture holds only the shadow and the cover.
+            var edge = NewRect("Edge", m_content);
+            Stretch(edge, 0f);
+            RectInt[] rects = SheetEdge.Rects();
+            float half = InkPainter.CanvasSize * 0.5f;
+            for (int k = 0; k < m_edge.Length; k++)
+            {
+                RectInt r = rects[k];
+                var strip = NewRect("Strip", edge, typeof(RawImage));
+                strip.anchorMin = strip.anchorMax = new Vector2(0.5f, 0.5f);
+                // Canvas rects run south; the sheet's units run up from its centre.
+                strip.anchoredPosition = new Vector2(r.x + r.width * 0.5f - half, half - (r.y + r.height * 0.5f));
+                strip.sizeDelta = new Vector2(r.width, r.height);
+                m_edge[k] = strip.GetComponent<RawImage>();
+                m_edge[k].raycastTarget = false;
+                m_edge[k].color = s_border;
+            }
+            SetEdge(m_edgeTextures);
             // The hovered pin's name is not part of the map: over the dirt, in the view's own
             // units, so it keeps its size and can be kept inside the view.
             m_hoverRect = NewRect("Hover", m_viewport);

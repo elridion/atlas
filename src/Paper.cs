@@ -137,8 +137,11 @@ namespace Atlas
         private const float AshScale = 700f;
         private const float WoodWash = 0.1f;
         private const int WashBlur = 3;
-        // How much of the water's blue a swamp pool keeps at full wetness.
-        private const float SwampPoolGlaze = 0.35f;
+        // How much of the water's blue a swamp pool keeps at full wetness. Wetness runs from
+        // WorldSource.SwampDry above the water to SwampShallow below it, so the swamp's mean
+        // wetness is about 0.45; this keeps its mean glaze where it was (about 0.27) when the
+        // ground was wet from the water line down.
+        private const float SwampPoolGlaze = 0.6f;
 
         /// <summary>
         /// The washed paper, in two parts: the sheet's paper with water tinted, and the land's wash

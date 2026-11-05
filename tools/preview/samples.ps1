@@ -1,8 +1,8 @@
 param([switch]$Publish)
-# Renders the 38 atlas samples into img/: the world, the region and the start island; each biome's
+# Renders the 39 atlas samples into img/: the world, the region and the start island; each biome's
 # close and wide view followed by its biome variants that the atlas draws differently (forced
 # with -Alt over the biome's own wide view (the Mountain variants over fir woods elsewhere), since the preview cannot compute biome variants: Smalltree
-# and Birch Meadows; a Kalhygge clear-cut, wide and close, Rock and Pinetree Black Forest; Bog Swamp;
+# and Birch Meadows; a Kalhygge clear-cut, wide and close, Rock and Pinetree Black Forest; Bog and Hut Swamp;
 # Wolf, Drake and Fortress Mountain; Lox and Death Plains; Trees Mistlands); pins drawn into the
 # sheet round the start island and in the mountains; the pin catalogue and the sea mark catalogue.
 # -Publish replaces the samples in the repo's screenshots/.
@@ -34,6 +34,7 @@ $variants = @(
     @('BlackForest', 'Rock Black Forest', 'tilesRock2', 'rock-black-forest', 1),
     @('BlackForest', 'Pinetree Black Forest', 'tilesPinetree2', 'pinetree-black-forest', 2),
     @('Swamp', 'Bog Swamp', 'tilesBog2', 'bog-swamp', 0),
+    @('Swamp', 'Hut Swamp', 'tilesHut2', 'hut-swamp', 1),
     @('Mountain', 'Wolf Mountain', 'tilesWolf2', 'wolf-mountain', 0),
     @('Mountain', 'Drake Mountain', 'tilesDrake2', 'drake-mountain', 1),
     @('Mountain', 'Fortress Mountain', 'tilesFortress2', 'fortress-mountain', 2),

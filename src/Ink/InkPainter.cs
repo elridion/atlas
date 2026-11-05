@@ -201,6 +201,16 @@ namespace Atlas
         // gathers them into patches (canvas pixels).
         private const float MarshStep = 3.2f;
         private const float MarshPatch = 26f * G;
+        // The swamp's ancient dead trees: one candidate per DeadTreeStep tree units, standing
+        // with DeadTreeOdds (times the grove's KeepOf) on the ground the game's ancient trees grow
+        // on (WorldSource.m_swampGround). Two keep their feet outside an ellipse of
+        // DeadTreeGapX by DeadTreeGapY tree units round each other, so neighbours stand close
+        // but their limbs do not tangle into scribble.
+        private const float DeadTreeStep = 12f;
+        private const float DeadTreeOdds = 0.8f;
+        private const float DeadTreeGapX = 6.5f;
+        private const float DeadTreeGapY = 9f;
+        private const int DeadTreeSalt = 27;
         // Patches of land or water smaller than this many map pixels (12 m each) are dropped as noise.
         private const int SpeckCells = 2;
 
@@ -208,24 +218,27 @@ namespace Atlas
         // open-country glyphs keep from a wood (canvas pixels), so the outer crowns alone bound it.
         private const float WoodEdge = 0.5f;
         private const float WoodClearance = 5f;
-        // Alt biomes (Grove): a sparse grove keeps SparseKeep of its trees and a light one
-        // LightKeep, by the cell's hash number SparseRoll; a small-tree grove keeps every tree,
+        // Alt biomes (Grove): a thin grove keeps ThinKeep of its trees, a sparse one SparseKeep,
+        // a light one LightKeep and a Lox Plains LoxKeep, by the cell's hash number SparseRoll
+        // (a swamp's dead trees by their odds); a small-tree grove keeps every tree,
         // SmalltreeBig of them (hash number SmalltreeRoll) at full size and the rest at
         // SmalltreeSize; a dense grove's own grid is DenseSpacing of the rule's step with
         // every cell taken (about 1.4-1.5 times the trees; the rule's grids are already 90-95%
-        // full), salted DenseSalt past the rule's; a Bog Swamp's dead trees stand with
-        // BogDeadTreeOdds instead of 0.45. A clear-cut's stumps are few, as the Meadows' tufts
-        // are, on one sheet grid of StumpStep glyph units, with StumpOdds inside the stands a slow
-        // noise of StumpStand sheet pixels gathers them into.
+        // full), salted DenseSalt past the rule's. A clear-cut's stumps are few, as the Meadows'
+        // tufts are, on one sheet grid of StumpStep glyph units, with StumpOdds inside the stands
+        // a slow noise of StumpStand sheet pixels gathers them into.
+        private const float ThinKeep = 0.33f;
         private const float SparseKeep = 0.5f;
         private const int SparseRoll = 90;
         private const float LightKeep = 0.75f;
+        // The user chose a Lox Plains sparser than the game's (which only blocks one of the
+        // Plains' two birches, about 0.75 of the trees): open grazing land for the herds.
+        private const float LoxKeep = 0.35f;
         private const float SmalltreeBig = 0.17f;
         private const float SmalltreeSize = 0.65f;
         private const int SmalltreeRoll = 96;
         private const float DenseSpacing = 0.85f;
         private const int DenseSalt = 50;
-        private const float BogDeadTreeOdds = 0.85f;
         private const float StumpStep = 3.8f;
         private const float StumpOdds = 0.5f;
         private const float StumpFloor = 0.5f;
@@ -253,6 +266,12 @@ namespace Atlas
         private const float LonePineStep = 14f;
         private const float LonePineOdds = 0.15f;
         private const int LonePineSalt = 40;
+        // Its open ground takes the Plains' dry stipple (the user's call), with the Plains' odds
+        // RockStipple, drawn after the boulders and kept RockStippleClear glyph units off them
+        // and off every glyph's footprint.
+        private const float RockStipple = 0.45f;
+        private const float RockStippleClear = 0.6f;
+        private const int RockStippleSalt = 41;
         // Mountain trees keep off the peaks' bases (ClearOfPeakBases): the base reaches this share
         // of the peak's width either side of its foot (its corners lie at most 0.56 out), and
         // PeakBaseGap sheet pixels below it (the body's skirt is 2); a pine's crown is about
@@ -1473,8 +1492,8 @@ namespace Atlas
             }, sheetGrid: true);
             // The Black Forest has no ground fill of its own: vanilla's mask marks all its land as
             // forest, so it has no open ground but its open groves. A felled Black Forest
-            // (Kalhygge) gets stumps (DrawStumps) and a boulder field (Rock) boulders
-            // (DrawBoulders), once every glyph is placed.
+            // (Kalhygge) gets stumps (DrawStumps) and a boulder field (Rock) boulders with the
+            // Plains' stipple between (DrawBoulders, DrawRockStipple), once every glyph is placed.
             if (m_world.HasGrove(Grove.ClearCut))
             {
                 // Between the stumps a light stipple of the cleared ground, sparser than the
@@ -1627,7 +1646,31 @@ namespace Atlas
                 // Rivers are inked before, so a boulder would sit on the stream.
                 if (OnRiver(s.m_x, s.m_y) || OnRiver(s.m_x - half, s.m_y) || OnRiver(s.m_x + half, s.m_y)) return;
                 Boulder(s.m_x, s.m_y, m_g, s.m_seed);
+                // The stone and the smaller one beside it (Glyphs.Boulder), which may sit a
+                // little below the foot.
+                m_boulders.Add(new Vector4(s.m_x - half, s.m_y - half, s.m_x + half, s.m_y + 0.5f * m_g));
             }, sheetGrid: true);
+            // Filed only now, so the boulders do not keep off each other.
+            foreach (Vector4 box in m_boulders) AddGlyphBox(box);
+            DrawRockStipple();
+        }
+
+        // Every boulder's footprint this painter drew, which the boulder field's stipple keeps off.
+        private readonly List<Vector4> m_boulders = new List<Vector4>();
+
+        // A boulder field's open ground: the Plains' stipple of fine dots, once the boulders are
+        // drawn, so each dot keeps off them and every other glyph's footprint (lone pines, hills)
+        // at this level of detail, on the sheet and in close-ups alike. The ground under them
+        // would otherwise be blank paper beside the Plains' stippled heath.
+        private void DrawRockStipple()
+        {
+            float clear = RockStippleClear * m_g;
+            Scatter(5f * m_g, RockStippleSalt, s =>
+            {
+                if (s.m_grove != Grove.Rocky || !IsOpenLand(s, Land.BlackForest, 2f) || !(s.m_roll < RockStipple)) return;
+                if (!ClearOfGlyphs(s.m_x, s.m_y, clear, clear)) return;
+                m_canvas.Dot(s.m_x, s.m_y, StippleRadius * m_pen);
+            });
         }
 
         // Whether a tree glyph would keep clear of every non-tree glyph placed before it (the
@@ -2400,7 +2443,7 @@ namespace Atlas
 
         // One biome's trees: a candidate on each cell of a spacing grid, kept with odds, where
         // inWood holds. The alt biomes change only how many stand in the same wood shapes: a
-        // clear-cut or a boulder field has none, a sparse or light grove keeps its share of them
+        // clear-cut or a boulder field has none, a thin, grazed, sparse or light grove keeps its share of them
         // (KeepOf) by a hash of their own, a small-tree grove (only ever on Meadows ground) keeps
         // them all but draws most of them smaller (SizeOf), and a
         // dense grove, which the rule's own grid cannot pack fuller (it is already nearly full),
@@ -2429,6 +2472,8 @@ namespace Atlas
         {
             switch (grove)
             {
+                case Grove.Thin: return ThinKeep;
+                case Grove.Grazed: return LoxKeep;
                 case Grove.Sparse: return SparseKeep;
                 case Grove.Light: return LightKeep;
                 default: return 1f;
@@ -2543,6 +2588,31 @@ namespace Atlas
             return best;
         }
 
+        // Swamp: its ancient dead trees among the marsh lines, standing clear of water on the
+        // ground the game's ancient trees grow on, from its heights before the pools are raised
+        // (WorldSource.m_swampGround). The sheet alone places them; close-ups replay its groups.
+        // The grid visits row by row, so each tree is tested against those north and west of it
+        // already placed, the same ones on every run.
+        private void PlaceDeadTrees()
+        {
+            var feet = new List<Vector2>();
+            float gapX = DeadTreeGapX * T, gapY = DeadTreeGapY * T;
+            Scatter(DeadTreeStep * T, DeadTreeSalt, s =>
+            {
+                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f) return;
+                if (!(s.m_roll < DeadTreeOdds * KeepOf(s.m_grove))) return;
+                if (!m_world.m_swampGround[m_world.Index(s.m_worldX, s.m_worldZ)]) return;
+                if (!IsLandColumn(s.m_x, s.m_y, 14f * T)) return;
+                foreach (Vector2 foot in feet)
+                {
+                    float dx = (foot.x - s.m_x) / gapX, dy = (foot.y - s.m_y) / gapY;
+                    if (dx * dx + dy * dy < 1f) return;
+                }
+                int count = m_glyphs.Count;
+                Add(s, Kind.DeadTree, T);
+                if (m_glyphs.Count > count) feet.Add(new Vector2(s.m_x, s.m_y));
+            });        }
+
         private void PlaceGlyphs()
         {
             PlaceSummitsAndHills();
@@ -2566,16 +2636,7 @@ namespace Atlas
             }
             PlaceTrees();
             PlaceMist();
-            // Swamp: a few tall ancient dead trees among the marsh lines, standing clear of water.
-            Scatter(30f * T, 27, s =>
-            {
-                // A Bog Swamp (Grove.Dense) has more of them: vanilla adds dead small firs and
-                // other trees there.
-                float odds = s.m_grove == Grove.Dense ? BogDeadTreeOdds : 0.45f;
-                if (!s.m_isLand || s.m_land != Land.Swamp || s.m_shore < 4f || !(s.m_roll < odds)) return;
-                if (!IsLandColumn(s.m_x, s.m_y, 14f * T)) return;
-                Add(s, Kind.DeadTree, T);
-            });
+            PlaceDeadTrees();
             // Mistlands: crags on the real summits (PlaceSummitSpire) and filler crags on the steep,
             // broken ground only, clear of the summits; high flat plateaus are not crags.
             Scatter(18f * G, 28, s =>

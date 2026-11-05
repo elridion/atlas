@@ -196,7 +196,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   ones that mark places: location pins (`m_locationPins`), `m_spawnPointPin` and `m_deathPin`,
   which a saved-only filter leaves off the atlas. Daymark's dungeon and deposit pins are
   ordinary Icon2 and Icon3 pins. `Preview --pincat` renders the glyph table
-  (`screenshots/atlas-sample-27-pin-catalogue.png`). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
+  (`screenshots/atlas-sample-28-pin-catalogue.png`). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
   ink over a gap of their own letters grown a little (a TextMeshPro underlay used only as a
   `Mask`, paper behind it), placed by `PinLayout` at the clearest of the eight classic positions
   by the sheet's ink density (`InkDensity`, a summed-area table built before the sheet is
@@ -633,13 +633,30 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   a mark that would touch an inked neighbour of higher priority is left out (`MarshMark`, from
   hashes and the patch noise alone, so the sheet and every tile agree); marks bigger than their
   cell with a jitter of nearly a cell pile into knots. Marks keep off woods (`IsOpenLand`).
-  Clumps follow the real water: `WorldSource.m_swampWet` (1 in a pool, 0 at 1.5 m above the
-  water, from the heights before the raise, blurred) makes 65% of the patch value and the noise
-  35%; reeds favour the pools' rims; marks thin over the swamp's outermost few dozen metres
-  (`m_swampField`, the swamp blurred, edge at 0.5); the wash glazes wet ground and raised pools
-  a little toward the water's blue (`Paper.SwampPoolGlaze`), which shows the pools and lets
-  brown stains stand out. Dead trees are tall ancient trees (11-14 T, a bowed trunk on splayed
-  roots, two to four seed-set branches, some forked) that scrape under every limb. Marks sit on
+  Clumps follow the real water: `WorldSource.m_swampWet` (1 at `SwampShallow` 1.5 m below the
+  water, 0 at `SwampDry` 1 m above it, from the heights before the raise, blurred; the marsh
+  surface tops out about 4 m up and two thirds of it lie under water, so wetness from the water
+  line down was 1 over most of the swamp) makes 65% of the patch value (`wet * 1.4`) and the
+  noise 35%; reeds favour the pools' rims; marks thin over the swamp's outermost few dozen
+  metres (`m_swampField`, the swamp blurred, edge at 0.5); the wash glazes wet ground and raised
+  pools toward the water's blue (`Paper.SwampPoolGlaze` 0.6, set so the swamp's mean glaze, about
+  0.27, stayed where it was before the wetness was re-ranged), which shows the pools and lets
+  brown stains stand out.
+  **Dead trees** are the swamp's ancient trees: tall (11-14 T), a bowed trunk on splayed roots,
+  two to four seed-set branches, some forked, scraping under every limb (`Glyphs.DeadTree`). The
+  game grows `swamptree1` (40 a zone) and `swamptree2` (10-20) from 0.5 m below the water up,
+  and 59-64% of a swamp's land lies that high, so they stand on `WorldSource.m_swampGround`
+  (swamp ground at `SwampTreeLine` -0.5 m and up, from the heights before the pools are
+  raised; tested on the raised heights they stood in former pools), clear of the water
+  (`PlaceDeadTrees`): one candidate per `DeadTreeStep` 12 T cell (salt 27) with
+  `DeadTreeOdds` 0.8 times the grove's `KeepOf`, a foot kept outside an ellipse of
+  `DeadTreeGapX` 6.5 by `DeadTreeGapY` 9 T round every tree already placed (row by row, so
+  every run agrees), so neighbours stand close, one in front may hide the foot of the one behind,
+  and their limbs never tangle. About 500 a world (Velen 497, demoo 509; one per 30 T cell at
+  0.45 before, about 110), so the swamp reads as wooded with marsh lines between. The user chose
+  these dead trees over a wood of living swamp trees with low mossy crowns, which was tried and
+  rejected. They are sheet glyphs (one record group each) that close-ups replay, and the fog's
+  edge thins them as trees (`FogMark.m_thinned`). Marks sit on
   a cell of 1.5 `MarshStep` and close-ups draw them at 0.75 of the pen: smaller cells at the
   tile's pen close the tufts up into lumps. A swamp's water is raised to
   `WorldSource.SwampFloor` above the water line, in the decoded minimap and in
@@ -925,12 +942,23 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   or against the lake lines on the water beside it; the sheet size, not the level's, so every zoom
   keeps the same ones); about 2.2 G wide they read as pebbles. Its lone pines are conifers on a per-level `LonePineStep` 14 T grid, salt 40,
   `LonePineOdds` 0.15, on its open land clear of every non-tree glyph placed before
-  (`ClearOfPlaced`; close-ups load the record's glyph boxes before their trees for it). No
-  stipple there: the boulders carry the ground. The Black Forest has no other ground fill:
+  (`ClearOfPlaced`; close-ups load the record's glyph boxes before their trees for it). Its
+  open ground takes the Plains' dry stipple too (the user's call, so it is not bare paper;
+  `DrawRockStipple`, the Plains' 5 G grid and odds, `RockStipple` 0.45, salt 41), drawn after
+  the boulders: `DrawBoulders` files each boulder's footprint (both stones, a little below the
+  foot) with the glyph boxes once it has placed them all, and a dot keeps `RockStippleClear`
+  0.6 G off every footprint (`ClearOfGlyphs`: boulders, lone pines, hills) and 2 px off the
+  shore, at each level of detail against that level's own boulders and trees. Kalhygge keeps
+  its own sparser `ClearCutStipple`. The Black Forest has no other ground fill:
   vanilla's mask marks all its land as forest (its old stones on open ground never drew);
-  Pinetree Black Forest, Drake/Fortress Mountain `Sparse` (`SparseKeep` 0.5 by the cell's hash
-  `SparseRoll`); Lox/Death Plains and Birch Meadows `Light` (`LightKeep` 0.75, same hash): the
-  Plains variants block only `birch2_aut_heath` (10 a zone, scale 1-1.5) and keep
+  Bog Swamp `Thin` (`ThinKeep` 0.33 by the cell's hash `SparseRoll`): vanilla blocks
+  `swamptree1` and `2` (about 55 ancient trees a zone) and adds `swamptree5` and `6` (about 18)
+  and another 60 small dead firs (not drawn, too small); Pinetree Black Forest, Drake/Fortress
+  Mountain and Hut Swamp `Sparse` (`SparseKeep` 0.5, same hash; Hut Swamp blocks `swamptree1`
+  and `2` and adds `swamptree3` (20) and `4` (7), about 0.49 of the ancient trees); the swamp's variants thin its dead trees, whose odds
+  are multiplied by `KeepOf`; Lox Plains `Grazed` (`LoxKeep` 0.35, same hash; the user's call,
+  sparser than the game as open grazing land); Death Plains and Birch Meadows `Light`
+  (`LightKeep` 0.75, same hash): the Plains variants block only `birch2_aut_heath` (10 a zone, scale 1-1.5) and keep
   `birch1_aut_plains` (30), and Birch Meadows blocks `beech1_meadows` but adds
   `birch1/2_meadows2` (10 + 5-9), `beech5_meadows` (10) and `oak2_meadows` (1-2), about 0.75 of
   the normal ~47 big trees (its birches also grow on ground the minimap shows open; not drawn,
@@ -940,8 +968,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   every tree stays, `SmalltreeBig` 0.17 of them (hash `SmalltreeRoll`) at full size and the rest
   with crowns `SmalltreeSize` 0.65 (`SizeOf`, the size passed to `Add`); Wolf Mountain, Trees Mistlands `Dense` (the rule's grids are
   already 90-95% full, so `ScatterTrees` gives dense spots a grid of their own, `DenseSpacing`
-  0.85 of the step, salt +`DenseSalt`, every cell taken, about 1.4-1.5 times the trees) and Bog
-  Swamp `Dense` (dead trees at `BogDeadTreeOdds` 0.85 instead of 0.45); all others none. Spots
+  0.85 of the step, salt +`DenseSalt`, every cell taken, about 1.4-1.5 times the trees); all others none.
+  `ReadGroves` keeps the lowest `Grove` value, so the enum runs from felling to thickening
+  (`Thin`, `Grazed`, then `Sparse`) and `Dense` stays last (`SetGroves` sizes by it). Spots
   take the grove from `WorldSource.GroveAt` on the sheet and in close-ups alike, which in
   close-ups falls back to the nearest pixel of the spot's own biome, so the generator's finer
   border does not leave a fringe of plain woods. Mountain woods are mostly hidden by the peaks'
@@ -1110,10 +1139,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `InkPainter` by reflection; painting the whole world takes about 2.5 s. It is a separate
   project, never shipped: `Atlas.csproj` removes `tools\**` from its items and the package holds
   only the DLL. `run.ps1 -World <name> -Views ...` renders into `tools/preview/img/` (ignored);
-  `samples.ps1 -Publish` refreshes the 38 samples in `screenshots/` (committed): 01-03 the world,
+  `samples.ps1 -Publish` refreshes the 39 samples in `screenshots/` (committed): 01-03 the world,
   region and start island, then each biome's close and wide view followed by its variants that the
   atlas draws differently, forced over the biome's own wide view with `-Alt` (one run per set of
-  variants of different biomes), 25-26 pins, 27 the pin catalogue, 28 the sea mark catalogue
+  variants of different biomes; Bog and Hut Swamp in separate runs), 26-27 pins, 28 the pin
+  catalogue, 29 the sea mark catalogue
   (`Preview --seacat`). A new alt biome in `GroveOf` gets a sample there. Refresh them
   after visual changes. It needs Valheim's Managed DLLs (`VALHEIM_INSTALL` overrides the Steam
   path) and BepInEx's core DLLs from a Gale profile copied beside the exe, which `run.ps1` does,

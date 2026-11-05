@@ -32,6 +32,11 @@ namespace Atlas
         // Open boulder ground: the big trees blocked, big boulders and a few lone pines instead
         // (Rock Black Forest).
         Rocky,
+        // A third of the trees (vanilla swaps the patch's big trees for fewer others).
+        Thin,
+        // Open grazing land, about a third of the trees (Lox Plains; the user's call, sparser
+        // than vanilla, which blocks one of the Plains' two birches).
+        Grazed,
         // Half the trees (vanilla blocks or swaps the patch's big trees).
         Sparse,
         // Three quarters of the trees (vanilla blocks one of the patch's big trees).
@@ -90,6 +95,14 @@ namespace Atlas
         // deep swamp water joined to the sea must be to stay water (MarkSwampSea).
         public const float SwampFloor = 0.5f;
         public const float SwampShallow = 1.5f;
+        // How far above the water a swamp's ground is dry (m_swampWet 0; it is 1 at SwampShallow
+        // below). The marsh surface tops out about 4 m up and two thirds of it lie under water,
+        // so wetness from the water line up left it at 1 over most of the swamp.
+        public const float SwampDry = 1f;
+        // The swamp's ancient trees (swamptree1 and 2, about 50-60 a zone) grow from this many
+        // metres below the water up (their minimum altitude), so the atlas's dead trees stand on
+        // ground from there up (m_swampGround).
+        public const float SwampTreeLine = -0.5f;
         // Vanilla's Mountain firs (ZoneSystem vegetation firtree_mountain and
         // firtree_small_mountain): at most this many metres above the water, on ground no steeper
         // than this many degrees (m_maxAltitude 280, m_maxTilt 30).
@@ -129,6 +142,9 @@ namespace Atlas
         // swamp's edge.
         public float[] m_swampWet;
         public float[] m_swampField;
+        // Swamp ground the ancient trees grow on (SwampTreeLine and up, from the heights before
+        // the pools are raised), where the swamp's dead trees stand (InkPainter.PlaceDeadTrees).
+        public bool[] m_swampGround;
         // Swamp water joined to the sea, which is not raised (MarkSwampSea).
         public bool[] m_swampSea;
         // The Deep North's own water, where the game sets its ice (MarkIce), grown by IceReach map
@@ -286,6 +302,7 @@ namespace Atlas
             m_lava = new byte[count];
             m_swampWet = new float[count];
             m_swampField = new float[count];
+            m_swampGround = new bool[count];
             int half = m_size / 2;
             for (int i = 0; i < count; i++)
             {
@@ -320,9 +337,10 @@ namespace Atlas
                 if (land == Land.Swamp)
                 {
                     // How wet the swamp is here, from its real height before the pools are
-                    // raised: 1 in a pool, 0 a metre and a half above the water.
-                    m_swampWet[i] = Mathf.Clamp01((m_waterLevel + SwampShallow - h) / SwampShallow);
+                    // raised: 1 in water SwampShallow deep, 0 SwampDry above the water.
+                    m_swampWet[i] = Mathf.Clamp01((m_waterLevel + SwampDry - h) / (SwampDry + SwampShallow));
                     m_swampField[i] = 1f;
+                    m_swampGround[i] = h >= m_waterLevel + SwampTreeLine;
                 }
             }
             if (m_altBiomes != null) ReadGroves();
@@ -452,10 +470,15 @@ namespace Atlas
                 // Adds 10-20 firtree_mountain2 a zone.
                 case "Wolf Mountain": land = Land.Mountain; grove = Grove.Dense; return true;
                 // Vanilla blocks birch2_aut_heath (10 a zone); birch1_aut_plains (30) stays.
-                case "Lox Plains":
                 case "Death Plains": land = Land.Plains; grove = Grove.Light; return true;
-                // Adds dead small firs and other trees.
-                case "Bog Swamp": land = Land.Swamp; grove = Grove.Dense; return true;
+                // The same in vanilla, drawn sparser as open grazing land (the user's call).
+                case "Lox Plains": land = Land.Plains; grove = Grove.Grazed; return true;
+                // Vanilla blocks swamptree1 and 2 (about 55 ancient trees a zone) and adds
+                // swamptree5 and 6 (about 18) and another 60 small dead firs: a third of the
+                // ancient trees.
+                case "Bog Swamp": land = Land.Swamp; grove = Grove.Thin; return true;
+                // Vanilla blocks swamptree1 and 2 and adds swamptree3 (20) and 4 (7): about half.
+                case "Hut Swamp": land = Land.Swamp; grove = Grove.Sparse; return true;
                 case "Trees Mistlands": land = Land.Mistlands; grove = Grove.Dense; return true;
                 default: land = Land.Ocean; grove = Grove.None; return false;
             }

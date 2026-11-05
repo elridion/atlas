@@ -454,15 +454,15 @@ namespace Atlas
         {
             switch (glyph)
             {
+                case PinGlyph.Point: return 10f;
                 case PinGlyph.Fire:
                 case PinGlyph.Bed:
-                case PinGlyph.Point: return 10f;
                 case PinGlyph.Death: return 12f;
-                case PinGlyph.Trader:
                 case PinGlyph.Hammer:
                 case PinGlyph.Cauldron: return 13f;
                 case PinGlyph.Portal:
                 case PinGlyph.House:
+                case PinGlyph.Trader:
                 case PinGlyph.Tent:
                 case PinGlyph.Forge: return 16f;
                 case PinGlyph.Boss: return 18f;

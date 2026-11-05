@@ -84,7 +84,6 @@ namespace Atlas
         // pen for every line instead (Draw's pen), so it reads as drawn by the same hand.
         private const float MarkerPen = 2.3f;
         private const float MarkerFinePen = 1.1f;
-        private const float MarkerLogWidth = 2.6f;
         private const float MarkerPaperPen = 1.6f;
         [ThreadStatic] private static float s_pen;
         // A sheet pin's outline is half again the map's pen, as a peak's flanks are, so a symbol
@@ -92,8 +91,6 @@ namespace Atlas
         private const float SheetOutline = 1.5f;
         private static float Pen => s_pen > 0f ? s_pen * SheetOutline : MarkerPen;
         private static float FinePen => s_pen > 0f ? s_pen : MarkerFinePen;
-        // The logs are solid bars rather than lines, a little heavier than the pen.
-        private static float LogWidth => s_pen > 0f ? s_pen * 1.6f : MarkerLogWidth;
         // Details cut back to paper through a solid glyph: wider than the pen, as a gap in red
         // ink reads thinner than a red line of the same width.
         private static float PaperPen => s_pen > 0f ? s_pen * 1.2f : MarkerPaperPen;
@@ -144,6 +141,19 @@ namespace Atlas
         // and the share of the body above which the interior is left out (an all-dark icon).
         private const float TraceDark = 0.55f;
         private const float TraceMostDark = 0.6f;
+        // The hand (Hand, HandInFront, HandGrown, the user's choice for the campfire, Haldor's bag,
+        // the cauldron and the bed): an exact outline's corners sharpen into crisp mitres and its
+        // long edges read as ruled, so a part is traced as a pen would draw it. Every corner is
+        // rounded over HandRound of the outline pen (about 0.7 sheet px), as Solid rounds the
+        // other pins' corners by growing them half a pen. A tip stays a tip, only blunted: an
+        // inset and regrow would put knobs on acute tips. Each edge is then cut into pieces
+        // HandPieceMin to HandPieceMax units long, unevenly, every point nudged up to HandNudge
+        // off the line, so long edges run in faint facets that the waver bends further. Under a
+        // tenth of a sheet pixel: larger nudges or shorter pieces looked serrated in close-ups.
+        private const float HandRound = 0.45f;
+        private const float HandNudge = 0.09f;
+        private const float HandPieceMin = 2f;
+        private const float HandPieceMax = 3.6f;
 
         // How far a glyph is lifted off its pin's place, as a share of the pin's size: a pin drawn
         // in elevation stands on its place as a tree or a peak does, its foot (the ground line it
@@ -160,14 +170,14 @@ namespace Atlas
                 case PinGlyph.Hammer: return 22.4f;
                 case PinGlyph.Portal: return PortalGround;
                 case PinGlyph.Death: return DeathFoot;
-                case PinGlyph.Bed: return 21.6f;
+                case PinGlyph.Bed: return 22.2f;
                 case PinGlyph.Boss: return 21.4f;
                 case PinGlyph.Tomb: return 21.4f;
                 case PinGlyph.Cavern: return 21.6f;
                 case PinGlyph.Tower: return 21.8f;
                 case PinGlyph.Trader: return 22.6f;
                 case PinGlyph.Tent: return 21.6f;
-                case PinGlyph.Cauldron: return 23.4f;
+                case PinGlyph.Cauldron: return 22.2f;
                 case PinGlyph.Forge: return 22.2f;
                 case PinGlyph.StoneCircle: return StonesFoot;
                 default: return PinUnits * 0.5f;
@@ -244,27 +254,121 @@ namespace Atlas
             }
         }
 
-        // A campfire: two crossed logs under a solid flame with a tongue of paper inside it.
+        // A campfire (the user's design): a two-tongued flame on two long, low crossed logs, in
+        // the hand. The logs are solid bars with square ends, sawn a little off square and one
+        // thicker than the other, longer than the flame is wide so their ends show either side:
+        // round caps read as crossed bones. The flame is inked in front, a line of paper apart.
         private static void Fire(InkCanvas ink, InkCanvas body)
         {
-            List<Vector2> flame = Curve(new[]
-            {
-                new Vector2(13.4f, 2.5f), new Vector2(17.6f, 9.5f), new Vector2(17.2f, 14.6f), new Vector2(13f, 17.4f),
-                new Vector2(8.8f, 14.8f), new Vector2(8.6f, 10.2f), new Vector2(11.2f, 7.4f),
-            }, closed: true);
-            Log(ink, body, 5.5f, 22.2f, 20.5f, 17.2f);
-            Log(ink, body, 5.5f, 17.2f, 20.5f, 22.2f);
-            body.EraseOutline(flame, Pen * 0.5f);
-            // A narrower line of paper round the flame than elsewhere, so it stays on its logs.
-            SolidInFront(ink, flame, PaperPen * 0.5f);
-            PaperLine(ink, Curve(new[] { new Vector2(13f, 15.2f), new Vector2(11.6f, 12.4f), new Vector2(12.6f, 9.6f) }, closed: false), PaperPen);
+            Hand(ink, body, SawnLog(2.2f, 16.3f, 23.8f, 19.8f, 4.4f, -0.5f, 0.6f), 101);
+            Hand(ink, body, SawnLog(2.6f, 19.9f, 23.4f, 15.7f, 4.8f, 0.5f, -0.4f), 102);
+            List<Vector2> flame = Curve(Points(14.5f, 1.7f, 18.7f, 7.9f, 19.3f, 12.5f, 17.5f, 15.7f, 13.1f, 16.6f, 8.7f, 15.5f,
+                6.8f, 12.5f, 6.7f, 9f, 7.4f, 5.1f, 10.1f, 8.9f, 11.7f, 6.1f), closed: true);
+            HandInFront(ink, body, flame, PaperPen * 0.7f, 103);
         }
 
-        // A log as one thick stroke.
-        private static void Log(InkCanvas ink, InkCanvas body, float x0, float y0, float x1, float y1)
+        // A log from a to b, thick across, as a quad whose ends are sawn off square but for
+        // skewA and skewB units along the log at each end, so the two logs' ends are not ruled.
+        private static List<Vector2> SawnLog(float ax, float ay, float bx, float by, float thick, float skewA, float skewB)
         {
-            body.Scrape(x0, y0, x1, y1, LogWidth);
-            ink.Stroke(x0, y0, x1, y1, LogWidth);
+            Vector2 d = new Vector2(bx - ax, by - ay).normalized;
+            Vector2 n = new Vector2(-d.y, d.x) * (thick * 0.5f);
+            var a = new Vector2(ax, ay);
+            var b = new Vector2(bx, by);
+            return new List<Vector2> { a + n + d * skewA, b + n + d * skewB, b - n - d * skewB, a - n - d * skewA };
+        }
+
+        // Points from x, y pairs.
+        private static List<Vector2> Points(params float[] xy)
+        {
+            var points = new List<Vector2>(xy.Length / 2);
+            for (int i = 0; i + 1 < xy.Length; i += 2) points.Add(new Vector2(xy[i], xy[i + 1]));
+            return points;
+        }
+
+        // A part in the hand: its corners rounded to the pen and its edges traced, scraped from
+        // the body and inked solid out to the outline (the outline is the inked edge).
+        private static void Hand(InkCanvas ink, InkCanvas body, IList<Vector2> outline, int salt)
+        {
+            List<Vector2> o = HandTrace(RoundCorners(outline, Pen * HandRound), salt);
+            body.EraseOutline(o, 0f);
+            FillSolid(ink, o);
+        }
+
+        // A part in the hand drawn as Solid draws: corners rounded half as much, traced, then
+        // grown by half the outline pen, which rounds them the rest of the way.
+        private static void HandGrown(InkCanvas ink, InkCanvas body, IList<Vector2> outline, int salt)
+        {
+            List<Vector2> o = HandTrace(RoundCorners(outline, Pen * HandRound * 0.5f), salt);
+            body.EraseOutline(o, Pen * 0.5f);
+            Solid(ink, o);
+        }
+
+        // The same, inked in front of what is drawn, a line of paper gap pin units wide apart.
+        private static void HandInFront(InkCanvas ink, InkCanvas body, IList<Vector2> outline, float gap, int salt)
+        {
+            List<Vector2> o = HandTrace(RoundCorners(outline, Pen * HandRound), salt);
+            body.EraseOutline(o, 0f);
+            ink.EraseOutline(o, gap);
+            FillSolid(ink, o);
+        }
+
+        // Rounds every corner of a closed outline: the corner is replaced by a quadratic curve from
+        // r back along one edge to r along the next (less on short edges), so a tip stays a tip,
+        // only blunted as a pen's would be, and long edges keep their line.
+        private static List<Vector2> RoundCorners(IList<Vector2> outline, float r)
+        {
+            int n = outline.Count;
+            var rounded = new List<Vector2>(n * 4);
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 p = outline[(i - 1 + n) % n], c = outline[i], q = outline[(i + 1) % n];
+                float c0 = Mathf.Min(r, Vector2.Distance(p, c) * 0.45f), c1 = Mathf.Min(r, Vector2.Distance(c, q) * 0.45f);
+                Vector2 a = c + (p - c).normalized * c0, b = c + (q - c).normalized * c1;
+                for (int k = 0; k <= 3; k++)
+                {
+                    float t = k / 3f;
+                    rounded.Add((1 - t) * (1 - t) * a + 2 * (1 - t) * t * c + t * t * b);
+                }
+            }
+            return rounded;
+        }
+
+        // Cuts each edge of a closed outline into pieces of uneven length and nudges every point
+        // up to HandNudge off the line, as a pen traces it. The salt is per part, so a pin draws
+        // the same everywhere.
+        private static List<Vector2> HandTrace(IList<Vector2> outline, int salt)
+        {
+            const float amp = HandNudge;
+            var traced = new List<Vector2>();
+            int n = outline.Count, k = 0;
+            for (int i = 0; i < n; i++)
+            {
+                Vector2 a = outline[i], b = outline[(i + 1) % n];
+                Vector2 d = b - a;
+                float len = d.magnitude;
+                Vector2 normal = len > 1e-4f ? new Vector2(-d.y, d.x) / len : Vector2.zero;
+                traced.Add(a + normal * (HandHash(salt, k++) - 0.5f) * amp);
+                float s = HandPieceMin + (HandPieceMax - HandPieceMin) * HandHash(salt + 7, k);
+                while (s < len - HandPieceMin * 0.5f)
+                {
+                    traced.Add(a + d * (s / len) + normal * (HandHash(salt, k++) - 0.5f) * 2f * amp);
+                    s += HandPieceMin + (HandPieceMax - HandPieceMin) * HandHash(salt + 7, k);
+                }
+            }
+            return traced;
+        }
+
+        // A hash of two integers to [0, 1), for the trace's pieces and nudges.
+        private static float HandHash(int a, int b)
+        {
+            unchecked
+            {
+                uint h = (uint)(a * 374761393 + b * 668265263);
+                h = (h ^ (h >> 13)) * 1274126177u;
+                h ^= h >> 16;
+                return (h & 0xFFFFFF) / (float)0x1000000;
+            }
         }
 
         // A longhouse: solid walls under a gable roof with crossed ridge ends and a paper door.
@@ -525,20 +629,16 @@ namespace Atlas
         // The game's own pins, each a plain map sign for what the place is rather than a copy of
         // the game's icon.
 
-        // The player's bed (their spawn point): a bed seen from the side, headboard to the west.
+        // The player's bed (their spawn point, the user's design): seen from the side, long and
+        // low, a sleeper under the blanket, in the hand. One solid outline from the west foot up
+        // a low headboard leaning a hair, over the pillow and the blanket's uneven hump down to
+        // the east end, a thick frame on short square legs. The headboard rises little over the
+        // pillow, so it never reads as a chair or as the grave's tall west stele.
         private static void Bed(InkCanvas ink, InkCanvas body)
         {
-            var outline = new List<Vector2>
-            {
-                new Vector2(4.4f, 7.6f), new Vector2(7f, 7.6f), new Vector2(7f, 12.6f), new Vector2(21.6f, 12.6f),
-                new Vector2(21.6f, 21.6f), new Vector2(4.4f, 21.6f),
-            };
-            body.EraseOutline(outline, Pen * 0.5f);
-            // Headboard, the mattress as one solid block, and the foot post: nothing more, to keep
-            // it simple.
-            ink.Stroke(5.6f, 7.6f, 5.6f, 21.6f, Pen);
-            ink.Stroke(20.4f, 12.6f, 20.4f, 21.6f, Pen);
-            Solid(ink, new[] { new Vector2(5.6f, 13.2f), new Vector2(20.4f, 13.2f), new Vector2(20.4f, 17.6f), new Vector2(5.6f, 17.6f) });
+            Hand(ink, body, Points(2.4f, 22.2f, 2.5f, 8.9f, 3.2f, 8.1f, 5.8f, 8.2f, 6.6f, 9.0f, 6.6f, 11.6f, 7.2f, 10.9f, 10.6f, 10.8f,
+                11.6f, 11.6f, 12.1f, 13.1f, 13.3f, 12.3f, 15.5f, 11.2f, 18.2f, 10.9f, 20.9f, 11.7f, 23.1f, 12.9f, 23.7f, 13.9f,
+                23.7f, 22.2f, 20.2f, 22.2f, 20.2f, 19.8f, 5.8f, 19.9f, 5.8f, 22.2f), 1101);
         }
 
         // A boss's altar, as Vegvisirs reveal it: a horned skull inked solid, in the language of
@@ -666,21 +766,25 @@ namespace Atlas
             SolidInFront(ink, outline);
         }
 
-        // Haldor the trader: a solid tied bag, the tie a line of paper.
+        // Haldor the trader (the user's design): a solid tied bag in the hand, the cloth gathered
+        // above the tie flaring out, the tie a line of paper through the neck. Grown, the tuft's
+        // foot and the sack's crown overlap by about 1.6 pens; the tie runs through the middle of
+        // that overlap (the tuft's foot 8.85 grown down half a pen, the sack's crown 8.6 grown up
+        // half a pen, the half pens cancelling) and on past both sides of the neck, so the tuft
+        // stands apart. A pen lower, across the sack's shoulders, the sack's crown stayed on the
+        // tuft and the bag read as a lidded jar.
+        private const float TraderTie = (8.85f + 8.6f) * 0.5f;
+        // The tie is narrower than a full line of paper, so the neck keeps its weight.
+        private const float TraderTieWidth = 0.8f;
+
         private static void Trader(InkCanvas ink, InkCanvas body)
         {
-            List<Vector2> sack = Curve(new[]
-            {
-                new Vector2(13f, 8.6f), new Vector2(17.4f, 10.4f), new Vector2(20.6f, 16f), new Vector2(18.8f, 21.2f),
-                new Vector2(13f, 22.6f), new Vector2(7.2f, 21.2f), new Vector2(5.4f, 16f), new Vector2(8.6f, 10.4f),
-            }, closed: true);
-            // The cloth gathered above the tie, flaring out.
-            var tuft = new List<Vector2> { new Vector2(9.6f, 4f), new Vector2(16.4f, 4f), new Vector2(14.2f, 8.8f), new Vector2(11.8f, 8.8f) };
-            body.EraseOutline(sack, Pen * 0.5f);
-            body.EraseOutline(tuft, Pen * 0.5f);
-            Solid(ink, sack);
-            Solid(ink, tuft);
-            ink.Scrape(10.2f, 9.6f, 15.8f, 9.6f, PaperPen);
+            List<Vector2> sack = Curve(Points(13.1f, 8.6f, 17.5f, 10.5f, 20.7f, 16.1f, 18.9f, 21.3f, 13f, 22.6f, 7.3f, 21.2f, 5.5f, 15.9f, 8.7f, 10.3f), closed: true);
+            HandGrown(ink, body, sack, 901);
+            HandGrown(ink, body, Points(9.5f, 4.1f, 16.5f, 3.8f, 14.3f, 8.8f, 11.8f, 8.9f), 902);
+            // The tie sags a little, as a hand draws it.
+            List<Vector2> tie = Curve(Points(8.6f, TraderTie - 0.25f, 13f, TraderTie + 0.15f, 17.4f, TraderTie - 0.2f), closed: false);
+            PaperLine(ink, tie, PaperPen * TraderTieWidth);
         }
 
         // Hildir's camp: a solid tent with a pennant on its pole and a paper door.
@@ -695,24 +799,23 @@ namespace Atlas
             ink.Erase(new[] { new Vector2(13f, 12.4f), new Vector2(16.55f, 22.6f), new Vector2(9.45f, 22.6f) });
         }
 
-        // The Bog Witch: a solid cauldron on short legs, a line of paper under its rim, with
-        // bubbles over it.
+        // The Bog Witch (the user's design): a round-bellied cauldron in the hand, the belly its
+        // widest part, the rim a solid block narrower than the belly and inked in front of it a
+        // line of paper apart (the one line under the rim), stubby solid feet inside the mass,
+        // and two big bubbles over the rim, each a line of paper apart. Nothing splays, so it
+        // reads as a pot rather than a clawfoot tub, and wide where Haldor's bag is tall.
+        private const float CauldronGap = 0.6f;
+
         private static void Cauldron(InkCanvas ink, InkCanvas body)
         {
-            List<Vector2> pot = Curve(new[]
-            {
-                new Vector2(4.8f, 11.4f), new Vector2(5.6f, 16.6f), new Vector2(9f, 20.6f), new Vector2(13f, 21.4f),
-                new Vector2(17f, 20.6f), new Vector2(20.4f, 16.6f), new Vector2(21.2f, 11.4f),
-            }, closed: false);
-            body.EraseOutline(pot, Pen * 0.5f);
-            Solid(ink, pot);
-            ink.Stroke(3.8f, 11.4f, 22.2f, 11.4f, Pen);
-            ink.Stroke(8.6f, 20.2f, 7.2f, 23.4f, Pen);
-            ink.Stroke(17.4f, 20.2f, 18.8f, 23.4f, Pen);
-            ink.Scrape(6.2f, 13f, 19.8f, 13f, PaperPen);
-            Solid(ink, Circle(10.4f, 8f, 1.3f));
-            Solid(ink, Circle(14.2f, 5.4f, 1.1f));
-            Solid(ink, Circle(15.8f, 8.8f, 0.8f));
+            List<Vector2> belly = Curve(Points(7.1f, 10.6f, 3.9f, 13f, 3.1f, 16.5f, 5.7f, 19.6f, 13.1f, 21f, 20.5f, 19.5f, 23f, 16.3f,
+                22.1f, 12.9f, 18.9f, 10.5f), closed: false);
+            Hand(ink, body, belly, 501);
+            Hand(ink, body, Points(6.5f, 18.1f, 10.2f, 19.7f, 9.7f, 22.2f, 6.7f, 22.2f), 502);
+            Hand(ink, body, Points(19.3f, 18.3f, 15.9f, 19.8f, 16.4f, 22.2f, 19.3f, 22.2f), 503);
+            HandInFront(ink, body, Points(6.3f, 7.9f, 19.7f, 7.6f, 19.8f, 10.3f, 6.2f, 10.5f), PaperPen * CauldronGap, 504);
+            HandInFront(ink, body, Circle(10.5f, 4.6f, 2.7f, 16), PaperPen * CauldronGap, 505);
+            HandInFront(ink, body, Circle(16.1f, 3.3f, 2f, 14), PaperPen * CauldronGap, 506);
         }
 
         // The Forge of Potential, after the user's sketch of the game's icon: a solid ball on a

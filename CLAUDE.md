@@ -29,27 +29,40 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   tree or peak does, its foot on the spot (`PinGlyphs.Lift`, from each glyph's ground line in pin
   units; the images and the name layout are lifted, the holder stays on the place); plan signs
   (dot, stone circle) and traced sprites stay centred.
-  `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, house: longhouse,
+  `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, a
+  two-tongued flame a line of paper in front of two long low crossed logs with square ends sawn a
+  little off square (the user's design; round caps read as crossed bones), house: longhouse,
   the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer, not a work hammer;
   circle: dot; portal: a ring of six solid stones sunk onto a thin stepped slab, open at the bottom where the
   opening meets the slab, every joint radial, the long top stone without a joint at the crown
   (the user's design); death: a grave of two round-topped steles on a plinth, the shorter one
   set forward east of the taller, one behind the other in the oblique view (the user's design),
   never a cross; checked: the ink scraped away in part (the user's design, `PinGlyphs.Abrade`,
-  below), not struck through: a red strike vanishes on a solid glyph). The game's own pins get map signs too: bed (spawn point), a
+  below), not struck through: a red strike vanishes on a solid glyph). The game's own pins get map signs too: bed (spawn point; a long low bed seen from the side with
+  a sleeper under the blanket, pillow and body hump, one outline, the user's design), a
   solid horned skull in the language of the game's boss icon (Boss, from Vegvisirs), Hildir1-3
   as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and tower (Sealed Towers); location
   pins by `LocationSpriteData.m_name`: `StartTemple` the Sacrificial Stones (below),
-  vendor/Haldor a plain tied bag, Hildir a tent with pennant, BogWitch a cauldron,
+  vendor/Haldor a tied bag whose tie is a line of paper through the neck (`TraderTie`, through
+  the overlap of the grown tuft and sack, so the tuft stands apart; a pen lower it read as a
+  lidded jar), Hildir a tent with pennant, BogWitch a round-bellied cauldron (rim narrower than
+  the belly, one line of paper under the rim, stubby feet, two big bubbles; the user's design),
   `AncientUpgradeStation` (the Forge of Potential) a ball on a tapering pillar with a stepped base and a paper V (the user's sketch),
   after the game's own icon, which follows the vanilla ward. These five are all the locations
   vanilla's minimap lists icons for (`Minimap.m_locationIcons` in SoftRef bundle `17245031`,
   names checked against the SoftRef manifest).
+  The campfire, bag, cauldron and bed are drawn in the hand (`PinGlyphs.Hand`, `HandInFront`,
+  `HandGrown`, the user's choice): corners rounded over `HandRound` of the outline pen
+  (`RoundCorners`, a tip stays a tip) and edges traced in uneven pieces nudged a hair off the
+  line (`HandTrace`, salted per part), and no two edges ruled parallel, since exact outlines
+  read as machine-made beside a hand-drawn map. Nudges over `HandNudge` read serrated in
+  close-ups.
   **Pins are drawn into the sheet** (the user's design), at a fixed size like every other glyph:
   `AtlasMap.KeepPins` builds the list (`SheetPin`: place, glyph, checked) from the snapshot's
   pen-drawn pins the settings show (`AtlasView.InSheet`). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, part of the map
   (the user's design): sized for what it stands for against a tree of about 13 sheet pixels
-  (`PinSheetSize`: campfire, bed and circle 10, a grave 12, a longhouse, tent or portal about a tree at 16, a boss
+  (`PinSheetSize`: the dot 10, a campfire, bed or grave 12, Mjolnir or the cauldron 13, a
+  longhouse, tent, portal, Haldor's bag or the Forge about a tree at 16, a boss
   altar 18, a barrow 20, a cave or tower 22, the Sacrificial Stones 26), standing on its place by `PinGlyphs.Lift`. That
   size is levelled to the trees: close-ups draw pins smaller by their level of detail as they
   draw their trees (`InkCanvas.Pin` scales the box about the pin's foot by the canvas's pen

@@ -36,7 +36,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and tower (Sealed Towers); location
   pins by `LocationSpriteData.m_name`: `StartTemple` the Sacrificial Stones (below),
   vendor/Haldor a plain tied bag, Hildir a tent with pennant, BogWitch a cauldron,
-  `AncientUpgradeStation` (the Forge of Potential) a ward stone on a plinth with a gem on top,
+  `AncientUpgradeStation` (the Forge of Potential) a ball on a tapering pillar with a stepped base and a paper V (the user's sketch),
   after the game's own icon, which follows the vanilla ward. These five are all the locations
   vanilla's minimap lists icons for (`Minimap.m_locationIcons` in SoftRef bundle `17245031`,
   names checked against the SoftRef manifest).

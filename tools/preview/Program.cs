@@ -482,7 +482,7 @@ internal static class Program
             new[] { "Trader", "Haldor", "location: bag" },
             new[] { "Tent", "Hildir's camp", "location: tent" },
             new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
-            new[] { "Forge", "Forge of Potential", "location: ward stone" },
+            new[] { "Forge", "Forge of Potential", "location: crowned pillar" },
             new[] { "House+Checked", "Any pin, checked", "struck through" },
         };
         string[] lands = { "Meadows", "BlackForest", "Swamp", "Mountain", "Plains", "Mistlands", "Ashlands", "DeepNorth", "Ocean" };

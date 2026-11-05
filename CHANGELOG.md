@@ -58,7 +58,7 @@
   traced in outline. The game's own marks are drawn as map signs too: your bed, your last
   death, a horned skull for a boss's altar, a barrow, a cave mouth and a tower for Hildir's
   requests, a bag for Haldor, a tent for Hildir's
-  camp, a cauldron for the Bog Witch and a ward stone for the Forge of Potential; other mods'
+  camp, a cauldron for the Bog Witch and a stone pillar crowned with a ball for the Forge of Potential; other mods'
   places are traced in outline. Pins are inked into the map itself in solid red, as places were
   marked on old maps, their details (a door, a rune, the flame's tongue) left in bare paper,
   in its own wavering pen,

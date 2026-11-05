@@ -138,7 +138,7 @@ namespace Atlas
                 case PinGlyph.Trader: return 22.6f;
                 case PinGlyph.Tent: return 21.6f;
                 case PinGlyph.Cauldron: return 23.4f;
-                case PinGlyph.Forge: return 22f;
+                case PinGlyph.Forge: return 22.2f;
                 case PinGlyph.StoneCircle: return StonesFoot;
                 default: return PinUnits * 0.5f;
             }
@@ -592,25 +592,26 @@ namespace Atlas
             Solid(ink, Circle(15.8f, 8.8f, 0.8f));
         }
 
-        // The Forge of Potential, whose map icon the game draws after its ward: a solid standing
-        // stone on a low plinth under a wider cap, each a line of paper apart, a gem set on top
-        // and a rune in paper down the stone's face.
+        // The Forge of Potential, after the user's sketch of the game's icon: a solid ball on a
+        // tapering pillar that steps out to a broad base, a V of paper cut from the ball's
+        // lower edge down into the pillar.
         private static void Forge(InkCanvas ink, InkCanvas body)
         {
-            var plinth = new List<Vector2> { new Vector2(6.8f, 19.4f), new Vector2(19.2f, 19.4f), new Vector2(19.2f, 22f), new Vector2(6.8f, 22f) };
-            var pillar = new List<Vector2> { new Vector2(9.6f, 19.4f), new Vector2(10.6f, 8.4f), new Vector2(15.4f, 8.4f), new Vector2(16.4f, 19.4f) };
-            var cap = new List<Vector2> { new Vector2(8.4f, 6.6f), new Vector2(17.6f, 6.6f), new Vector2(17.6f, 8.4f), new Vector2(8.4f, 8.4f) };
-            var gem = new List<Vector2> { new Vector2(13f, 1.8f), new Vector2(15f, 4.3f), new Vector2(13f, 6.6f), new Vector2(11f, 4.3f) };
-            foreach (List<Vector2> part in new[] { plinth, pillar, cap, gem }) body.EraseOutline(part, Pen * 0.5f);
-            Solid(ink, pillar);
-            SolidInFront(ink, plinth);
-            SolidInFront(ink, cap);
-            SolidInFront(ink, gem);
-            ink.Scrape(13f, 10.8f, 13f, 16.4f, PaperPen);
-            ink.Scrape(13f, 12.2f, 11.6f, 13.8f, PaperPen);
-            ink.Scrape(13f, 12.2f, 14.4f, 13.8f, PaperPen);
+            var stone = new List<Vector2>
+            {
+                new Vector2(8.5f, 8.6f), new Vector2(17.4f, 8.6f), new Vector2(18f, 17.8f), new Vector2(18.6f, 17.8f),
+                new Vector2(18.6f, 19.6f), new Vector2(19.8f, 19.6f), new Vector2(19.8f, 22.2f), new Vector2(6.2f, 22.2f),
+                new Vector2(6.2f, 19.6f), new Vector2(7.1f, 19.6f), new Vector2(7.1f, 17.8f), new Vector2(7.8f, 17.8f),
+            };
+            List<Vector2> ball = Circle(13f, 7.2f, 4.4f);
+            body.EraseOutline(stone, Pen * 0.5f);
+            body.EraseOutline(ball, Pen * 0.5f);
+            Solid(ink, stone);
+            Solid(ink, ball);
+            // The V's arms run out past the pillar's shoulders, so its top stays open.
+            ink.Scrape(7.9f, 7.9f, 12.8f, 16.7f, PaperPen);
+            ink.Scrape(12.8f, 16.7f, 18f, 7.9f, PaperPen);
         }
-
         // A checked pin is struck through with two pen strokes, scraped through its solid glyph
         // as paper (InkCanvas.Pin).
         private static void Checked(InkCanvas ink)

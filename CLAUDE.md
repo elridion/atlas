@@ -50,13 +50,20 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   vendor/Haldor a tied bag whose tie is a line of paper through the neck (`TraderTie`, through
   the overlap of the grown tuft and sack, so the tuft stands apart; a pen lower it read as a
   lidded jar), Hildir a round bell tent, its cone over a low wall a line of paper apart
-  (`TentHemGap`, the hem line), a swallowtail pennant flying from the apex itself with no pole
+  (the hem line), a swallowtail pennant flying from the apex itself with no pole
   (the user's design; a triangle tent read as an "A" or a peak), BogWitch a round-bellied cauldron (rim narrower than
   the belly, one line of paper under the rim, stubby feet, two big bubbles; the user's design),
   `AncientUpgradeStation` (the Forge of Potential) a ball on a tapering pillar with a stepped base and a paper V (the user's sketch),
   after the game's own icon, which follows the vanilla ward. These five are all the locations
   vanilla's minimap lists icons for (`Minimap.m_locationIcons` in SoftRef bundle `17245031`,
   names checked against the SoftRef manifest).
+  Every line of paper cut through a pin (the gaps round parts inked in front, the portal's
+  joints, the tie, the tower's slit, the barrow's lintel, the skull's teeth) has one width,
+  `PinGlyphs.Cut` = `PaperCut` 0.5625 of the paper pen (the user's call, the tent's hem line):
+  the pen is a sheet pixel in every box, so that is 0.675 sheet px on every pin and about
+  1.9 px in 4x close-ups. Doors, eyes, the cave mouth and the Forge's V are shapes, not cuts.
+  The portal's stones are inked touching and their joints scraped along the radii: as a gap
+  between two outlines, each side wavered on its own and the joints came out half as wide.
   The campfire, longhouse, bag, tent, cauldron and bed are drawn in the hand (`PinGlyphs.Hand`,
   `HandInFront`, `HandGrown`, `HandCut` for paper cuts, the user's choice): corners rounded over
   `HandRound` of the outline pen (the tent's cloth softer, `TentRound`; the user's call)

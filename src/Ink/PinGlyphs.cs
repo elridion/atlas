@@ -94,6 +94,14 @@ namespace Atlas
         // Details cut back to paper through a solid glyph: wider than the pen, as a gap in red
         // ink reads thinner than a red line of the same width.
         private static float PaperPen => s_pen > 0f ? s_pen * 1.2f : MarkerPaperPen;
+        // Every line of paper cut through a pin (the gap round a part inked in front, the portal's
+        // joints, the bag's tie, the tower's slit, the skull's teeth) is PaperCut of the paper pen
+        // wide, one width for every glyph (the user's call). The pen is a sheet pixel in every
+        // box, so that is 0.675 sheet px on every pin and about 1.9 px in the 4x close-ups. It is
+        // the tent's hem line, the user's three quarters of an earlier 0.75 line: wider cuts thin
+        // the grave's back stele at its 12 px box, narrower ones barely show on the sheet.
+        private const float PaperCut = 0.5625f;
+        private static float Cut => PaperPen * PaperCut;
         // The engraver's gap: terrain ink stops this far short of the pin's lines, as pen lines
         // break off round a symbol on a hand-drawn map, so trees do not run into its outline. A
         // pin drawn into the sheet keeps the halo a tree's crown scrapes round its own line, half
@@ -269,7 +277,7 @@ namespace Atlas
             Hand(ink, body, SawnLog(2.6f, 19.9f, 23.4f, 15.7f, 4.8f, 0.5f, -0.4f), 102);
             List<Vector2> flame = Curve(Points(14.5f, 1.7f, 18.7f, 7.9f, 19.3f, 12.5f, 17.5f, 15.7f, 13.1f, 16.6f, 8.7f, 15.5f,
                 6.8f, 12.5f, 6.7f, 9f, 7.4f, 5.1f, 10.1f, 8.9f, 11.7f, 6.1f), closed: true);
-            HandInFront(ink, body, flame, PaperPen * 0.7f, 103);
+            HandInFront(ink, body, flame, 103);
         }
 
         // A log from a to b, thick across, as a quad whose ends are sawn off square but for
@@ -310,12 +318,12 @@ namespace Atlas
             Solid(ink, o);
         }
 
-        // The same, inked in front of what is drawn, a line of paper gap pin units wide apart.
-        private static void HandInFront(InkCanvas ink, InkCanvas body, IList<Vector2> outline, float gap, int salt, float round = HandRound)
+        // The same, inked in front of what is drawn, a line of paper (Cut) apart.
+        private static void HandInFront(InkCanvas ink, InkCanvas body, IList<Vector2> outline, int salt, float round = HandRound)
         {
             List<Vector2> o = HandTrace(RoundCorners(outline, Pen * round), salt);
             body.EraseOutline(o, 0f);
-            ink.EraseOutline(o, gap);
+            ink.EraseOutline(o, Cut);
             FillSolid(ink, o);
         }
 
@@ -405,8 +413,6 @@ namespace Atlas
         // door a paper cut on the long side toward the east end. A gable end facing the viewer
         // read as a modern home button, and hipped side views as a bungalow.
         private const float HouseFoot = 21.6f;
-        // The eave's line of paper, narrower than a full line so the low wall keeps its weight.
-        private const float HouseEaveGap = 0.5f;
 
         private static void House(InkCanvas ink, InkCanvas body)
         {
@@ -420,7 +426,7 @@ namespace Atlas
                 20.2f, 8.8f, 21.1f, 7.6f, 22.2f, 6.3f, 23.2f, 6.8f, 24.7f, 7.4f, 24.8f, 8.5f, 23.5f, 8.7f, 22.5f, 9.6f, 21.8f, 10.5f,
                 // The eave bowing down a little to the middle, as the long walls bow out.
                 22.0f, 15.5f, 19.0f, 16.4f, 13f, 16.9f, 7.2f, 16.3f);
-            HandInFront(ink, body, roof, PaperPen * HouseEaveGap, 1212);
+            HandInFront(ink, body, roof, 1212);
             // The door runs on through the ground line, so it opens at the bottom.
             HandCut(ink, Points(15.9f, 18.0f, 18.2f, 17.9f, 18.4f, 23f, 16.0f, 23f), 1213);
         }
@@ -465,18 +471,17 @@ namespace Atlas
         // size the outlined one had.
         private static void Solid(InkCanvas ink, IList<Vector2> outline) => FillSolid(ink, outline, Pen * 0.5f);
 
-        // A part inked solid in front of what is already drawn, a line of paper apart from it,
-        // gap pin units wide (PaperPen when not given).
-        private static void SolidInFront(InkCanvas ink, IList<Vector2> outline, float gap = -1f)
+        // A part inked solid in front of what is already drawn, a line of paper (Cut) apart from it.
+        private static void SolidInFront(InkCanvas ink, IList<Vector2> outline)
         {
-            ink.EraseOutline(outline, Pen * 0.5f + (gap >= 0f ? gap : PaperPen));
+            ink.EraseOutline(outline, Pen * 0.5f + Cut);
             Solid(ink, outline);
         }
 
-        // Scrapes a line of paper through the ink along the points.
-        private static void PaperLine(InkCanvas ink, IList<Vector2> points, float width)
+        // Scrapes a line of paper (Cut) through the ink along the points.
+        private static void PaperLine(InkCanvas ink, IList<Vector2> points)
         {
-            for (int i = 1; i < points.Count; i++) ink.Scrape(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y, width);
+            for (int i = 1; i < points.Count; i++) ink.Scrape(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y, Cut);
         }
 
         // A circle as an outline of sides points.
@@ -555,21 +560,31 @@ namespace Atlas
             // Each stone grows only a little past its outline: grown the whole outline pen, a 36
             // degree stone would have no room left at the opening's edge for a centred joint.
             float grow = Pen * 0.2f;
-            float joint = grow + PaperPen * 0.35f;
             float outer = PortalOuter + Pen * 0.3f;
-            foreach (float[] stone in s_portalStones) FillSolid(ink, PortalStone(stone[0], stone[1], outer, joint), grow);
+            foreach (float[] stone in s_portalStones) FillSolid(ink, PortalStone(stone[0], stone[1], outer, grow), grow);
+            // The stones are inked touching and each joint (a boundary two stones share) is then
+            // scraped along its radius, through the ring and past its bulge. Left as a gap between
+            // two outlines, each side wavered on its own and the joints came out about half as wide
+            // as every other cut, some pinched shut.
+            foreach (float[] stone in s_portalStones)
+                foreach (float[] next in s_portalStones)
+                {
+                    if (next == stone || next[0] != stone[1]) continue;
+                    Vector2 from = new Vector2(PortalCx, PortalCy) + PortalRay(stone[1]) * (PortalInner - 1f);
+                    Vector2 to = new Vector2(PortalCx, PortalCy) + PortalRay(stone[1]) * (outer + PortalBulge + 1f);
+                    ink.Scrape(from.x, from.y, to.x, to.y, Cut);
+                }
             // The opening and the lowest stones' ends are cut before the slab, so it stays whole
             // in front of them.
             ink.Erase(Circle(PortalCx, PortalCy, PortalInner));
             ink.Erase(s_portalBelow);
             body.EraseOutline(s_portalSlab, Pen * 0.5f);
-            SolidInFront(ink, s_portalSlab, PaperPen * 0.5f);
+            SolidInFront(ink, s_portalSlab);
         }
 
-        // One stone of the ring between angles a and b (degrees). Inked side by side, each joint
-        // would lie to one side of its boundary and miss the centre, so both sides are the
-        // boundary radii moved apart by d (half a joint plus the pen the solid grows): every joint
-        // is centred on its radius and points at the ring's centre from end to end.
+        // One stone of the ring between angles a and b (degrees). Its sides are the boundary
+        // radii moved in by d, the pen the solid grows, so neighbouring stones meet on their
+        // shared radius and the joint scraped along it is centred and points at the ring's centre.
         private static List<Vector2> PortalStone(float a, float b, float rOut, float d)
         {
             var c = new Vector2(PortalCx, PortalCy);
@@ -622,9 +637,6 @@ namespace Atlas
         private const float DeathFrontLeft = 12f;
         private const float DeathFrontRight = 19f;
         private const float DeathFrontTop = 7.4f;
-        // The line of paper between the steles, narrower than elsewhere: at a 12 px box a full
-        // one cuts the back stele's visible strip too thin.
-        private const float DeathGap = 0.525f;
 
         private static void Death(InkCanvas ink, InkCanvas body)
         {
@@ -645,7 +657,7 @@ namespace Atlas
             body.EraseOutline(back, g);
             Solid(ink, back);
             body.EraseOutline(piece, g);
-            SolidInFront(ink, front, PaperPen * DeathGap);
+            SolidInFront(ink, front);
             Solid(ink, plinth);
         }
 
@@ -707,8 +719,8 @@ namespace Atlas
             ink.EraseEllipse(10.5f, 13.2f, 1.7f, 1.9f);
             ink.EraseEllipse(15.5f, 13.2f, 1.7f, 1.9f);
             ink.Erase(new[] { new Vector2(13f, 15.2f), new Vector2(13.9f, 17f), new Vector2(12.1f, 17f) });
-            ink.Scrape(11.8f, 19f, 11.8f, 21.6f, 0.7f);
-            ink.Scrape(14.2f, 19f, 14.2f, 21.6f, 0.7f);
+            ink.Scrape(11.8f, 19f, 11.8f, 21.6f, Cut);
+            ink.Scrape(14.2f, 19f, 14.2f, 21.6f, Cut);
         }
 
         // Hildir's first request, the Smouldering Tombs: a solid barrow with a paper doorway under
@@ -719,7 +731,7 @@ namespace Atlas
             body.EraseOutline(mound, Pen * 0.5f);
             Solid(ink, mound);
             ink.Stroke(2.8f, 21.4f, 23.2f, 21.4f, Pen);
-            ink.Scrape(10f, 13.2f, 16f, 13.2f, PaperPen);
+            ink.Scrape(10f, 13.2f, 16f, 13.2f, Cut);
             ink.EraseOutline(Doorway(10.8f, 15.2f, 16.6f, 15f, 21.4f), 0f);
         }
 
@@ -756,7 +768,7 @@ namespace Atlas
             };
             body.EraseOutline(outline, Pen * 0.5f);
             Solid(ink, outline);
-            ink.Scrape(13f, 8.6f, 13f, 11.6f, PaperPen);
+            ink.Scrape(13f, 8.6f, 13f, 11.6f, Cut);
             ink.EraseOutline(Doorway(11.4f, 14.6f, 18f, 16.4f, 21.8f), 0f);
         }
 
@@ -813,8 +825,6 @@ namespace Atlas
         // stands apart. A pen lower, across the sack's shoulders, the sack's crown stayed on the
         // tuft and the bag read as a lidded jar.
         private const float TraderTie = (8.85f + 8.6f) * 0.5f;
-        // The tie is narrower than a full line of paper, so the neck keeps its weight.
-        private const float TraderTieWidth = 0.8f;
 
         private static void Trader(InkCanvas ink, InkCanvas body)
         {
@@ -823,7 +833,7 @@ namespace Atlas
             HandGrown(ink, body, Points(9.5f, 4.1f, 16.5f, 3.8f, 14.3f, 8.8f, 11.8f, 8.9f), 902);
             // The tie sags a little, as a hand draws it.
             List<Vector2> tie = Curve(Points(8.6f, TraderTie - 0.25f, 13f, TraderTie + 0.15f, 17.4f, TraderTie - 0.2f), closed: false);
-            PaperLine(ink, tie, PaperPen * TraderTieWidth);
+            PaperLine(ink, tie);
         }
 
         // Hildir's camp (the user's design): a round bell tent in the hand, a cone bellying out a
@@ -842,16 +852,13 @@ namespace Atlas
         // Softer than the hand's other parts (HandRound): the tent is cloth, and its tips (the
         // cone's feet, the swallowtail's points) read as cut sheet metal at 0.45.
         private const float TentRound = 0.7f;
-        // The hem's line of paper (and the gap where the pennant's hoist meets the cone), the
-        // user's three quarters of an earlier 0.75 line, so cone and wall read as one tent.
-        private const float TentHemGap = 0.5625f;
 
         private static void Tent(InkCanvas ink, InkCanvas body)
         {
             Hand(ink, body, Points(4.9f, 16.9f, 21.3f, 16.4f, 21.8f, TentFoot, 4.2f, TentFoot), 1002, TentRound);
             var east = Curve(Points(13f, TentApex, 15.5f, 10.6f, 18.9f, 13.6f, 23.1f, 16.3f), closed: false);
             east.AddRange(Points(20.0f, 17.5f, 16.7f, 16.9f, 13f, 17.4f));
-            HandInFront(ink, body, MirrorHand(east, TentSqueeze, TentLean, TentApex, TentHem), PaperPen * TentHemGap, 1003, TentRound);
+            HandInFront(ink, body, MirrorHand(east, TentSqueeze, TentLean, TentApex, TentHem), 1003, TentRound);
             // The pennant's hoist on the apex (13 + TentLean), its foot inside the cone's tip.
             Hand(ink, body, Points(13.0f, 9.2f, 12.9f, 2.6f, 13.7f, 1.9f, 21.4f, 3.0f, 18.9f, 4.7f, 21.1f, 6.3f, 14.6f, 6.8f, 14.0f, 9.2f), 1004, TentRound);
         }
@@ -861,8 +868,6 @@ namespace Atlas
         // line of paper apart (the one line under the rim), stubby solid feet inside the mass,
         // and two big bubbles over the rim, each a line of paper apart. Nothing splays, so it
         // reads as a pot rather than a clawfoot tub, and wide where Haldor's bag is tall.
-        private const float CauldronGap = 0.6f;
-
         private static void Cauldron(InkCanvas ink, InkCanvas body)
         {
             List<Vector2> belly = Curve(Points(7.1f, 10.6f, 3.9f, 13f, 3.1f, 16.5f, 5.7f, 19.6f, 13.1f, 21f, 20.5f, 19.5f, 23f, 16.3f,
@@ -870,9 +875,9 @@ namespace Atlas
             Hand(ink, body, belly, 501);
             Hand(ink, body, Points(6.5f, 18.1f, 10.2f, 19.7f, 9.7f, 22.2f, 6.7f, 22.2f), 502);
             Hand(ink, body, Points(19.3f, 18.3f, 15.9f, 19.8f, 16.4f, 22.2f, 19.3f, 22.2f), 503);
-            HandInFront(ink, body, Points(6.3f, 7.9f, 19.7f, 7.6f, 19.8f, 10.3f, 6.2f, 10.5f), PaperPen * CauldronGap, 504);
-            HandInFront(ink, body, Circle(10.5f, 4.6f, 2.7f, 16), PaperPen * CauldronGap, 505);
-            HandInFront(ink, body, Circle(16.1f, 3.3f, 2f, 14), PaperPen * CauldronGap, 506);
+            HandInFront(ink, body, Points(6.3f, 7.9f, 19.7f, 7.6f, 19.8f, 10.3f, 6.2f, 10.5f), 504);
+            HandInFront(ink, body, Circle(10.5f, 4.6f, 2.7f, 16), 505);
+            HandInFront(ink, body, Circle(16.1f, 3.3f, 2f, 14), 506);
         }
 
         // The Forge of Potential, after the user's sketch of the game's icon: a solid ball on a

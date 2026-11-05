@@ -650,12 +650,14 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   and 59-64% of a swamp's land lies that high, so they stand on `WorldSource.m_swampGround`
   (swamp ground at `SwampTreeLine` -0.5 m and up, from the heights before the pools are
   raised; tested on the raised heights they stood in former pools), clear of the water
-  (`PlaceDeadTrees`): one candidate per `DeadTreeStep` 12 T cell (salt 27) with
+  (`PlaceDeadTrees`): one candidate per `DeadTreeStep` 9 T cell (salt 27) with
   `DeadTreeOdds` 0.8 times the grove's `KeepOf`, a foot kept outside an ellipse of
-  `DeadTreeGapX` 6.5 by `DeadTreeGapY` 9 T round every tree already placed (row by row, so
+  `DeadTreeGapX` 6.5 by `DeadTreeGapY` 8 T round every tree already placed (row by row, so
   every run agrees), so neighbours stand close, one in front may hide the foot of the one behind,
-  and their limbs never tangle. About 500 a world (Velen 497, demoo 509; one per 30 T cell at
-  0.45 before, about 110), so the swamp reads as wooded with marsh lines between. The user chose
+  and their limbs never tangle. About 750 a world (Velen 727, demoo 786; the user asked for more
+  than the 12 T cell and 9 T gap gave, Velen 497 and demoo 509, and one per 30 T cell at 0.45
+  before that, about 110), so the swamp reads as wooded with marsh lines between. The gap
+  ellipse binds before the grid: a 10 T cell alone gave Velen only 614, a 9 T cell 697. The user chose
   these dead trees over a wood of living swamp trees with low mossy crowns, which was tried and
   rejected. They are sheet glyphs (one record group each) that close-ups replay, and the fog's
   edge thins them as trees (`FogMark.m_thinned`). Marks sit on
@@ -966,8 +968,17 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the user's call); Smalltree Meadows `Smalltree`: vanilla blocks `beech1_meadows` (40),
   `birch1` and `birch2` and adds 100 `beech_small3/4_meadows` and bushes, so its big trees drop
   to about 0.17 (`beech2_meadows` 5-10 and the oaks) while it has more trees than a plain wood;
-  every tree stays, `SmalltreeBig` 0.17 of them (hash `SmalltreeRoll`) at full size and the rest
-  with crowns `SmalltreeSize` 0.65 (`SizeOf`, the size passed to `Add`); Wolf Mountain, Trees Mistlands `Dense` (the rule's grids are
+  `SmalltreeBig` 0.17 of its spots (hash `SmalltreeRoll`) stay full-size broadleaves and
+  `SmalltreeKeep` 0.75 of the rest (hash `SmalltreeKeepRoll` 97) take the small-tree glyph,
+  `Kind.SmallTree` (`SmallTrees.cs`: one small crown whose top is three rounded lobes, the
+  classic map's leafy-tree sign, on a short trunk, its east side shaded over `SmallShade` 0.8 of a
+  broadleaf's span; the user's pick, F of a design round of seven). It is about 0.7-0.9 of a
+  broadleaf's footprint on purpose: the pen is a sheet pixel at every zoom, so crowns under about
+  3 T fill solid, and a full broadleaf's shade made the small crowns read black. With a small
+  tree on every spot the lobed crowns overlapped heavily in places (the user's call), hence the
+  keep share. It is a round crown to `HideCoveredCrowns` and the pins' cover (`SmallCrown`, the
+  ellipse from its underside to its lobes' tops), a crown to the fog (`FogShape`) and a tree to
+  close-ups (`IsTree`), and its body takes the wood wash (`BeginWood`); Wolf Mountain, Trees Mistlands `Dense` (the rule's grids are
   already 90-95% full, so `ScatterTrees` gives dense spots a grid of their own, `DenseSpacing`
   0.85 of the step, salt +`DenseSalt`, every cell taken, about 1.4-1.5 times the trees); all others none.
   `ReadGroves` keeps the lowest `Grove` value, so the enum runs from felling to thickening

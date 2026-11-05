@@ -61,6 +61,7 @@ namespace Atlas
                 case Kind.Thorn: Thorns(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Mist: MistBank(g.m_x, g.m_y - MistFoot(g.m_seed), g.m_seed); break;
                 case Kind.IceFloe: IceFloe(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+                case Kind.SmallTree: SmallTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Pin:
                 {
                     Vector3 box = PinBox(g);

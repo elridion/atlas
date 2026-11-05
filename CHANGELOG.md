@@ -38,8 +38,8 @@
   stippled as the Plains between them,
   variants where the game grows fewer trees get sparser woods (bog Swamps about a third of the
   dead trees, pine Black Forests, drake and fortress Mountains and hut Swamps about half, lox
-  Plains about a third as open grazing land, birch Meadows and death Plains three quarters), small-tree Meadows full woods of smaller
-  trees with a few big ones, and those where it grows more (wolf Mountains, tree-filled
+  Plains about a third as open grazing land, birch Meadows and death Plains three quarters), small-tree Meadows woods of
+  small leafy trees, each a little crown with a three-lobed top, with a few big ones among them, and those where it grows more (wolf Mountains, tree-filled
   Mistlands) get denser woods.
 - The Mountains' fir woods are drawn too, as dark pine woods on the gentler slopes where the game
   grows its firs, from the lush woods at the mountains' feet up between the peaks, which stand

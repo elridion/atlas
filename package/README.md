@@ -53,7 +53,7 @@ loose clusters of shaded boulders, hills and a few lone pines, kept clear of the
 Plains' dry stipple between them. Pine Black Forests and drake and fortress Mountains have sparser
 woods, about half the trees; lox Plains keep about a third of theirs, open grazing land; birch
 Meadows and death Plains lose about a quarter of theirs. Hut Swamps have about half the dead trees
-and bog Swamps about a third. Small-tree Meadows keep full woods of smaller trees with a few big ones among them. Wolf
+and bog Swamps about a third. Small-tree Meadows have woods of small leafy trees, each a little crown with a three-lobed top, with a few big ones among them. Wolf
 Mountains and tree-filled Mistlands have denser woods.
 
 | Biome | Marks |

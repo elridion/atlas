@@ -206,10 +206,10 @@ namespace Atlas
         // on (WorldSource.m_swampGround). Two keep their feet outside an ellipse of
         // DeadTreeGapX by DeadTreeGapY tree units round each other, so neighbours stand close
         // but their limbs do not tangle into scribble.
-        private const float DeadTreeStep = 12f;
+        private const float DeadTreeStep = 9f;
         private const float DeadTreeOdds = 0.8f;
         private const float DeadTreeGapX = 6.5f;
-        private const float DeadTreeGapY = 9f;
+        private const float DeadTreeGapY = 8f;
         private const int DeadTreeSalt = 27;
         // Patches of land or water smaller than this many map pixels (12 m each) are dropped as noise.
         private const int SpeckCells = 2;
@@ -220,9 +220,10 @@ namespace Atlas
         private const float WoodClearance = 5f;
         // Alt biomes (Grove): a thin grove keeps ThinKeep of its trees, a sparse one SparseKeep,
         // a light one LightKeep and a Lox Plains LoxKeep, by the cell's hash number SparseRoll
-        // (a swamp's dead trees by their odds); a small-tree grove keeps every tree,
-        // SmalltreeBig of them (hash number SmalltreeRoll) at full size and the rest at
-        // SmalltreeSize; a dense grove's own grid is DenseSpacing of the rule's step with
+        // (a swamp's dead trees by their odds); a small-tree grove keeps SmalltreeBig of its
+        // spots (hash number SmalltreeRoll) as full-size broadleaves and draws SmalltreeKeep of
+        // the rest (hash number SmalltreeKeepRoll) as small trees: one on every spot crowded
+        // their lobed crowns into each other; a dense grove's own grid is DenseSpacing of the rule's step with
         // every cell taken (about 1.4-1.5 times the trees; the rule's grids are already 90-95%
         // full), salted DenseSalt past the rule's. A clear-cut's stumps are few, as the Meadows'
         // tufts are, on one sheet grid of StumpStep glyph units, with StumpOdds inside the stands
@@ -235,8 +236,9 @@ namespace Atlas
         // Plains' two birches, about 0.75 of the trees): open grazing land for the herds.
         private const float LoxKeep = 0.35f;
         private const float SmalltreeBig = 0.17f;
-        private const float SmalltreeSize = 0.65f;
         private const int SmalltreeRoll = 96;
+        private const float SmalltreeKeep = 0.75f;
+        private const int SmalltreeKeepRoll = 97;
         private const float DenseSpacing = 0.85f;
         private const int DenseSalt = 50;
         private const float StumpStep = 3.8f;
@@ -497,6 +499,8 @@ namespace Atlas
             IceFloe,
             // A pin (PinGlyphs), its glyph in the seed's low byte and PinStruck set when checked.
             Pin,
+            // A small-tree grove's small beech (SmallTrees), drawn instead of most of its broadleaves.
+            SmallTree,
         }
 
         // Pins (the Sacrificial Stones among them) are drawn into the sheet as glyphs of their own,
@@ -1067,6 +1071,7 @@ namespace Atlas
                 case Kind.Broadleaf:
                 case Kind.PlainsTree:
                 case Kind.GiantTree:
+                case Kind.SmallTree:
                     return MarkShape.Crown;
                 case Kind.Conifer:
                 case Kind.Peak:
@@ -1082,7 +1087,8 @@ namespace Atlas
 
         // The glyphs a detail tile draws afresh at its own level of detail.
         private static bool IsTree(Kind kind) =>
-            kind == Kind.Broadleaf || kind == Kind.Conifer || kind == Kind.PlainsTree || kind == Kind.GiantTree;
+            kind == Kind.Broadleaf || kind == Kind.Conifer || kind == Kind.PlainsTree || kind == Kind.GiantTree
+            || kind == Kind.SmallTree;
 
         // The coastline is traced on vanilla's own heights, unsmoothed, so it runs where vanilla's
         // map puts the water's edge: every island, lake, pond and swamp pool stays. Only single map
@@ -1776,6 +1782,11 @@ namespace Atlas
                     half = 5f * s;
                     height = 14f * s;
                     break;
+                case Kind.SmallTree:
+                    // The lobed crown at its widest and tallest (SmallShape) with its scraped rim.
+                    half = 3.4f * s;
+                    height = 7.6f * s;
+                    break;
                 case Kind.Pin:
                 {
                     Vector3 pin = PinBox(g);
@@ -2444,7 +2455,8 @@ namespace Atlas
         // inWood holds. The alt biomes change only how many stand in the same wood shapes: a
         // clear-cut or a boulder field has none, a thin, grazed, sparse or light grove keeps its share of them
         // (KeepOf) by a hash of their own, a small-tree grove (only ever on Meadows ground) keeps
-        // them all but draws most of them smaller (SizeOf), and a
+        // SmalltreeBig of its broadleaves and draws SmalltreeKeep of the other spots as small
+        // trees (Kind.SmallTree), and a
         // dense grove, which the rule's own grid cannot pack fuller (it is already nearly full),
         // takes every cell of a finer grid of its own (DenseSpacing, salt DenseSalt on), its own
         // grid leaving those spots out so the two do not overlap. Decided from hashes and the
@@ -2456,7 +2468,13 @@ namespace Atlas
                 if (!(s.m_roll < odds) || WorldSource.IsOpen(s.m_grove) || s.m_grove == Grove.Dense) return;
                 if (!(Unit(s.m_seed, SparseRoll) < KeepOf(s.m_grove))) return;
                 if (!inWood(s)) return;
-                Add(s, kind, m_t * SizeOf(s));
+                if (s.m_grove == Grove.Smalltree && kind == Kind.Broadleaf)
+                {
+                    if (Unit(s.m_seed, SmalltreeRoll) < SmalltreeBig) Add(s, kind, m_t);
+                    else if (Unit(s.m_seed, SmalltreeKeepRoll) < SmalltreeKeep) Add(s, Kind.SmallTree, m_t);
+                    return;
+                }
+                Add(s, kind, m_t);
             });
             if (!m_world.HasGrove(Grove.Dense)) return;
             Scatter(spacing * DenseSpacing, salt + DenseSalt, s =>
@@ -2479,11 +2497,6 @@ namespace Atlas
             }
         }
 
-        // A tree's size against the rule's: a small-tree grove's woods are mostly small beeches
-        // with a few big ones left among them, so most crowns shrink and SmalltreeBig stay whole.
-        private static float SizeOf(Spot s) =>
-            s.m_grove == Grove.Smalltree && !(Unit(s.m_seed, SmalltreeRoll) < SmalltreeBig) ? SmalltreeSize : 1f;
-
         // Whether a glyph has a round crown (Glyphs: BroadleafCrown, PlainsCrown, GiantCrown).
         private static bool RoundCrown(Glyph g, out Crown crown)
         {
@@ -2492,6 +2505,7 @@ namespace Atlas
                 case Kind.Broadleaf: crown = BroadleafCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
                 case Kind.PlainsTree: crown = PlainsCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
                 case Kind.GiantTree: crown = GiantCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
+                case Kind.SmallTree: crown = SmallCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
                 default: crown = default(Crown); return false;
             }
         }
@@ -2610,7 +2624,8 @@ namespace Atlas
                 int count = m_glyphs.Count;
                 Add(s, Kind.DeadTree, T);
                 if (m_glyphs.Count > count) feet.Add(new Vector2(s.m_x, s.m_y));
-            });        }
+            });
+        }
 
         private void PlaceGlyphs()
         {

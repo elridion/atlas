@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Kortabókin þín er enn auð. Skráðu uppgötvanir þínar við kortaborð.",
-  "atlas_drawing": "Rúnirnar eru enn óristar. Komdu aftur þegar blekið hefur þornað.",
-  "atlas_failed": "Ekki tókst að teikna kortabókina. Nánari upplýsingar eru í annálnum."
+  "atlas_blank": "Kortið þitt er enn autt.",
+  "atlas_drawing": "Blekið hefur ekki enn þornað.",
+  "atlas_failed": "Ekki tókst að teikna kortið."
 }

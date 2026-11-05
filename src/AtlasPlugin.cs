@@ -27,24 +27,33 @@ namespace Atlas
 
         private readonly Harmony _harmony = new Harmony(PluginGuid);
 
-        // Which of the game's own map marks the atlas shows. The player's own pins always show.
+        // Which pins the atlas shows: the player's own, the game's own marks by kind, and any of
+        // them out in unexplored land.
+        public static ConfigEntry<bool> PlayerPins;
         public static ConfigEntry<bool> BedPin;
         public static ConfigEntry<bool> DeathPin;
         public static ConfigEntry<bool> BossPins;
         public static ConfigEntry<bool> TraderPins;
         public static ConfigEntry<bool> HildirPins;
         public static ConfigEntry<bool> PlacePins;
+        public static ConfigEntry<bool> UnexploredPins;
+        // The glimpse past the explored land (Paper.Fog).
+        public static ConfigEntry<bool> Glimpse;
 
         private void Awake()
         {
-            BedPin = Config.Bind("Pins", "BedPin", true, "Show your bed (spawn point) on the atlas.");
-            DeathPin = Config.Bind("Pins", "DeathPin", true, "Show where you last died on the atlas.");
-            BossPins = Config.Bind("Pins", "BossPins", true, "Show the boss altars a Vegvisir revealed on the atlas.");
-            TraderPins = Config.Bind("Pins", "TraderPins", true, "Show the traders (Haldor, Hildir, the Bog Witch) on the atlas.");
-            HildirPins = Config.Bind("Pins", "HildirPins", true, "Show the dungeons of Hildir's requests on the atlas.");
-            PlacePins = Config.Bind("Pins", "PlacePins", true, "Show the Sacrificial Stones, the Forge of Potential and the places other mods mark on the atlas.");
-            // Pins drawn into the sheet change once it is painted again; markers the next time the
-            // atlas opens.
+            PlayerPins = Config.Bind("Pins", "PlayerPins", true, "Show the pins you placed yourself (the five icons of the pin menu) on the map.");
+            BedPin = Config.Bind("Pins", "BedPin", true, "Show your bed (spawn point) on the map.");
+            DeathPin = Config.Bind("Pins", "DeathPin", true, "Show where you last died on the map.");
+            BossPins = Config.Bind("Pins", "BossPins", true, "Show the boss altars a Vegvisir revealed on the map.");
+            TraderPins = Config.Bind("Pins", "TraderPins", true, "Show the traders (Haldor, Hildir, the Bog Witch) on the map.");
+            HildirPins = Config.Bind("Pins", "HildirPins", true, "Show the dungeons of Hildir's requests on the map.");
+            PlacePins = Config.Bind("Pins", "PlacePins", true, "Show the Sacrificial Stones, the Forge of Potential and the places other mods mark on the map.");
+            UnexploredPins = Config.Bind("Pins", "UnexploredPins", true, "Show pins that lie outside the land you have explored. Off, only pins on explored land show.");
+            Glimpse = Config.Bind("Fog", "Glimpse", true,
+                "Show a band of the map on bare parchment past the land you have explored, and the game's own marks out in unexplored land (bosses, traders) drawn into the map with a glimpse round them. Off, the fog ends at the explored land and those marks show as markers on it.");
+            // Markers change at once; pins drawn into the sheet once it is painted again in the
+            // background, and the fog once it is laid again (AtlasMap.KeepFog).
             Config.SettingChanged += (sender, args) =>
             {
                 AtlasView.PinsChanged();

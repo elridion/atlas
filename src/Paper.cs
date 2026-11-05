@@ -113,6 +113,10 @@ namespace Atlas
         // The sea illustrations' wash (SeaWash): a second glaze of a deeper indigo laid over the
         // water in their bodies, so they stand a little darker and bluer than the sea round them.
         private static readonly Tint s_seaWash = new Tint(72, 100, 160, 0.22f);
+        // The Ashlands' boiling sea: a thin glaze of burnt red ochre over the water's indigo, as
+        // vanilla's map warms the sea there, by the sea's heat (WorldSource.m_ashSea), so it fades
+        // out with vanilla's own gradient instead of stopping at the biome's edge.
+        private static readonly Tint s_ashSea = new Tint(170, 92, 52, 0.26f);
         // The water's edge is anti-aliased over one pixel by the local slope of the ground, so the
         // blue ends exactly at the water line; softening it by a fixed height spills it tens of
         // metres inland over flat beaches. This is the least slope assumed (metres a pixel).
@@ -165,6 +169,25 @@ namespace Atlas
             wr = r * (1f - s + s * Filter(s_water.m_color.r, PaperColor.r));
             wg = g * (1f - s + s * Filter(s_water.m_color.g, PaperColor.g));
             wb = b * (1f - s + s * Filter(s_water.m_color.b, PaperColor.b));
+        }
+
+        // The water's colour over this parchment at a world point, warmed by the Ashlands' boiling
+        // sea there (AshSeaGlaze).
+        public static void WaterColor(float r, float g, float b, WorldSource world, float wx, float wz, out float wr, out float wg, out float wb)
+        {
+            WaterColor(r, g, b, out wr, out wg, out wb);
+            if (world.m_ashSea == null) return;
+            float heat = world.Sample(world.m_ashSea, wx, wz);
+            if (heat > 0f) AshSeaGlaze(wr, wg, wb, heat, out wr, out wg, out wb);
+        }
+
+        // The boiling sea's glaze over a colour, amount (0 to 1, the sea's heat) of its strength.
+        private static void AshSeaGlaze(float r, float g, float b, float amount, out float sr, out float sg, out float sb)
+        {
+            float s = s_ashSea.m_strength * amount;
+            sr = r * (1f - s + s * Filter(s_ashSea.m_color.r, PaperColor.r));
+            sg = g * (1f - s + s * Filter(s_ashSea.m_color.g, PaperColor.g));
+            sb = b * (1f - s + s * Filter(s_ashSea.m_color.b, PaperColor.b));
         }
 
         // Stains on the parchment are optical density: each pixel's summed density D lets
@@ -566,7 +589,8 @@ namespace Atlas
                     }
                 }
                 float water = waters[i];
-                WaterColor(r, g, b, out float wr, out float wg, out float wb);
+                float wxw = (i % n + 0.5f) * metres - InkPainter.HalfExtent, wzw = (i / n + 0.5f) * metres - InkPainter.HalfExtent;
+                WaterColor(r, g, b, world, wxw, wzw, out float wr, out float wg, out float wb);
                 sheet[p] = ToByte(lr + (wr - lr) * water);
                 sheet[p + 1] = ToByte(lg + (wg - lg) * water);
                 sheet[p + 2] = ToByte(lb + (wb - lb) * water);
@@ -888,9 +912,12 @@ namespace Atlas
         // paper's wash and under the ink, it shows the map there on bare, untinted parchment, a
         // glimpse past what was explored. marks are the sheet's sea illustrations, each shown or
         // hidden whole (null when not known); trees are the sheet's trees' footprints, and those
-        // the torn edge would cut are hidden (HideCutTrees; null for none).
+        // the torn edge would cut are hidden (HideCutTrees; null for none). With glimpseBand
+        // false (AtlasPlugin.Glimpse off) the torn edge lies on the explored land's own edge,
+        // glimpses are ignored, and the glimpse only lies under the fog, so no bare parchment or
+        // greyer ink shows past it.
         public static void Fog(byte[] rgba, byte[] glimpse, byte[] parchment, Snapshot snapshot, IList<SeaMark> marks, IList<Vector2> glimpses,
-            IList<Vector4> trees = null)
+            IList<Vector4> trees = null, bool glimpseBand = true)
         {
             int n = FogSize;
             float metres = 2f * InkPainter.HalfExtent / n;
@@ -917,25 +944,7 @@ namespace Atlas
             var unexplored = (float[])cover.Clone();
             Blur(unexplored, n);
             Blur(unexplored, n);
-            var seeds = new bool[n * n];
-            for (int i = 0; i < n * n; i++) seeds[i] = inside[i] && cover[i] < 0.5f;
-            if (glimpses != null)
-            {
-                foreach (Vector2 at in glimpses)
-                {
-                    int gx = Mathf.Clamp((int)((at.x + InkPainter.HalfExtent) / metres), 0, n - 1);
-                    int gy = Mathf.Clamp((int)((at.y + InkPainter.HalfExtent) / metres), 0, n - 1);
-                    seeds[gy * n + gx] = true;
-                }
-            }
-            var distance = new byte[n * n];
-            new DistanceField(n).Compute(i => seeds[i], distance, GlimpseSteps);
-            float band = GlimpseBand / metres;
-            for (int i = 0; i < n * n; i++)
-            {
-                if (!inside[i]) continue;
-                cover[i] = Mathf.Clamp01(distance[i] / GlimpseSteps - band + 0.5f);
-            }
+            if (glimpseBand) Band(cover, inside, n, metres, glimpses);
             if (snapshot != null && marks != null)
                 foreach (SeaMark mark in marks) SeaMarkFog(cover, n, metres, snapshot, mark);
             for (int pass = 0; pass < RipBlur; pass++) Blur(cover, n);
@@ -987,6 +996,35 @@ namespace Atlas
                 beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
             }
             if (trees != null) HideCutTrees(rgba, beyond, parchment, trees);
+            // Without the glimpse it takes the fog's own opacity: wherever it would show, the fog
+            // lies over it, and close-ups judge the trees the tear cuts by the fog alone.
+            if (!glimpseBand)
+                for (int i = 0; i < n * n; i++) beyond[i * 4 + 3] = rgba[i * 4 + 3];
+        }
+
+        // Moves the fog's edge (cover, 1 where nothing is explored) GlimpseBand metres out from
+        // the explored land, and opens it round each of glimpses (world x, z): the glimpse's band.
+        private static void Band(float[] cover, bool[] inside, int n, float metres, IList<Vector2> glimpses)
+        {
+            var seeds = new bool[n * n];
+            for (int i = 0; i < n * n; i++) seeds[i] = inside[i] && cover[i] < 0.5f;
+            if (glimpses != null)
+            {
+                foreach (Vector2 at in glimpses)
+                {
+                    int gx = Mathf.Clamp((int)((at.x + InkPainter.HalfExtent) / metres), 0, n - 1);
+                    int gy = Mathf.Clamp((int)((at.y + InkPainter.HalfExtent) / metres), 0, n - 1);
+                    seeds[gy * n + gx] = true;
+                }
+            }
+            var distance = new byte[n * n];
+            new DistanceField(n).Compute(i => seeds[i], distance, GlimpseSteps);
+            float band = GlimpseBand / metres;
+            for (int i = 0; i < n * n; i++)
+            {
+                if (!inside[i]) continue;
+                cover[i] = Mathf.Clamp01(distance[i] / GlimpseSteps - band + 0.5f);
+            }
         }
 
         // A tree the fog's torn edge would cut is hidden whole, as a sea illustration is: the fog's

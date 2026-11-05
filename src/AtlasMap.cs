@@ -449,8 +449,13 @@ namespace Atlas
             return true;
         }
 
-        // A pin setting changed: the pins are chosen again, and the sheet painted again if they differ.
-        public static void PinsChanged() => s_pinsDirty = true;
+        // A setting changed: the pins are chosen again, and the sheet painted again if they differ;
+        // an open atlas rebuilds its markers at once (AtlasView.PinsChanged is set first).
+        public static void PinsChanged()
+        {
+            s_pinsDirty = true;
+            if (s_view.IsOpen && s_fog) s_view.Refresh(s_fog, s_snapshot);
+        }
 
         private static void Fail(AggregateException error)
         {
@@ -497,12 +502,16 @@ namespace Atlas
                 s_fogMarks = s_fogTaskMarks;
                 UploadFog();
             }
+            // The glimpse switched on or off: the fog is laid again, and with it the sheet's ink
+            // and the close-ups (UploadFog).
+            if (AtlasPlugin.Glimpse.Value != s_fogGlimpse) s_fogDirty = true;
             if (!s_fogDirty) return;
             // Before the sheet is there the fog would be laid for nothing: the atlas opens only
             // with a fog laid for the sheet's sea illustrations, and the sheet's arrival lays it
             // again. Without a sheet coming, it is laid at once.
             if (s_sheet == null && !s_inkFailed && !s_decodeFailed) return;
             s_fogDirty = false;
+            bool glimpseBand = s_fogGlimpse = AtlasPlugin.Glimpse.Value;
             Snapshot snapshot = s_snapshot;
             int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
             int size = Paper.FogSize;
@@ -518,7 +527,7 @@ namespace Atlas
             // when the world changes cannot leave its paper behind for the next world.
             Func<byte[], byte[]> lay = paper =>
             {
-                Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, trees);
+                Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, trees, glimpseBand);
                 return paper;
             };
             // Chained rather than waiting on the parchment: a worker blocked on a task queued
@@ -630,6 +639,8 @@ namespace Atlas
         // bare parchment with no wash over the paper, under the ink (Paper.Fog).
         private static byte[] s_glimpsePixels;
         private static Texture2D s_glimpse;
+        // Whether the fog laid last (or being laid) has the glimpse (AtlasPlugin.Glimpse).
+        private static bool s_fogGlimpse = true;
 
         // Forgets everything of the last world. Tasks still running are simply dropped: their
         // results were only ever reachable through the fields cleared here.
@@ -684,6 +695,7 @@ namespace Atlas
             s_glimpse = null;
             s_glimpsePixels = null;
             s_glimpses = new Vector2[0];
+            s_fogGlimpse = true;
             s_sheet = null;
             s_sheetMarks = null;
             s_trees = null;

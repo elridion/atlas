@@ -2,18 +2,19 @@
 
 ## 0.1.0
 
-- In worlds without a map, "Record discoveries" at a cartography table now also updates your atlas,
+- In worlds without a map, "Record discoveries" at a cartography table now also updates your map,
   and the map key unrolls it: a hand-inked map in the style of a classic fantasy novel, with
   unexplored lands left as blank parchment, torn away with a ragged edge a little beyond where
   you have explored: in that band the map shows on bare, untinted parchment in a paler, greyer
   ink, with no colour in its woods and peaks, a glimpse past what you know. A tree the torn
   edge would cut in two is left out whole. The game's own marks out in unexplored land, such as a boss a Vegvisir showed
-  you, are drawn into the map with such a glimpse round them. Golden sparkles rise from the table while the atlas
-  is being updated and burst once it is done.
+  you, are drawn into the map with such a glimpse round them. Golden sparkles rise from the table while the map
+  is being updated and burst once it is done. A setting turns the glimpse off, so the torn edge
+  runs along what you have explored and the game's marks out there show as plain markers.
 - Every biome has a faint colour wash of its own under the ink, so biomes read apart at any zoom,
   and water is one even indigo wash ending crisply at the shore. The colours are thin glazes of pigments a northern illuminator of the
   period could have had.
-- The parchment is aged all over: an uneven patina, and old water stains with tide lines, dried rings and clusters of small brown spots lying over everything on the map, ink, pins and names included, as on a real stained sheet.
+- The parchment is aged all over: an uneven patina, and old water stains with tide lines, dried rings and clusters of small brown spots lying over everything on the map, ink and pins included, as on a real stained sheet.
 - Woods are drawn where the game grows its forests, each one a dense mass of trees bounded by its
   outer crowns, with the open land around it kept clear. Every tree carries its biome's wood
   colour, as the peaks carry the mountains' grey, right out to the edge of its wood.
@@ -51,33 +52,38 @@
   smaller, its body laid in a slightly darker wash of the sea's blue so it stands out a little
   from the water round it. A monster shows only once its stretch of sea is mostly explored, and then whole,
   never cut in half by the edge of the unexplored parchment.
+- The Ashlands' boiling sea takes a faint reddish-brown warmth, as on the game's own map, fading
+  in where the game's does, and a very few spots far out simmer: bubbles rising from a short
+  level wave, with a wave behind and one in front, as if seen across the water.
 - "Read map" at a cartography table opens the game's own interactive map, where you can place and
-  edit pins. Your pins appear on the atlas the next time you record your discoveries, drawn with
-  the map's own pen: a campfire, a longhouse, Thor's hammer Mjolnir, a dot, a round arch of stacked stones, the stone portal, for
-  the portal icon, a rune-carved memorial stone on a slab where you died, and boss, trader and other icons
-  traced in outline. The game's own marks are drawn as map signs too: your bed, your last
+  edit pins. Your pins appear on your map the next time you record your discoveries, drawn with
+  the map's own pen: a campfire, a longhouse, Thor's hammer Mjolnir, a dot, the stone portal as a
+  ring of stones standing on a low slab, two gravestones one behind the other where you died,
+  and other icons traced in outline. The game's own marks are drawn as map signs too: your bed, your last
   death, a horned skull for a boss's altar, a barrow, a cave mouth and a tower for Hildir's
   requests, a bag for Haldor, a tent for Hildir's
   camp, a cauldron for the Bog Witch and a stone pillar crowned with a ball for the Forge of Potential; other mods'
   places are traced in outline. Pins are inked into the map itself in solid red, as places were
-  marked on old maps, their details (a door, a rune, the flame's tongue) left in bare paper,
+  marked on old maps, their details (a door, the gap between stones, the flame's tongue) left in bare paper,
   in its own wavering pen,
   each as large as what it stands for beside the trees (a campfire smaller than a tree, a
   longhouse about one, a tower, a cave or the Sacrificial Stones larger): standing on its place
   among the trees and peaks, which may cover part of it but never more than about half, filled in the
-  colour of the ground round it, and sharp at every zoom; checked pins are struck through in
-  bare paper. Pins out in land you have not explored, and other mods' icons, stay
-  markers over the parchment. When your pins change, the atlas is drawn again in the
-  background. Pin names are left off for now.
+  colour of the ground round it, and sharp at every zoom; on checked pins the paint looks
+  half scraped away, paler and scuffed, the icon still recognisable. Pins out in land you have
+  not explored, and other mods' icons, stay markers over the parchment. When your pins change,
+  the map is drawn again in the background. Point at a pin to see its name, written beside it in
+  bold in the pin's red.
 - The Sacrificial Stones are a pin like the others, drawn as a ring of standing stones round a
   low altar.
-- Settings choose which of the game's own marks the atlas shows: your bed, your last death,
+- Settings choose which of the game's own marks the map shows: your bed, your last death,
   boss altars, the traders, Hildir's dungeons and other places the game marks, the Sacrificial
-  Stones among them. All are on by
-  default; your own pins always show.
-- The atlas is drawn once per world in the background and kept, so opening it never stalls the game.
+  Stones among them. Two more hide your own pins and any pins out in land you have not
+  explored. All are on by default.
+- The map is drawn once per world in the background and kept, so opening it never stalls the game.
+  Until it is ready the map key says "The ink hasn't dried yet."
 - Zooming in redraws the part in view at that zoom from the world itself: coasts and wood edges
   follow the land to within a few metres, and woods fill with more, finer trees. Close-ups take
   over a little sooner as you zoom in, are ready shortly after you join rather than after you
-  first open the atlas, and fill in faster. Close-ups are drawn
+  first open the map, and fill in faster. Close-ups are drawn
   ahead of time in small tiles around the pointer, so zooming in rarely waits.

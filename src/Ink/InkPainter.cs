@@ -457,11 +457,11 @@ namespace Atlas
                 case PinGlyph.Fire:
                 case PinGlyph.Bed:
                 case PinGlyph.Point: return 10f;
-                case PinGlyph.Death: return 11f;
+                case PinGlyph.Death: return 12f;
                 case PinGlyph.Trader:
                 case PinGlyph.Hammer:
-                case PinGlyph.Portal:
                 case PinGlyph.Cauldron: return 13f;
+                case PinGlyph.Portal:
                 case PinGlyph.House:
                 case PinGlyph.Tent:
                 case PinGlyph.Forge: return 16f;
@@ -977,6 +977,10 @@ namespace Atlas
             foreach (Glyph floe in m_floes) DrawGlyph(floe);
             // Last before the frame, so they can keep clear of every mark already inked.
             DrawIllustrations();
+            // The boiling sea's few bubbles after them, keeping clear of them and of every wave.
+            // On the floes' layer, which close-ups replay.
+            m_canvas.m_layer = InkLayer.Floe;
+            DrawBoiling();
             m_cancel.ThrowIfCancellationRequested();
             m_canvas.m_layer = InkLayer.Frame;
             DrawFrame();

@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Atlasul tău este încă gol. Notează-ți descoperirile la o masă de cartografie.",
-  "atlas_drawing": "Runele nu sunt încă săpate. Întoarce-te când cerneala s-a uscat.",
-  "atlas_failed": "Atlasul nu a putut fi desenat. Detaliile sunt în jurnal."
+  "atlas_blank": "Harta ta este încă goală.",
+  "atlas_drawing": "Cerneala nu s-a uscat încă.",
+  "atlas_failed": "Harta nu a putut fi desenată."
 }

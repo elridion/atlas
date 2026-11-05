@@ -24,7 +24,6 @@ namespace Atlas
         Tent,
         Cauldron,
         Forge,
-        Checked,
         Traced,
     }
 
@@ -110,6 +109,37 @@ namespace Atlas
         // smooth noise of its place, up to Waver pin units, over WaverGrain units.
         private const float Waver = 0.45f;
         private const float WaverGrain = 3.5f;
+        // A checked pin's ink scraped away (Abrade). The whole glyph keeps AbradeRubbed of its ink,
+        // so it is paler even at the opening zoom where the streaks average out; inside the swath
+        // the streaks lift it to AbradeGhost and the grooves to AbradeGroove. The scrape runs
+        // AbradeAngleMin to + AbradeAngleSpan degrees up to the east, as a right hand draws a
+        // blade across. The swath is AbradeSwathAlong by AbradeSwathAcross pin units (half axes)
+        // round the box's middle shifted by up to half of AbradeShift*, its rim ragged by
+        // AbradeRimRagged over AbradeRimGrain units and fading from AbradeRimInner. Streaks are
+        // value noise stretched along the scrape, sized in pens so they keep at least a pixel on
+        // the sheet: a coarse octave (AbradeCoarse of the mix) and a fine one.
+        private const float AbradeRubbed = 0.72f;
+        private const float AbradeGhost = 0.3f;
+        private const float AbradeGroove = 0.06f;
+        private const float AbradeAngleMin = 20f;
+        private const float AbradeAngleSpan = 20f;
+        private const float AbradeSwathAlong = 12.5f;
+        private const float AbradeSwathAcross = 7.5f;
+        private const float AbradeShiftAlong = 4f;
+        private const float AbradeShiftAcross = 3f;
+        private const float AbradeRimGrain = 3.5f;
+        private const float AbradeRimRagged = 0.45f;
+        private const float AbradeRimInner = 0.7f;
+        private const float AbradeCoarse = 0.65f;
+        private const float AbradeCoarseAlong = 4.5f;
+        private const float AbradeCoarseAcross = 0.9f;
+        private const float AbradeFineAlong = 1.6f;
+        private const float AbradeFineAcross = 0.55f;
+        private const float AbradeLiftFrom = 0.3f;
+        private const float AbradeLiftTo = 0.52f;
+        private const float AbradeGrooveFrom = 0.68f;
+        private const float AbradeGrooveTo = 0.78f;
+        private const int AbradeSalt = 31;
         // How far a traced icon's dark interior must fall below its brightest part to be inked,
         // and the share of the body above which the interior is left out (an all-dark icon).
         private const float TraceDark = 0.55f;
@@ -128,8 +158,8 @@ namespace Atlas
                 case PinGlyph.Fire: return 22.2f;
                 case PinGlyph.House: return 21.6f;
                 case PinGlyph.Hammer: return 22.4f;
-                case PinGlyph.Portal: return 21.8f;
-                case PinGlyph.Death: return 22f;
+                case PinGlyph.Portal: return PortalGround;
+                case PinGlyph.Death: return DeathFoot;
                 case PinGlyph.Bed: return 21.6f;
                 case PinGlyph.Boss: return 21.4f;
                 case PinGlyph.Tomb: return 21.4f;
@@ -193,11 +223,10 @@ namespace Atlas
                 case PinGlyph.Tent: Tent(ink, body); break;
                 case PinGlyph.Cauldron: Cauldron(ink, body); break;
                 case PinGlyph.Forge: Forge(ink, body); break;
-                case PinGlyph.Checked: Checked(ink); break;
             }
             var mark = new PinMark { m_size = size, m_ink = ink.m_ink, m_body = new byte[size * size] };
             for (int i = 0; i < mark.m_body.Length; i++) mark.m_body[i] = (byte)(255 - body.m_ink[i]);
-            if (glyph != PinGlyph.Checked) Widen(mark, Gap * scale);
+            Widen(mark, Gap * scale);
             return mark;
         }
 
@@ -307,14 +336,13 @@ namespace Atlas
             for (int i = 1; i < points.Count; i++) ink.Scrape(points[i - 1].x, points[i - 1].y, points[i].x, points[i].y, width);
         }
 
-        // A circle as an outline.
-        private static List<Vector2> Circle(float cx, float cy, float r)
+        // A circle as an outline of sides points.
+        private static List<Vector2> Circle(float cx, float cy, float r, int sides = 24)
         {
-            const int Sides = 24;
-            var circle = new List<Vector2>(Sides);
-            for (int k = 0; k < Sides; k++)
+            var circle = new List<Vector2>(sides);
+            for (int k = 0; k < sides; k++)
             {
-                float a = Mathf.PI * 2f * k / Sides;
+                float a = Mathf.PI * 2f * k / sides;
                 circle.Add(new Vector2(cx + Mathf.Cos(a) * r, cy + Mathf.Sin(a) * r));
             }
             return circle;
@@ -327,76 +355,171 @@ namespace Atlas
             Solid(ink, Circle(13f, 13f, 4.8f));
         }
 
-        // The portal, for the rune icon players set on portals: Valheim's stone portal, a round
-        // arch of stacked stones standing on two piers, the stones parted by lines of paper; the
-        // ground under the arch stays open.
-        private const float PortalCentreY = 12.2f;
-        private const float PortalOuter = 9.2f;
-        private const float PortalInner = 5.4f;
-        private const float PortalGround = 21.8f;
-        private const int PortalArchStones = 4;
+        // The portal, for the rune icon players set on portals (the user's design): a ring of six
+        // solid stones sunk onto a thin stepped slab, as the game portal stands, every joint a line
+        // of paper pointing at the ring's centre. The ring is lowered just until its opening
+        // reaches the slab's line of paper, so the opening is open at the bottom with no neck;
+        // the ring below the slab's top is not drawn and its two lowest stones stand on the slab,
+        // cut flat. The opening stays in the body, so the ground's wash fills it and no terrain
+        // ink shows through the portal.
+        private const float PortalCx = 13f;
+        private const float PortalCy = 13.3f;
+        private const float PortalInner = 5.28f;
+        private const float PortalOuter = 8.58f;
+        // The slab's top: the ring is cut there.
+        private const float PortalSlabTop = 20.8f;
+        // The body round the ring reaches a little past the stones' bulge.
+        private const float PortalBodyReach = 0.4f;
+        // How far a stone's outside swells past the ring in its middle, so its end rounds off and
+        // the ring's edge reads as scalloped, stone by stone.
+        private const float PortalBulge = 0.4f;
+        // The stones' sides start PortalInnerSink inside the opening (scraped back after) and their
+        // outer corners PortalShoulder inside the ring, so the bulge rounds them.
+        private const float PortalInnerSink = 0.6f;
+        private const float PortalShoulder = 0.35f;
+        private const int PortalStoneSteps = 5;
+        // Stones by their boundaries in degrees (0 east, 90 up), drawn back to front: the two
+        // lowest, which run past the slab's top and are cut there, the arch's sides, then the top.
+        // The side joints sit 10 degrees below level: just below level they read as level stacking
+        // joints rather than radial ones, and any lower the stones under them would keep too
+        // little height above the slab. The top stone runs 36 to 108, longer than the rest, so the
+        // crown has no joint in its middle (the user's choice).
+        private static readonly float[][] s_portalStones =
+        {
+            new[] { 190f, 250f }, new[] { -70f, -10f },
+            new[] { 144f, 190f }, new[] { -10f, 36f }, new[] { 108f, 144f }, new[] { 36f, 108f },
+        };
+        // Everything below the slab's top, where nothing of the ring shows.
+        private static readonly Vector2[] s_portalBelow =
+        {
+            new Vector2(-1f, PortalSlabTop), new Vector2(PinUnits + 1f, PortalSlabTop),
+            new Vector2(PinUnits + 1f, PinUnits + 1f), new Vector2(-1f, PinUnits + 1f),
+        };
+        // A low stepped slab the ring is sunk onto, its top at PortalSlabTop.
+        private static readonly Vector2[] s_portalSlab =
+        {
+            new Vector2(7f, 20.8f), new Vector2(19f, 20.8f), new Vector2(20f, 21.22f), new Vector2(23f, 21.535f),
+            new Vector2(21.6f, 22.165f), new Vector2(4.4f, 22.165f), new Vector2(3f, 21.535f), new Vector2(6f, 21.22f),
+        };
+        private const float PortalGround = 22.17f;
 
         private static void Portal(InkCanvas ink, InkCanvas body)
         {
-            const float Cx = 13f;
-            // Round the outside from the western pier's foot over the top to the eastern one's,
-            // then back round the inside.
-            var outline = new List<Vector2> { new Vector2(Cx - PortalOuter, PortalGround) };
-            const int Steps = 24;
+            body.EraseOutline(Circle(PortalCx, PortalCy, PortalOuter + PortalBodyReach, 32), Pen * 0.5f);
+            // The ring's body below the slab's top goes back to the ground before the slab scrapes
+            // its own, or the ring's round bottom would show as a halo under the slab.
+            body.Fill(s_portalBelow);
+            // Each stone grows only a little past its outline: grown the whole outline pen, a 36
+            // degree stone would have no room left at the opening's edge for a centred joint.
+            float grow = Pen * 0.2f;
+            float joint = grow + PaperPen * 0.35f;
+            float outer = PortalOuter + Pen * 0.3f;
+            foreach (float[] stone in s_portalStones) FillSolid(ink, PortalStone(stone[0], stone[1], outer, joint), grow);
+            // The opening and the lowest stones' ends are cut before the slab, so it stays whole
+            // in front of them.
+            ink.Erase(Circle(PortalCx, PortalCy, PortalInner));
+            ink.Erase(s_portalBelow);
+            body.EraseOutline(s_portalSlab, Pen * 0.5f);
+            SolidInFront(ink, s_portalSlab, PaperPen * 0.5f);
+        }
+
+        // One stone of the ring between angles a and b (degrees). Inked side by side, each joint
+        // would lie to one side of its boundary and miss the centre, so both sides are the
+        // boundary radii moved apart by d (half a joint plus the pen the solid grows): every joint
+        // is centred on its radius and points at the ring's centre from end to end.
+        private static List<Vector2> PortalStone(float a, float b, float rOut, float d)
+        {
+            var c = new Vector2(PortalCx, PortalCy);
+            float inner = PortalInner - PortalInnerSink, shoulder = rOut - PortalShoulder;
+            var s = new List<Vector2> { c + PortalRay(a) * inner + PortalSide(a) * d };
+            for (int k = 1; k < PortalStoneSteps; k++) s.Add(c + PortalRay(a + (b - a) * k / PortalStoneSteps) * inner);
+            s.Add(c + PortalRay(b) * inner - PortalSide(b) * d);
+            s.Add(c + PortalRay(b) * shoulder - PortalSide(b) * d);
+            // The bulge spans only the angle between the moved sides, or it would reach into the
+            // joints.
+            float m = Mathf.Asin(Mathf.Min(1f, d / shoulder)) * Mathf.Rad2Deg;
+            const int Bulge = PortalStoneSteps + 1;
+            for (int k = Bulge - 1; k >= 1; k--)
+            {
+                float t = k / (float)Bulge;
+                float r = shoulder + (PortalShoulder + PortalBulge) * Mathf.Sin(Mathf.PI * t);
+                s.Add(c + PortalRay(a + m + (b - a - 2f * m) * t) * r);
+            }
+            s.Add(c + PortalRay(a) * shoulder + PortalSide(a) * d);
+            return s;
+        }
+
+        // The unit ray at deg (0 east, 90 up, y running south), and the unit normal toward larger
+        // angles, where a stone lies from its side a.
+        private static Vector2 PortalRay(float deg) => new Vector2(Mathf.Cos(deg * Mathf.Deg2Rad), -Mathf.Sin(deg * Mathf.Deg2Rad));
+
+        private static Vector2 PortalSide(float deg) => new Vector2(-Mathf.Sin(deg * Mathf.Deg2Rad), -Mathf.Cos(deg * Mathf.Deg2Rad));
+
+        // Where a player died, their grave (the user's design): two round-topped steles on a
+        // plinth, staggered as one behind the other in the map's oblique view, never a cross,
+        // which has no place in a Norse afterlife. The back stele is taller and stands west; the
+        // shorter front one stands east, set forward (its foot further south) over the back one's
+        // lower east part, so the back one's arch and west side show over and beside it. Side by
+        // side at this width each stele read as a thin pillar, and a small overlap left the back
+        // one a hooked sliver. The values are inked edges; outlines are pulled in by half the
+        // outline pen, which the solid fill grows back.
+        // The plinth spans the glyph's width; with the back stele's top that gives the Forge of
+        // Potential's inked height : width, so the two read as one set.
+        private const float DeathLeft = 5.2f;
+        private const float DeathRight = 20.8f;
+        private const float DeathFoot = 22f;
+        private const float DeathPlinthTop = 19.4f;
+        // The steles stand in from the plinth's ends, so it steps out beside them; at a 12 px box
+        // a smaller step does not show.
+        private const float DeathBackLeft = 7f;
+        private const float DeathBackRight = 14.6f;
+        private const float DeathBackTop = 2.2f;
+        // The back stele runs a pen below the plinth's top, so no paper shows under its foot.
+        private const float DeathBackSink = 1f;
+        private const float DeathFrontLeft = 12f;
+        private const float DeathFrontRight = 19f;
+        private const float DeathFrontTop = 7.4f;
+        // The line of paper between the steles, narrower than elsewhere: at a 12 px box a full
+        // one cuts the back stele's visible strip too thin.
+        private const float DeathGap = 0.525f;
+
+        private static void Death(InkCanvas ink, InkCanvas body)
+        {
+            float g = Pen * 0.5f;
+            List<Vector2> back = Stele(DeathBackLeft + g, DeathBackRight - g, DeathBackTop + g, DeathPlinthTop + DeathBackSink);
+            List<Vector2> front = Stele(DeathFrontLeft + g, DeathFrontRight - g, DeathFrontTop + g, DeathPlinthTop);
+            var plinth = new List<Vector2>
+            {
+                new Vector2(DeathLeft + g, DeathPlinthTop), new Vector2(DeathRight - g, DeathPlinthTop),
+                new Vector2(DeathRight - g, DeathFoot), new Vector2(DeathLeft + g, DeathFoot),
+            };
+            // The front stele and the plinth scrape the body as one outline, round the plinth from
+            // its west foot, along its top, over the front stele and on.
+            var piece = new List<Vector2> { plinth[3], plinth[0] };
+            piece.AddRange(front);
+            piece.Add(plinth[1]);
+            piece.Add(plinth[2]);
+            body.EraseOutline(back, g);
+            Solid(ink, back);
+            body.EraseOutline(piece, g);
+            SolidInFront(ink, front, PaperPen * DeathGap);
+            Solid(ink, plinth);
+        }
+
+        // A round-topped stele between left and right, from its top down to foot, as an open
+        // outline from its west foot over the arch to its east foot.
+        private static List<Vector2> Stele(float left, float right, float top, float foot)
+        {
+            const int Steps = 12;
+            float half = (right - left) * 0.5f, cx = (left + right) * 0.5f, archY = top + half;
+            var outline = new List<Vector2>(Steps + 3) { new Vector2(left, foot) };
             for (int k = 0; k <= Steps; k++)
             {
                 float a = Mathf.PI * (1f - k / (float)Steps);
-                outline.Add(new Vector2(Cx + Mathf.Cos(a) * PortalOuter, PortalCentreY - Mathf.Sin(a) * PortalOuter));
+                outline.Add(new Vector2(cx + Mathf.Cos(a) * half, archY - Mathf.Sin(a) * half));
             }
-            outline.Add(new Vector2(Cx + PortalOuter, PortalGround));
-            outline.Add(new Vector2(Cx + PortalInner, PortalGround));
-            for (int k = 0; k <= Steps; k++)
-            {
-                float a = Mathf.PI * k / Steps;
-                outline.Add(new Vector2(Cx + Mathf.Cos(a) * PortalInner, PortalCentreY - Mathf.Sin(a) * PortalInner));
-            }
-            outline.Add(new Vector2(Cx - PortalInner, PortalGround));
-            body.EraseOutline(outline, Pen * 0.5f);
-            Solid(ink, outline);
-            // The joints, a little finer than other paper lines, as many lines read as noise at a
-            // pin's size: radial between the arch's stones, level where the arch meets the piers and
-            // once across each pier, alternating in height so the piers read as stacked.
-            for (int k = 1; k < PortalArchStones; k++)
-            {
-                float a = Mathf.PI * k / PortalArchStones;
-                float cos = Mathf.Cos(a), sin = Mathf.Sin(a);
-                ink.Scrape(Cx + cos * (PortalInner - 1f), PortalCentreY - sin * (PortalInner - 1f),
-                    Cx + cos * (PortalOuter + 1f), PortalCentreY - sin * (PortalOuter + 1f), PaperPen * 0.8f);
-            }
-            float span = PortalGround - PortalCentreY;
-            foreach (float side in new[] { -1f, 1f })
-            {
-                float inner = Cx + side * (PortalInner - 1f), outer = Cx + side * (PortalOuter + 1f);
-                ink.Scrape(inner, PortalCentreY, outer, PortalCentreY, PaperPen * 0.8f);
-                float joint = PortalCentreY + span * (side < 0f ? 0.45f : 0.55f);
-                ink.Scrape(inner, joint, outer, joint, PaperPen * 0.8f);
-            }
-        }
-
-        // Where a player died, their grave: a Norse memorial stone (bautasten) on a low slab,
-        // carved with the yr rune, the Younger Futhark's rune of the yew and of death, not a
-        // cross, which has no place in a Norse afterlife.
-        private static void Death(InkCanvas ink, InkCanvas body)
-        {
-            List<Vector2> stone = Curve(new[]
-            {
-                new Vector2(7.8f, 19.4f), new Vector2(7.6f, 11.6f), new Vector2(9.6f, 5.4f), new Vector2(13.4f, 3.2f),
-                new Vector2(17f, 5.8f), new Vector2(18.6f, 12f), new Vector2(18.2f, 19.4f),
-            }, closed: false);
-            var slab = new List<Vector2> { new Vector2(5.4f, 20.2f), new Vector2(20.6f, 20.2f), new Vector2(20.6f, 22f), new Vector2(5.4f, 22f) };
-            body.EraseOutline(stone, Pen * 0.5f);
-            body.EraseOutline(slab, Pen * 0.5f);
-            Solid(ink, slab);
-            // A narrower line of paper than elsewhere between the stone and its slab.
-            SolidInFront(ink, stone, PaperPen * 0.5f);
-            ink.Scrape(13f, 7f, 13f, 15.4f, PaperPen);
-            ink.Scrape(13f, 11.2f, 10.6f, 14.9f, PaperPen);
-            ink.Scrape(13f, 11.2f, 15.4f, 14.9f, PaperPen);
+            outline.Add(new Vector2(right, foot));
+            return outline;
         }
 
         // The game's own pins, each a plain map sign for what the place is rather than a copy of
@@ -642,12 +765,53 @@ namespace Atlas
             }
             ink.EraseOutline(cut, 0f);
         }
-        // A checked pin is struck through with two pen strokes, scraped through its solid glyph
-        // as paper (InkCanvas.Pin).
-        private static void Checked(InkCanvas ink)
+        // A checked pin looks as if someone tried to scrape its paint away (the user's design): the
+        // whole glyph rubbed back, then one ragged swath along a scraping direction lifting the ink
+        // in streaks to a ghost of itself, the deepest grooves almost to the ground. Only the ink
+        // is lifted, never the body, so the silhouette still says which pin it was and the
+        // ground's wash shows through the grooves. Everything is in pin units and pens, through
+        // the pin's own waver, so the sheet and every close-up scrape it alike. pen is the line
+        // width in pin units Draw was given (0 for a marker's pens); seed is not 0.
+        public static void Abrade(PinMark mark, float pen, int seed)
         {
-            ink.Stroke(4.4f, 4.4f, 21.6f, 21.6f, Pen);
-            ink.Stroke(21.6f, 4.4f, 4.4f, 21.6f, Pen);
+            if (pen <= 0f) pen = MarkerFinePen;
+            int n = mark.m_size;
+            float angle = (AbradeAngleMin + AbradeAngleSpan * Noise.Unit(seed, AbradeSalt)) * Mathf.Deg2Rad;
+            float dx = Mathf.Cos(angle), dy = -Mathf.Sin(angle);
+            float offAlong = (Noise.Unit(seed, AbradeSalt + 1) - 0.5f) * AbradeShiftAlong;
+            float offAcross = (Noise.Unit(seed, AbradeSalt + 2) - 0.5f) * AbradeShiftAcross;
+            byte[] ink = mark.m_ink;
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    int i = y * n + x;
+                    if (ink[i] == 0) continue;
+                    var p = new Vector2((x + 0.5f) / n * PinUnits, (y + 0.5f) / n * PinUnits);
+                    p += new Vector2(
+                        (Noise.Value(p.x / WaverGrain, p.y / WaverGrain, seed) - 0.5f) * 2f * Waver,
+                        (Noise.Value(p.x / WaverGrain, p.y / WaverGrain, seed + 1) - 0.5f) * 2f * Waver);
+                    float cx = p.x - PinUnits * 0.5f, cy = p.y - PinUnits * 0.5f;
+                    float along = cx * dx + cy * dy, across = -cx * dy + cy * dx;
+                    // The swath: an ellipse along the scrape, its rim ragged.
+                    float sa = (along - offAlong) / AbradeSwathAlong, sc = (across - offAcross) / AbradeSwathAcross;
+                    float r = Mathf.Sqrt(sa * sa + sc * sc)
+                        + (Noise.Value((along - offAlong) / AbradeRimGrain, (across - offAcross) / AbradeRimGrain, seed + 5) - 0.5f) * AbradeRimRagged;
+                    float swath = 1f - Smoothstep(AbradeRimInner, 1f, r);
+                    // Grooves: noise stretched along the scrape and about a pen across, so a streak
+                    // is at least a pixel wide on the sheet.
+                    float streak = AbradeCoarse * Noise.Value(along / (pen * AbradeCoarseAlong), across / (pen * AbradeCoarseAcross), seed + 11)
+                        + (1f - AbradeCoarse) * Noise.Value(along / (pen * AbradeFineAlong), across / (pen * AbradeFineAcross), seed + 13);
+                    float lift = Smoothstep(AbradeLiftFrom, AbradeLiftTo, streak) * swath;
+                    float remain = AbradeRubbed - lift * (AbradeRubbed - AbradeGhost);
+                    remain += (AbradeGroove - remain) * Smoothstep(AbradeGrooveFrom, AbradeGrooveTo, streak) * swath;
+                    ink[i] = (byte)(ink[i] * remain + 0.5f);
+                }
+        }
+
+        private static float Smoothstep(float from, float to, float x)
+        {
+            float t = Mathf.Clamp01((x - from) / (to - from));
+            return t * t * (3f - 2f * t);
         }
 
         // Main thread or worker: any other icon (bosses, traders, other mods' pins), redrawn from

@@ -57,6 +57,32 @@ namespace Atlas
         private InkDensity m_density;
         private WorldSource m_world;
 
+        // The hovered pin's name: bold, in the pins' red ink, with no outline, shadow or halo (a
+        // plain copy of the font's material), HoverGap beside the pin's box and at least
+        // HoverEdge inside the view. A pin is hovered within its sheet box (which holds the
+        // smaller pin a close-up draws, scaled about its foot) or HoverMin of its centre on
+        // screen, so small pins at the opening zoom can still be found. Canvas units.
+        private const float HoverFontSize = 18f;
+        private const float HoverGap = 4f;
+        private const float HoverEdge = 4f;
+        private const float HoverMin = 8f;
+        private static Material s_plainMaterial;
+        private static TMP_FontAsset s_plainFont;
+        private readonly List<HoverPin> m_hoverPins = new List<HoverPin>();
+        private RectTransform m_hoverRect;
+        private TextMeshProUGUI m_hoverText;
+        private Vector2 m_hoverSize;
+        private int m_hovered = -1;
+
+        // A shown pin as hover finds it: its glyph's centre on the sheet (canvas units from the
+        // sheet's centre, y up, lift included), half its box, and its name.
+        private struct HoverPin
+        {
+            public Vector2 m_at;
+            public float m_half;
+            public string m_name;
+        }
+
         private static readonly AccessTools.FieldRef<Minimap, GameObject> s_pinNamePrefab =
             AccessTools.FieldRefAccess<Minimap, GameObject>("m_pinNamePrefab");
 
@@ -214,6 +240,101 @@ namespace Atlas
                 if (Mathf.Abs(zoom) > 0.2f) ZoomAround(Vector2.zero, Mathf.Pow(StickZoom, zoom * dt));
             }
             Apply();
+            UpdateHover(pointer, camera);
+        }
+
+        // Shows the name of the pin under the mouse, if it has one; with a gamepad there is no
+        // pointer to hover with.
+        private void UpdateHover(Vector3 pointer, Camera camera)
+        {
+            if (!m_hoverRect || !m_hoverText) return;
+            int hovered = -1;
+            if (!ZInput.IsGamepadActive() && RectTransformUtility.RectangleContainsScreenPoint(m_viewport, pointer, camera)
+                && RectTransformUtility.ScreenPointToLocalPointInRectangle(m_viewport, pointer, camera, out Vector2 local))
+            {
+                float best = float.MaxValue;
+                for (int i = 0; i < m_hoverPins.Count; i++)
+                {
+                    HoverPin pin = m_hoverPins[i];
+                    Vector2 offset = local - (m_position + pin.m_at * m_scale);
+                    float reach = Mathf.Max(pin.m_half * m_scale, HoverMin);
+                    if (Mathf.Abs(offset.x) > reach || Mathf.Abs(offset.y) > reach) continue;
+                    float distance = offset.sqrMagnitude;
+                    if (distance >= best) continue;
+                    best = distance;
+                    hovered = i;
+                }
+            }
+            if (hovered >= 0 && string.IsNullOrEmpty(m_hoverPins[hovered].m_name)) hovered = -1;
+            if (hovered != m_hovered)
+            {
+                m_hovered = hovered;
+                if (hovered >= 0)
+                {
+                    m_hoverText.text = m_hoverPins[hovered].m_name;
+                    m_hoverSize = m_hoverText.GetPreferredValues(m_hoverText.text);
+                    m_hoverRect.sizeDelta = m_hoverSize;
+                }
+                m_hoverRect.gameObject.SetActive(hovered >= 0);
+            }
+            if (hovered >= 0) PlaceHover(m_hoverPins[hovered]);
+        }
+
+        // Right of the pin, or left of it where the right runs out of the view, level with the
+        // glyph's centre; then kept inside the view.
+        private void PlaceHover(HoverPin pin)
+        {
+            Rect view = m_viewport.rect;
+            Vector2 centre = m_position + pin.m_at * m_scale;
+            float reach = pin.m_half * m_scale + HoverGap;
+            float x = centre.x + reach;
+            float left = centre.x - reach - m_hoverSize.x;
+            if (x + m_hoverSize.x > view.xMax - HoverEdge && left >= view.xMin + HoverEdge) x = left;
+            x = Mathf.Clamp(x, view.xMin + HoverEdge, Mathf.Max(view.xMin + HoverEdge, view.xMax - HoverEdge - m_hoverSize.x));
+            float y = Mathf.Clamp(centre.y - m_hoverSize.y * 0.5f, view.yMin + HoverEdge, Mathf.Max(view.yMin + HoverEdge, view.yMax - HoverEdge - m_hoverSize.y));
+            m_hoverRect.anchoredPosition = new Vector2(x, y);
+        }
+
+        // The hover name's text, made once vanilla's pin font is known.
+        private void SetHoverFont(TMP_FontAsset font)
+        {
+            if (!m_hoverRect || !font) return;
+            if (!m_hoverText)
+            {
+                m_hoverText = m_hoverRect.gameObject.AddComponent<TextMeshProUGUI>();
+                m_hoverText.fontSize = HoverFontSize;
+                m_hoverText.fontStyle = FontStyles.Bold;
+                m_hoverText.color = Paper.PinInkColor;
+                m_hoverText.alignment = TextAlignmentOptions.Left;
+                m_hoverText.textWrappingMode = TextWrappingModes.NoWrap;
+                m_hoverText.raycastTarget = false;
+            }
+            if (m_hoverText.font == font) return;
+            m_hoverText.font = font;
+            Material plain = PlainMaterial(font);
+            if (plain) m_hoverText.fontSharedMaterial = plain;
+            m_hovered = -1;
+            m_hoverRect.gameObject.SetActive(false);
+        }
+
+        // Main thread. The font's material with outline, underlay and glow turned off, so the
+        // name is bare ink whatever vanilla's material carries. One copy; vanilla's is never changed.
+        private static Material PlainMaterial(TMP_FontAsset font)
+        {
+            if (s_plainMaterial && s_plainFont == font) return s_plainMaterial;
+            Material source = font ? font.material : null;
+            if (!source) return null;
+            var material = new Material(source) { name = source.name + "_atlas_plain" };
+            material.DisableKeyword(ShaderUtilities.Keyword_Outline);
+            material.DisableKeyword(ShaderUtilities.Keyword_Underlay);
+            material.DisableKeyword(ShaderUtilities.Keyword_Glow);
+            if (material.HasProperty(ShaderUtilities.ID_OutlineWidth)) material.SetFloat(ShaderUtilities.ID_OutlineWidth, 0f);
+            if (material.HasProperty(ShaderUtilities.ID_FaceDilate)) material.SetFloat(ShaderUtilities.ID_FaceDilate, 0f);
+            if (material.HasProperty(ShaderUtilities.ID_UnderlayColor)) material.SetColor(ShaderUtilities.ID_UnderlayColor, Color.clear);
+            if (material.HasProperty(ShaderUtilities.ID_GlowColor)) material.SetColor(ShaderUtilities.ID_GlowColor, Color.clear);
+            s_plainMaterial = material;
+            s_plainFont = font;
+            return material;
         }
 
         private static bool ClosePressed()
@@ -365,6 +486,15 @@ namespace Atlas
             // Dirt lies on top of everything, pins and names included, as on a real map.
             m_dirt = NewLayer("Dirt");
             m_dirt.enabled = false;
+            // The hovered pin's name is not part of the map: over the dirt, in the view's own
+            // units, so it keeps its size and can be kept inside the view.
+            m_hoverRect = NewRect("Hover", m_viewport);
+            m_hoverRect.anchorMin = m_hoverRect.anchorMax = new Vector2(0.5f, 0.5f);
+            m_hoverRect.pivot = Vector2.zero;
+            m_hoverRect.gameObject.SetActive(false);
+            m_hoverText = null;
+            m_hovered = -1;
+            m_hoverPins.Clear();
 
             Canvas canvas = m_root.GetComponentInParent<Canvas>();
             m_canvas = canvas ? canvas.rootCanvas : null;
@@ -386,7 +516,8 @@ namespace Atlas
             return image;
         }
 
-        // Set when a pin setting changes, so the next opening rebuilds the markers.
+        // Set when a setting changes, so the markers are rebuilt (at once in an open atlas,
+        // AtlasMap.PinsChanged, otherwise at the next opening).
         private static bool s_pinsChanged;
 
         // Names are left off the atlas for now (the user's call, to be given another pass).
@@ -396,12 +527,14 @@ namespace Atlas
         // marker: every pen-drawn pin the settings show, on explored ground, and the game's own
         // marks anywhere (a boss a Vegvisir revealed), which the fog shows through a glimpse
         // round them (Glimpsed). The player's own pins out in unexplored land and traced icons
-        // (other mods' pins) stay markers.
+        // (other mods' pins) stay markers, as do the game's marks there with the glimpse off:
+        // drawn into the sheet, the fog would hide them.
         internal static bool InSheet(Snapshot snapshot, Snapshot.Pin pin, PinGlyph glyph) =>
-            glyph != PinGlyph.Traced && Shown(pin, glyph)
-            && (snapshot.IsExplored(pin.m_position.x, pin.m_position.z) || IsGameMark(pin));
+            glyph != PinGlyph.Traced && Shown(snapshot, pin, glyph)
+            && (snapshot.IsExplored(pin.m_position.x, pin.m_position.z) || IsGameMark(pin) && AtlasPlugin.Glimpse.Value);
 
-        // A mark the game placed itself rather than the player (Icon0 to Icon4).
+        // A mark the game placed itself rather than the player, who places only the five icons of
+        // the map's pin menu (vanilla PinType Icon0 to Icon4).
         internal static bool IsGameMark(Snapshot.Pin pin) =>
             pin.m_type != Minimap.PinType.Icon0 && pin.m_type != Minimap.PinType.Icon1 && pin.m_type != Minimap.PinType.Icon2
             && pin.m_type != Minimap.PinType.Icon3 && pin.m_type != Minimap.PinType.Icon4;
@@ -421,11 +554,14 @@ namespace Atlas
         public static void PinsChanged() => s_pinsChanged = true;
 
 
-        // Whether the pin settings let a pin show: the player's own pins always do, the game's
-        // own marks by kind. Location pins (PinType.None) are traders when drawn as one, and other
-        // places otherwise.
-        internal static bool Shown(Snapshot.Pin pin, PinGlyph glyph)
+        // Whether the pin settings let a pin show, in the sheet, as a marker or hovered: out in
+        // unexplored land only with UnexploredPins, then the player's own pins with PlayerPins
+        // and the game's own marks by kind. Location pins (PinType.None) are traders when drawn as
+        // one, and other places otherwise.
+        internal static bool Shown(Snapshot snapshot, Snapshot.Pin pin, PinGlyph glyph)
         {
+            if (!AtlasPlugin.UnexploredPins.Value && !snapshot.IsExplored(pin.m_position.x, pin.m_position.z)) return false;
+            if (!IsGameMark(pin)) return AtlasPlugin.PlayerPins.Value;
             switch (pin.m_type)
             {
                 case Minimap.PinType.Bed: return AtlasPlugin.BedPin.Value;
@@ -454,15 +590,18 @@ namespace Atlas
             m_pins.Clear();
             m_pinLifts.Clear();
             m_labels.Clear();
+            m_hoverPins.Clear();
+            m_hovered = -1;
+            if (m_hoverRect) m_hoverRect.gameObject.SetActive(false);
             Minimap minimap = Minimap.instance;
             if (snapshot == null || !minimap) return;
 
             Dictionary<string, Sprite> sprites = PinSprites(minimap);
             Dictionary<string, PinGlyph> drawn = DrawnIcons(minimap);
             TMP_FontAsset font = PinFont(minimap);
+            SetHoverFont(font);
             float half = InkPainter.HalfExtent;
             float size = InkPainter.CanvasSize;
-            PinTextures check = Textures(PinGlyph.Checked, null);
             foreach (Snapshot.Pin pin in snapshot.m_pins)
             {
                 PinTextures textures;
@@ -470,21 +609,26 @@ namespace Atlas
                 if (drawn.TryGetValue(pin.m_icon, out glyph)) textures = Textures(glyph, null);
                 else if (sprites.TryGetValue(pin.m_icon, out Sprite sprite) && sprite) textures = Textures(glyph = PinGlyph.Traced, sprite);
                 else continue;
-                if (textures == null || !Shown(pin, glyph) || InSheet(snapshot, pin, glyph)) continue;
-                var holder = NewRect("Pin", m_pinLayer);
-                holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
-                holder.anchoredPosition = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
+                if (textures == null || !Shown(snapshot, pin, glyph)) continue;
+                var place = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
                 // A marker has the size the pin has drawn into the sheet (InkPainter.PinSheetSize),
                 // in sheet units, so it keeps its size on the map at every zoom as the sheet's
                 // pins do.
                 float pinSize = InkPainter.PinSheetSize(glyph);
-                holder.sizeDelta = new Vector2(pinSize, pinSize);
                 // The holder sits on the pin's place; the glyph stands on it (PinGlyphs.Lift).
                 float lift = PinGlyphs.Lift(glyph) * pinSize;
-                AddBody(holder, textures.m_body, pin.m_position, lift, pinSize);
-                AddImage(holder, "Ink", textures.m_ink, lift, pinSize);
-                if (pin.m_checked && check != null) AddImage(holder, "Checked", check.m_ink, lift, pinSize);
                 string label = Localization.instance.Localize(pin.m_name);
+                // Pins drawn into the sheet are hovered as markers are.
+                m_hoverPins.Add(new HoverPin { m_at = place + new Vector2(0f, lift), m_half = pinSize * 0.5f, m_name = label });
+                if (InSheet(snapshot, pin, glyph)) continue;
+                var holder = NewRect("Pin", m_pinLayer);
+                holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
+                holder.anchoredPosition = place;
+                holder.sizeDelta = new Vector2(pinSize, pinSize);
+                AddBody(holder, textures.m_body, pin.m_position, lift, pinSize);
+                // A checked pin's ink is scraped away in part, as the sheet's are.
+                PinTextures scraped = pin.m_checked ? Textures(glyph, glyph == PinGlyph.Traced ? sprites[pin.m_icon] : null, true) : null;
+                AddImage(holder, "Ink", (scraped ?? textures).m_ink, lift, pinSize);
                 if (s_showNames && font && !string.IsNullOrEmpty(label))
                 {
                     PinLabel placed = AddLabel(holder, label, font);
@@ -712,20 +856,26 @@ namespace Atlas
             return drawn;
         }
 
-        // Main thread. A pin's two textures, made once per glyph or traced sprite and kept for the
-        // session; null when a sprite could not be read.
-        private static PinTextures Textures(PinGlyph glyph, Sprite sprite)
+        // Main thread. A pin's two textures, made once per glyph or traced sprite (and once more
+        // for its checked look) and kept for the session; null when a sprite could not be read.
+        private static PinTextures Textures(PinGlyph glyph, Sprite sprite, bool isChecked = false)
         {
-            string key = glyph == PinGlyph.Traced ? "sprite:" + sprite.name : glyph.ToString();
+            string key = (glyph == PinGlyph.Traced ? "sprite:" + sprite.name : glyph.ToString()) + (isChecked ? "+checked" : "");
             if (s_pinTextures.TryGetValue(key, out PinTextures cached)) return cached;
             PinTextures made = null;
             try
             {
-                PinMark mark = glyph == PinGlyph.Traced ? TraceSprite(sprite) : PinGlyphs.Draw(glyph, PinPixels);
-                // The strike is paper cut through the solid glyph, as the sheet scrapes it.
-                Color32 colour = glyph == PinGlyph.Checked ? Paper.PaperColor : Paper.PinInkColor;
-                made = new PinTextures { m_ink = MarkTexture(mark.m_ink, mark.m_size, colour, "Atlas pin ink") };
-                made.m_body = MarkTexture(mark.m_body, mark.m_size, new Color32(255, 255, 255, 255), "Atlas pin body");
+                // A checked pin shares its body and has its ink scraped away as the sheet scrapes
+                // it (PinGlyphs.Abrade), with the pen of a sheet pin of its size, so a marker
+                // looks like the sheet's pins; one look per glyph, its seed from the key.
+                PinTextures plain = isChecked ? Textures(glyph, sprite) : null;
+                if (!isChecked || plain != null)
+                {
+                    PinMark mark = glyph == PinGlyph.Traced ? TraceSprite(sprite) : PinGlyphs.Draw(glyph, PinPixels);
+                    if (isChecked) PinGlyphs.Abrade(mark, PinGlyphs.PinUnits / InkPainter.PinSheetSize(glyph), StableSeed(key));
+                    made = new PinTextures { m_ink = MarkTexture(mark.m_ink, mark.m_size, Paper.PinInkColor, "Atlas pin ink") };
+                    made.m_body = isChecked ? plain.m_body : MarkTexture(mark.m_body, mark.m_size, new Color32(255, 255, 255, 255), "Atlas pin body");
+                }
             }
             catch (System.Exception e)
             {
@@ -733,6 +883,15 @@ namespace Atlas
             }
             s_pinTextures[key] = made;
             return made;
+        }
+
+        // A seed from a string that is the same in every session (string.GetHashCode is not
+        // guaranteed to be), never 0, as PinGlyphs.Abrade needs.
+        private static int StableSeed(string key)
+        {
+            int seed = 7411;
+            foreach (char c in key) seed = unchecked(seed * 31 + c);
+            return seed | 1;
         }
 
         // Coverage (rows running south) as a mipmapped texture of one colour (rows running north).

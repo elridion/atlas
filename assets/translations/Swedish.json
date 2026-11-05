@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Din atlas är fortfarande tom. Skriv ner dina upptäckter vid ett kartbord.",
-  "atlas_drawing": "Runorna är ännu inte ristade. Återvänd när bläcket har torkat.",
-  "atlas_failed": "Atlasen kunde inte ritas. Loggen har detaljerna."
+  "atlas_blank": "Din karta är fortfarande tom.",
+  "atlas_drawing": "Bläcket har inte torkat än.",
+  "atlas_failed": "Kartan kunde inte ritas."
 }

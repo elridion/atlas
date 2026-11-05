@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Dein Atlas ist noch leer. Halte deine Entdeckungen an einem Kartentisch fest.",
-  "atlas_drawing": "Die Runen sind noch nicht geritzt. Komm wieder, wenn die Tinte getrocknet ist.",
-  "atlas_failed": "Der Atlas konnte nicht gezeichnet werden. Details stehen im Log."
+  "atlas_blank": "Deine Karte ist noch leer.",
+  "atlas_drawing": "Die Tinte ist noch nicht getrocknet.",
+  "atlas_failed": "Die Karte konnte nicht gezeichnet werden."
 }

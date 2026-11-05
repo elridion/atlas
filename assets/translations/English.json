@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Your atlas is still blank. Record your discoveries at a cartography table.",
-  "atlas_drawing": "The runes are not yet carved. Return when the ink has dried.",
-  "atlas_failed": "The atlas could not be drawn. The log has the details."
+  "atlas_blank": "Your map is still blank.",
+  "atlas_drawing": "The ink hasn't dried yet.",
+  "atlas_failed": "The map could not be drawn."
 }

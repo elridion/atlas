@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Az atlaszod még üres. Jegyezd fel a felfedezéseidet egy térképasztalnál.",
-  "atlas_drawing": "A rúnák még nincsenek kifaragva. Térj vissza, ha megszáradt a tinta.",
-  "atlas_failed": "Az atlaszt nem sikerült megrajzolni. A részletek a naplóban vannak."
+  "atlas_blank": "A térképed még üres.",
+  "atlas_drawing": "A tinta még nem száradt meg.",
+  "atlas_failed": "A térképet nem sikerült megrajzolni."
 }

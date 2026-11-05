@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Tavs atlants vēl ir tukšs. Pieraksti savus atklājumus pie kartogrāfijas galda.",
-  "atlas_drawing": "Rūnas vēl nav iegrieztas. Atgriezies, kad tinte būs nožuvusi.",
-  "atlas_failed": "Atlantu neizdevās uzzīmēt. Sīkāka informācija ir žurnālā."
+  "atlas_blank": "Tava karte vēl ir tukša.",
+  "atlas_drawing": "Tinte vēl nav nožuvusi.",
+  "atlas_failed": "Karti neizdevās uzzīmēt."
 }

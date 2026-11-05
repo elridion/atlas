@@ -136,7 +136,7 @@ namespace Atlas
         }
 
         // A pin glyph (InkCanvas.Pin): its box's top left in a, b, its size in c, the glyph in d
-        // and whether it is struck through in e.
+        // and whether it is checked (scraped, PinGlyphs.Abrade) in e.
         public void Pin(InkLayer layer, PinGlyph glyph, float left, float top, float size, bool struck) =>
             m_calls.Add(new Call { m_op = Op.Pin, m_layer = layer, m_group = m_group, m_a = left, m_b = top, m_c = size, m_d = (int)glyph, m_e = struck ? 1f : 0f });
 

@@ -33,6 +33,32 @@ namespace Atlas
         private const float IllustrationSpacing = 600f;
         // Hash salt of the placement rule (see Scatter's salts).
         private const int IllustrationSalt = 61;
+        // The boiling sea's bubbles (Simmer): very few, one at most in a cell of BoilStep sheet
+        // pixels (about 630 m) with BoilOdds, jittered within BoilJitter of the cell, and none
+        // within BoilSpacing (about 1.6 km) of another, taken in grid order: pairs from
+        // neighbouring cells read as a cluster, not a scatter. Only where the sea is at least
+        // BoilHeat hot (vanilla's gradient, WorldSource.m_ashSea), out in the Ashlands' sea, with
+        // no ink within BoilClear (coast, waves, islets, the bonemaw) nor the frame. Velen gets
+        // about ten on the whole map.
+        private const float BoilStep = 120f;
+        private const float BoilOdds = 0.3f;
+        private const float BoilJitter = 0.6f;
+        private const float BoilSpacing = 300f;
+        private const float BoilHeat = 0.8f;
+        private const float BoilClear = 16f;
+        private const int BoilSalt = 62;
+        // The simmer mark's water: one wave of BoilWave px crests lifting BoilLift (lower than
+        // the coast's WaveLift, a ruffle, not a group), seen at three distances: the back row
+        // drawn at BoilScaleBack of the front, the lower one at BoilScaleLow, each row
+        // BoilTrainShift of a wave on from the one behind. The rows' gaps are foreshortened with
+        // them (in proportion to the mean scale of the two rows, 0.9 and 1.1 of 4 px).
+        private const float BoilWave = 3.4f;
+        private const float BoilLift = 0.45f;
+        private const float BoilScaleBack = 0.8f;
+        private const float BoilScaleLow = 1.2f;
+        private const float BoilTrainShift = 1f / 3f;
+        private const float BoilBackRise = 3.6f;
+        private const float BoilLowDrop = 4.4f;
 
         // Which sea a point of open water belongs to, for its illustrations.
         private enum Sea
@@ -131,6 +157,108 @@ namespace Atlas
                 m_record.m_seaWashes.Add(SeaWash.Build(mark));
             }
             m_canvas.m_layer = layer;
+        }
+
+        // The Ashlands' sea boils: a few simmer marks scattered thinly over its hottest water, on
+        // a hashed grid of their own, so they never move with another rule. Waves read as birds
+        // far out at sea, so the marks are bubbles, not strokes.
+        private void DrawBoiling()
+        {
+            if (m_world.m_ashSea == null) return;
+            int salt = unchecked(m_world.m_seed + BoilSalt * 7919);
+            float centre = CanvasSize * 0.5f, ring = EdgeRadius / MetresPerPixel - FrameGap - BoilClear;
+            int cells = Mathf.CeilToInt(CanvasSize / BoilStep);
+            var placed = new List<Vector2>();
+            for (int cy = 0; cy < cells; cy++)
+            {
+                for (int cx = 0; cx < cells; cx++)
+                {
+                    int seed = HashInt(cx, cy, salt);
+                    if (Unit(seed, 0) >= BoilOdds) continue;
+                    float margin = (1f - BoilJitter) * 0.5f;
+                    float x = (cx + margin + BoilJitter * Unit(seed, 1)) * BoilStep;
+                    float y = (cy + margin + BoilJitter * Unit(seed, 2)) * BoilStep;
+                    float dx = x - centre, dy = y - centre;
+                    if (dx * dx + dy * dy >= ring * ring) continue;
+                    if (SeaAt(x, y) != Sea.Ashlands) continue;
+                    float wx = x * MetresPerPixel - HalfExtent, wz = HalfExtent - y * MetresPerPixel;
+                    if (m_world.Sample(m_world.m_ashSea, wx, wz) < BoilHeat) continue;
+                    // The mark's own reach: the bubbles and their speck rise about 11 px, the
+                    // lower water line lies about 8 px under the point, and the front line runs
+                    // up to about 10 px either side.
+                    var box = new InkBox { m_left = x - 10.7f, m_top = y - 11.5f, m_right = x + 10.7f, m_bottom = y + 8.8f };
+                    if (InkNear(box, BoilClear)) continue;
+                    if (Crowded(placed, new Vector2(x, y), BoilSpacing)) continue;
+                    placed.Add(new Vector2(x, y));
+                    Simmer(x, y, seed);
+                }
+            }
+        }
+
+        // A simmer mark (the user's design): a column of three bubbles rising from the water,
+        // shrinking and swaying as they rise, over three level lines of one wave seen in
+        // perspective: a back line broken by the column, an unbroken front line under it and a
+        // shorter lower line. Each row is the front's wave scaled by its distance (BoilScaleBack,
+        // 1, BoilScaleLow): wavelength, lift and length together, and the gaps between rows
+        // foreshortened alike, so the water reads as a surface seen from above, not three rules.
+        // Sizes and sides by seed so no two are stamped alike. At the opening zoom it reads as a
+        // speck, in close-ups as bubbles on the water.
+        private void Simmer(float x, float y, int seed)
+        {
+            float side = Unit(seed, 3) < 0.5f ? -1f : 1f;
+            float r0 = Mathf.Lerp(1.6f, 2.0f, Unit(seed, 4));
+            m_canvas.Ring(x, y, r0, r0 * 0.85f, Pen);
+            float r1 = r0 * Mathf.Lerp(0.58f, 0.68f, Unit(seed, 5));
+            float x1 = x + side * Mathf.Lerp(0.8f, 1.4f, Unit(seed, 6)), y1 = y - r0 - r1 - 1.3f;
+            m_canvas.Ring(x1, y1, r1, r1 * 0.9f, Pen);
+            float r2 = r1 * 0.66f;
+            float x2 = x1 - side * Mathf.Lerp(0.6f, 1.2f, Unit(seed, 7)), y2 = y1 - r1 - r2 - 1.2f;
+            m_canvas.Ring(x2, y2, r2, r2, Pen);
+            if (Unit(seed, 8) < 0.75f) m_canvas.Dot(x2 + side * 0.9f, y2 - r2 - 1.7f, 0.55f);
+
+            // The rows' crests a third of a wave on from the row behind, so they do not stack.
+            float phase = Unit(seed, 153) * Mathf.PI * 2f, shift = BoilTrainShift * Mathf.PI * 2f;
+            // Front: one unbroken line 1.7 px under the big bubble's foot, so a crest under it
+            // still leaves paper between them.
+            float front = y + 0.85f * r0 + 1.7f;
+            float width = Mathf.Lerp(15f, 18f, Unit(seed, 151));
+            float centre = x + Mathf.Lerp(-1.2f, 1.2f, Unit(seed, 152));
+            BoilPiece(centre - width * 0.5f, front, width, x, phase + shift, 1f);
+            // Back: behind the column and broken by it, a long piece on the seed's side and a
+            // short one on the other, so it shows past the column both ways. The hole is the
+            // bubble's own size, not scaled; running up to the bubble the line skewers it.
+            float backSide = Unit(seed, 150) < 0.5f ? -1f : 1f;
+            float back = front - BoilBackRise, hole = r0 + 1.0f;
+            float longer = Mathf.Lerp(4.6f, 5.8f, Unit(seed, 155)) * BoilScaleBack;
+            float shorter = Mathf.Lerp(3.0f, 3.8f, Unit(seed, 156)) * BoilScaleBack;
+            float left = backSide < 0f ? longer : shorter, right = backSide < 0f ? shorter : longer;
+            BoilPiece(x - hole - left, back, left, x, phase, BoilScaleBack);
+            BoilPiece(x + hole, back, right, x, phase, BoilScaleBack);
+            // Lower: about half the front's width, shifted away from the back's long side.
+            float low = front + BoilLowDrop;
+            float lowWidth = width * 0.5f * Mathf.Lerp(0.9f, 1.1f, Unit(seed, 159)) * BoilScaleLow;
+            float lowCentre = x - backSide * Mathf.Lerp(0.8f, 2.2f, Unit(seed, 160));
+            BoilPiece(lowCentre - lowWidth * 0.5f, low, lowWidth, x, phase + 2f * shift, BoilScaleLow);
+        }
+
+        // One level piece of the simmer mark's wave: its crests fall at fixed places on the sheet
+        // (BoilWave times scale long, counted from the column at x), so the pieces of a broken
+        // row keep one wave; the ends run out flat as the sea's strokes do (WaveStroke, which
+        // counts crests per stroke and so cannot keep a train across a break). Strictly level:
+        // the sea's lines always read horizontal.
+        private void BoilPiece(float x0, float level, float length, float x, float phase, float scale)
+        {
+            float wave = BoilWave * scale, lift = BoilLift * scale;
+            // Eight points a crest, as WaveStroke, so close-ups show a curve, not a zigzag.
+            int count = Math.Max(8, Mathf.CeilToInt(length / wave * 8f));
+            m_points.Clear();
+            for (int i = 0; i <= count; i++)
+            {
+                float u = i / (float)count, px = x0 + u * length;
+                float envelope = Mathf.Clamp01(Mathf.Sin(Mathf.PI * u) * 1.6f);
+                m_points.Add(new Vector2(px, level - Mathf.Sin((px - x) / wave * Mathf.PI * 2f + phase) * lift * envelope));
+            }
+            m_canvas.Polyline(m_points, Pen);
         }
 
         // A box on the sheet, in sheet pixels, y running south.

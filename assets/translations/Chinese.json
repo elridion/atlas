@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "你的地图集还是空白的。去制图桌记录你的发现吧。",
-  "atlas_drawing": "符文尚未刻成。待墨迹干透再来。",
-  "atlas_failed": "无法绘制地图集。详情请查看日志。"
+  "atlas_blank": "你的地图还是空白的。",
+  "atlas_drawing": "墨迹未干。",
+  "atlas_failed": "无法绘制地图。"
 }

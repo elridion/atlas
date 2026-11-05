@@ -19,6 +19,7 @@ using UnityEngine;
 // --alt NAME:wx:wz:radiusMetres forces an alt biome's effect on the woods there (ForceAltBiomes).
 // --temple wx:wz places the Sacrificial Stones there; --pin GLYPH:wx:wz[:checked] (repeatable)
 // draws a pin into the sheet.
+// Preview --pincat <png> and Preview --seacat <png> render the pin and sea mark boards alone.
 internal static class Program
 {
     const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -328,7 +329,10 @@ internal static class Program
                     // The sheet's trees, so those the torn edge would cut are hidden as in game;
                     // fogNAMEnotrees leaves them, for timing the difference.
                     object trees = p[0].EndsWith("notrees") ? null : Get(record, "m_trees");
-                    fogOf.Invoke(null, new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses, trees });
+                    object[] fogArgs = fogOf.GetParameters().Length >= 8
+                        ? new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses, trees, true }
+                        : new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses, trees };
+                    fogOf.Invoke(null, fogArgs);
                     System.Console.WriteLine($"fog laid in {fogTime.ElapsedMilliseconds} ms over {((System.Collections.ICollection)Get(record, "m_trees")).Count} trees");
                 }
                 else fogOf.Invoke(null, new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses });
@@ -453,7 +457,7 @@ internal static class Program
 
     // --pincat <png>: every pen-drawn pin as the map draws it (InkCanvas.Pin), as a table. Each
     // row is one glyph, with its vanilla pin and its box on the sheet, the glyph as a 4x close-up
-    // draws it on paper, then as a 2x close-up draws it in every biome, over a dense hatching
+    // draws it on paper, plain and checked (scraped, PinGlyphs.Abrade), then as a 2x close-up draws it in every biome, over a dense hatching
     // that stands for woods, so the body's fill and its break in the terrain ink show. Both with
     // the map's own pen (thinned by the close-up's level of detail, as every line) and the
     // hand-drawn waver. A last row notes what is drawn otherwise.
@@ -472,7 +476,7 @@ internal static class Program
             new[] { "Hammer", "Hammer (Icon2)", "Mjolnir pendant" },
             new[] { "Point", "Circle (Icon3)", "dot" },
             new[] { "Portal", "Portal (Icon4)", "stone portal" },
-            new[] { "Death", "Death (tombstone)", "memorial stone, yr rune" },
+            new[] { "Death", "Death (tombstone)", "two steles on a plinth" },
             new[] { "Bed", "Bed (spawn point)", "game's pin: bed" },
             new[] { "Boss", "Boss (Vegvisir)", "game's pin: horned skull" },
             new[] { "Tomb", "Hildir 1", "Smouldering Tombs: barrow" },
@@ -483,11 +487,12 @@ internal static class Program
             new[] { "Tent", "Hildir's camp", "location: tent" },
             new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
             new[] { "Forge", "Forge of Potential", "location: crowned pillar" },
-            new[] { "House+Checked", "Any pin, checked", "struck through" },
         };
         string[] lands = { "Meadows", "BlackForest", "Swamp", "Mountain", "Plains", "Mistlands", "Ashlands", "DeepNorth", "Ocean" };
         string[] headers = { "Meadows", "Black F.", "Swamp", "Mountain", "Plains", "Mistlands", "Ashlands", "Deep N.", "Water" };
-        int width = nameWidth + bigCell + cell * lands.Length + 16, header = 34, rowHeight = bigCell;
+        // The biome columns start after the two close-ups, plain and checked.
+        int biomes = nameWidth + 2 * bigCell;
+        int width = biomes + cell * lands.Length + 16, header = 34, rowHeight = bigCell;
         int height = header + rowHeight * rows.Length + 70;
         var paperColor = System.Drawing.Color.FromArgb(230, 211, 177);
         var inkColor = System.Drawing.Color.FromArgb(46, 33, 24);
@@ -501,8 +506,9 @@ internal static class Program
             g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
             g.DrawString("pin", font, ink, 8, 8);
             g.DrawString("close-up, 4x", font, ink, nameWidth + 4, 8);
+            g.DrawString("checked", font, ink, nameWidth + bigCell + 4, 8);
             for (int c = 0; c < headers.Length; c++)
-                g.DrawString(headers[c], small, ink, nameWidth + bigCell + c * cell, 12);
+                g.DrawString(headers[c], small, ink, biomes + c * cell, 12);
 
             var pinInk = (Color32)T("Atlas.Paper").GetField("PinInkColor", All).GetValue(null);
 
@@ -512,7 +518,8 @@ internal static class Program
             // Blends a glyph into the bitmap with its box centred on (cx, cy), as a close-up at
             // scale draws it (InkCanvas.Pin): box sheet pixels at scale, every line the map's pen
             // thinned by the level of detail; fill gives the body colour, null for none.
-            void Stamp(string glyph, float box, int cx, int cy, int scale, System.Drawing.Color? fill)
+            MethodInfo abrade = T("Atlas.PinGlyphs").GetMethod("Abrade", All);
+            void Stamp(string glyph, float box, int cx, int cy, int scale, System.Drawing.Color? fill, bool scraped)
             {
                 // A close-up draws its pins smaller by its level of detail, as its trees.
                 float lod = Mathf.Max(1f, Mathf.Sqrt(scale / 2f));
@@ -521,6 +528,8 @@ internal static class Program
                 int pixels = size * over;
                 float pen = units / box;
                 object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, glyph), pixels, pen, 4127 });
+                // A checked pin, as InkCanvas.Pin scrapes it.
+                if (scraped) abrade.Invoke(null, new object[] { mark, pen, 4127 });
                 var inkMask = (byte[])Get(mark, "m_ink");
                 var body = (byte[])Get(mark, "m_body");
                 for (int j = 0; j < size; j++)
@@ -555,22 +564,24 @@ internal static class Program
             for (int row = 0; row < rows.Length; row++)
             {
                 int top = header + row * rowHeight;
-                string[] parts = rows[row][0].Split('+');
-                float box = Box(parts[0]);
+                string glyph = rows[row][0];
+                float box = Box(glyph);
                 g.DrawString(rows[row][1], font, ink, 8, top + rowHeight / 2 - 26);
                 g.DrawString(rows[row][2], small, ink, 8, top + rowHeight / 2 - 6);
                 g.DrawString($"{box:0} sheet px box", small, ink, 8, top + rowHeight / 2 + 10);
-                foreach (string part in parts) Stamp(part, box, nameWidth + bigCell / 2, top + rowHeight / 2, bigScale, parts.Length > 1 && part == "Checked" ? (System.Drawing.Color?)null : paperColor);
+                Stamp(glyph, box, nameWidth + bigCell / 2, top + rowHeight / 2, bigScale, paperColor, false);
+                // The same close-up checked, its ink scraped away in part.
+                Stamp(glyph, box, nameWidth + bigCell + bigCell / 2, top + rowHeight / 2, bigScale, paperColor, true);
                 // The game's own pins stand on land: beds, altars, dungeons, traders and the
                 // Stones never lie in water. The player's pins and deaths can.
-                bool onWater = row < 6 || parts.Length > 1;
+                bool onWater = row < 6;
                 for (int c = 0; c < lands.Length; c++)
                 {
                     bool water = lands[c] == "Ocean";
                     if (water && !onWater) continue;
                     var colour = (Color32)bodyColor.Invoke(null, new object[] { Enum.Parse(land, lands[c]), water });
                     var fill = System.Drawing.Color.FromArgb(colour.r, colour.g, colour.b);
-                    int x0 = nameWidth + bigCell + c * cell, y0 = top + (rowHeight - cell) / 2;
+                    int x0 = biomes + c * cell, y0 = top + (rowHeight - cell) / 2;
                     using (var ground = new SolidBrush(fill)) g.FillRectangle(ground, x0, y0, cell - 4, cell - 4);
                     // Woods: dense short strokes, as a pine wood's ink would lie under the pin.
                     using (var pen = new Pen(inkColor, 1.4f))
@@ -580,8 +591,7 @@ internal static class Program
                         for (int s = 0; s < 2 * cell; s += 5) g.DrawLine(pen, x0 + s, y0, x0 + s - cell, y0 + cell);
                         g.ResetClip();
                     }
-                    foreach (string part in parts)
-                        Stamp(part, box, x0 + (cell - 4) / 2, y0 + (cell - 4) / 2, smallScale, part == "Checked" ? (System.Drawing.Color?)null : fill);
+                    Stamp(glyph, box, x0 + (cell - 4) / 2, y0 + (cell - 4) / 2, smallScale, fill, false);
                 }
             }
             int foot = header + rowHeight * rows.Length + 10;
@@ -669,13 +679,17 @@ internal static class Program
 
         MethodInfo landAt = source.GetType().GetMethod("LandAt", All), waterAt = source.GetType().GetMethod("IsWaterAt", All);
         MethodInfo bodyColor = T("Atlas.Paper").GetMethod("PinBodyColor", All), aged = T("Atlas.Paper").GetMethod("AgedPin", All);
-        void Glyph(string name, int cx, int cy, bool body)
+        MethodInfo abrade = T("Atlas.PinGlyphs").GetMethod("Abrade", All);
+        MethodInfo sheetSize = T("Atlas.InkPainter").GetMethod("PinSheetSize", All);
+        void Glyph(string name, int cx, int cy, bool body, bool scraped)
         {
             // The body's fill: the wash of the biome at the pin, as the atlas window lays it.
             float pwx = (left + cx / (float)scale) * 2f * 10800f / canvas - 10800f, pwz = 10800f - (bottom - cy / (float)scale) * 2f * 10800f / canvas;
             var fill = (Color32)bodyColor.Invoke(null, new object[] { landAt.Invoke(source, new object[] { pwx, pwz }), waterAt.Invoke(source, new object[] { pwx, pwz }) });
             if (aged != null) fill = (Color32)aged.Invoke(null, new object[] { fill, pwx, pwz, 12345 });
             object mark = draw.Invoke(null, new object[] { Enum.Parse(kind, name), size * over, 0f, 0 });
+            // A checked marker, as AtlasView scrapes it: the pen of a sheet pin of its size.
+            if (scraped) abrade.Invoke(null, new object[] { mark, 26f / (float)sheetSize.Invoke(null, new object[] { Enum.Parse(kind, name) }), 4127 });
             var ink = (byte[])Get(mark, "m_ink");
             var shape = (byte[])Get(mark, "m_body");
             int m = size * over;
@@ -717,8 +731,7 @@ internal static class Program
             object[] pin = s_testPins[p];
             int cx = (int)spots[p].x, cy = (int)spots[p].y + Lift((string)pin[2]);
             placed.Add(new Rect(cx - size * 0.5f, cy - size * 0.5f, size, size));
-            Glyph((string)pin[2], cx, cy, true);
-            if ((bool)pin[4]) Glyph("Checked", cx, cy, false);
+            Glyph((string)pin[2], cx, cy, true, (bool)pin[4]);
         }
 
         // Names: bare ink, measured and drawn with System.Drawing on a bitmap of the output.
@@ -1004,64 +1017,327 @@ internal static class Program
         Save(path, rgba, n, n, 1);
     }
 
-    // The sea illustration catalogue (Atlas.SeaGlyphs): every candidate at 4x with its name, and
-    // the same row at the opening zoom (1x) beneath, ink on the sea's glazed parchment.
+    // --seacat <png>: the sea's decorative marks as the map draws them, as a board. Each sea
+    // illustration (SeaGlyphs) lies on the water it is placed in (the open ocean's blue; the
+    // bonemaw on the Ashlands' boiling sea, at full heat) with its darker wash (SeaWash), built
+    // from its mark as the sheet builds it: at sheet size, the wash laid as the ink texture lays
+    // it (Paper.SeaInk), and as a 4x close-up draws it, the pen thinned by the close-up's level
+    // of detail and the wash glazed over the water (Paper.SeaGlaze); plain and mirrored, at
+    // scale 1 and centred as DrawIllustrations centres its box. Then the Ashlands' simmer marks
+    // (InkPainter.Simmer) for a row of seeds, and a sea wave group and the two lake hands' line
+    // groups (InkPainter.DrawWave, rows by RowY, crests by Crests) off a straight stand-in shore
+    // facing either way: in game their places come from the traced coast, which needs a world.
+    // Seeds are fixed, so the board changes only when the drawing does.
     static int SeaCatalogue(string path)
     {
-        Type sea = T("Atlas.SeaGlyphs");
+        const int big = 4, pad = 14, nameWidth = 230, header = 34, margin = 10;
+        Type painterType = T("Atlas.InkPainter"), canvasType = T("Atlas.InkCanvas"), sea = T("Atlas.SeaGlyphs");
+        Type paperType = T("Atlas.Paper"), washType = T("Atlas.SeaWash"), wsType = T("Atlas.WorldSource"), noise = T("Atlas.Noise");
         var names = (string[])sea.GetField("Names", All).GetValue(null);
-        const int columns = 5;
-        const float cell = 60f;
-        int rows = (names.Length + columns - 1) / columns;
-        System.Drawing.Color water = System.Drawing.Color.FromArgb(175, 179, 182), inkColor = System.Drawing.Color.FromArgb(46, 33, 24);
-        object big = sea.GetMethod("Catalogue", All).Invoke(null, new object[] { columns, cell, 4f });
-        object small = sea.GetMethod("Catalogue", All).Invoke(null, new object[] { columns, cell, 1f });
-        int bw = (int)Get(big, "m_width"), bh = (int)Get(big, "m_height");
-        int sw = (int)Get(small, "m_width"), sh = (int)Get(small, "m_height");
-        const int label = 26, gap = 30;
-        using (var bmp = new Bitmap(bw, label * rows + bh + gap + sh + label))
-        using (var g = System.Drawing.Graphics.FromImage(bmp))
-        using (var font = new Font("Segoe UI", 11f))
+        int bonemaw = (int)sea.GetField("BonemawSerpent", All).GetValue(null), leviathan = (int)sea.GetField("Leviathan", All).GetValue(null);
+        MethodInfo drawGlyph = sea.GetMethod("Draw", All);
+        MethodInfo boxOf = painterType.GetMethod("IllustrationBox", All);
+        MethodInfo buildWash = washType.GetMethod("Build", All), washAt = washType.GetMethod("At", All);
+        MethodInfo simmer = painterType.GetMethod("Simmer", All), drawWave = painterType.GetMethod("DrawWave", All);
+        MethodInfo rowY = painterType.GetMethod("RowY", All), crestsOf = painterType.GetMethod("Crests", All);
+        MethodInfo hashInt = noise.GetMethod("HashInt", All), unit = noise.GetMethod("Unit", All);
+        MethodInfo stroke = canvasType.GetMethod("Stroke", All);
+        float Const(string name) => Convert.ToSingle(painterType.GetField(name, All).GetValue(null));
+        float mpp = Const("MetresPerPixel"), half = Const("HalfExtent");
+        Type byRef = typeof(float).MakeByRefType();
+        MethodInfo waterColor = paperType.GetMethod("WaterColor", All, null, new[] { typeof(float), typeof(float), typeof(float), byRef, byRef, byRef }, null);
+        MethodInfo ashGlaze = paperType.GetMethod("AshSeaGlaze", All), seaGlaze = paperType.GetMethod("SeaGlaze", All);
+        var paper = (Color32)paperType.GetField("PaperColor", All).GetValue(null);
+        var inkColour = (Color32)paperType.GetField("InkColor", All).GetValue(null);
+        var seaInk = new object[] { 0f, 0f, 0f, 0f };
+        paperType.GetMethod("SeaInk", All).Invoke(null, seaInk);
+        float seaAlpha = (float)seaInk[0];
+        var seaColour = new Vector3((float)seaInk[1], (float)seaInk[2], (float)seaInk[3]);
+
+        // The water over clean parchment (Paper.WaterColor), warmed by the boiling sea at full
+        // heat where ash is set (Paper.AshSeaGlaze), as the wash under the sheet lays it.
+        Vector3 Water(bool ash)
         {
-            g.Clear(System.Drawing.Color.White);
-            Bitmap bigImage = Ink((byte[])Get(big, "m_ink"), bw, bh, water, inkColor);
-            Bitmap smallImage = Ink((byte[])Get(small, "m_ink"), sw, sh, water, inkColor);
-            int cellPx = (int)(cell * 4f);
-            for (int r = 0; r < rows; r++)
+            var args = new object[] { (float)paper.r, (float)paper.g, (float)paper.b, 0f, 0f, 0f };
+            waterColor.Invoke(null, args);
+            if (!ash) return new Vector3((float)args[3], (float)args[4], (float)args[5]);
+            var warm = new object[] { args[3], args[4], args[5], 1f, 0f, 0f, 0f };
+            ashGlaze.Invoke(null, warm);
+            return new Vector3((float)warm[4], (float)warm[5], (float)warm[6]);
+        }
+
+        // A close-up draws at lod sqrt(scale / 2) past 2x (DetailTile.Render), its pens 1 / lod
+        // as wide (the tile painter sets InkCanvas.m_penScale); the sheet at 1.
+        float Lod(int scale) => Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f));
+        ConstructorInfo canvasNew = canvasType.GetConstructor(new[] { typeof(int), typeof(int), typeof(float), typeof(float), typeof(float) });
+        ConstructorInfo painterNew = painterType.GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, null,
+            new[] { wsType, canvasType, T("Atlas.TileGrid"), typeof(float), typeof(RectInt), typeof(CancellationToken) }, null);
+        object world = Activator.CreateInstance(wsType, true);
+        object NewCanvas(int w, int h, float left, float top, int scale)
+        {
+            object canvas = canvasNew.Invoke(new object[] { w * scale, h * scale, left, top, (float)scale });
+            Set(canvas, "m_penScale", 1f / Lod(scale));
+            return canvas;
+        }
+        // A tile painter on the canvas: it draws the simmer marks and waves in the canvas's pen.
+        object Painter(object canvas, int scale) =>
+            painterNew.Invoke(new object[] { world, canvas, null, Lod(scale), new RectInt(0, 0, 0, 0), CancellationToken.None });
+
+        // The patch of w x h sheet pixels from (left, top) at scale as the map shows it: the water
+        // (parchment on the stand-in shore's land side, land -1 west or 1 east of shore), the sea
+        // wash where wash is given, then the ink.
+        Bitmap Patch(object canvas, int w, int h, float left, float top, int scale, bool ash, object wash, float shore, int land)
+        {
+            int pw = w * scale, ph = h * scale;
+            var ink = (byte[])Get(canvas, "m_ink");
+            Vector3 water = Water(ash), clean = new Vector3(paper.r, paper.g, paper.b), pen = new Vector3(inkColour.r, inkColour.g, inkColour.b);
+            var bitmap = new Bitmap(pw, ph, PixelFormat.Format24bppRgb);
+            BitmapData data = bitmap.LockBits(new Rectangle(0, 0, pw, ph), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            var row = new byte[data.Stride];
+            for (int y = 0; y < ph; y++)
             {
-                g.DrawImage(bigImage, new Rectangle(0, r * (cellPx + label) + label, bw, cellPx), new Rectangle(0, r * cellPx, bw, cellPx), GraphicsUnit.Pixel);
-                for (int c = 0; c < columns && r * columns + c < names.Length; c++)
-                    g.DrawString($"{r * columns + c + 1}. {names[r * columns + c]}", font, Brushes.Black, c * cellPx + 6, r * (cellPx + label) + 4);
+                float sy = top + (y + 0.5f) / scale;
+                for (int x = 0; x < pw; x++)
+                {
+                    float sx = left + (x + 0.5f) / scale;
+                    float a = ink[y * pw + x] / 255f;
+                    bool dry = land != 0 && (sx - shore) * land > 0f;
+                    Vector3 c = dry ? clean : water;
+                    float amount = wash == null || dry ? 0f : (float)washAt.Invoke(wash, new object[] { sx, sy });
+                    if (scale == 1)
+                    {
+                        // The sheet's ink texture: the wash's colour at its opacity under the ink,
+                        // laid over the paper (Paper.InkWithMips).
+                        float su = amount * seaAlpha * (1f - a);
+                        c = c * (1f - Mathf.Min(1f, su + a)) + seaColour * su + pen * a;
+                    }
+                    else
+                    {
+                        if (amount > 0f)
+                        {
+                            var args = new object[] { c.x, c.y, c.z, amount, 0f, 0f, 0f };
+                            seaGlaze.Invoke(null, args);
+                            c = new Vector3((float)args[4], (float)args[5], (float)args[6]);
+                        }
+                        c += (pen - c) * a;
+                    }
+                    row[x * 3] = (byte)(c.z + 0.5f);
+                    row[x * 3 + 1] = (byte)(c.y + 0.5f);
+                    row[x * 3 + 2] = (byte)(c.x + 0.5f);
+                }
+                Marshal.Copy(row, 0, data.Scan0 + y * data.Stride, row.Length);
             }
-            int y0 = rows * (cellPx + label) + gap;
-            g.DrawString("The same at the opening zoom (1x):", font, Brushes.Black, 6, y0 - 24);
-            g.DrawImage(smallImage, 6, y0, sw, sh);
-            bmp.Save(path, ImageFormat.Png);
-            bigImage.Dispose();
-            smallImage.Dispose();
+            bitmap.UnlockBits(data);
+            return bitmap;
+        }
+
+        // Each illustration's box at scale 1, plain and mirrored (InkPainter.IllustrationBox).
+        Rect Box(int kind, bool mirror)
+        {
+            object box = boxOf.Invoke(null, new object[] { kind, mirror, 1f });
+            float l = (float)Get(box, "m_left"), t = (float)Get(box, "m_top");
+            return new Rect(l, t, (float)Get(box, "m_right") - l, (float)Get(box, "m_bottom") - t);
+        }
+
+        // The patch round one illustration: the glyph centred on a spot as DrawIllustrations
+        // centres it, its wash built from the mark the sheet would keep (SeaWash.Build). Each
+        // kind has a spot of its own, so its wash is mottled as one placed there.
+        Bitmap Illustration(int kind, bool mirror, int scale, int w, int h)
+        {
+            var at = new Vector2(1024.5f + 512f * kind, 1536.5f);
+            Rect box = Box(kind, mirror);
+            float x = at.x - box.center.x, y = at.y - box.center.y;
+            object mark = Activator.CreateInstance(T("Atlas.SeaMark"));
+            Set(mark, "m_west", (x + box.xMin) * mpp - half);
+            Set(mark, "m_east", (x + box.xMax) * mpp - half);
+            Set(mark, "m_north", half - (y + box.yMin) * mpp);
+            Set(mark, "m_south", half - (y + box.yMax) * mpp);
+            Set(mark, "m_kind", kind);
+            Set(mark, "m_x", x);
+            Set(mark, "m_y", y);
+            Set(mark, "m_mirror", mirror);
+            Set(mark, "m_scale", 1f);
+            object wash = buildWash.Invoke(null, new[] { mark });
+            float left = Mathf.Floor(at.x - w * 0.5f), top = Mathf.Floor(at.y - h * 0.5f);
+            object canvas = NewCanvas(w, h, left, top, scale);
+            drawGlyph.Invoke(null, new object[] { canvas, kind, x, y, mirror, 1f });
+            return Patch(canvas, w, h, left, top, scale, kind == bonemaw, wash, 0f, 0);
+        }
+
+        // A row of simmer marks, one per seed, as DrawBoiling seeds them from its grid.
+        const int boils = 6, boilStep = 26, boilHeight = 30;
+        Bitmap Boiling(int scale)
+        {
+            int w = boils * boilStep + 2 * margin;
+            const float left = 2000f, top = 3000f;
+            object canvas = NewCanvas(w, boilHeight, left, top, scale);
+            object painter = Painter(canvas, scale);
+            int salt = unchecked(12345 + 62 * 7919);
+            for (int k = 0; k < boils; k++)
+            {
+                int seed = (int)hashInt.Invoke(null, new object[] { k, 0, salt });
+                simmer.Invoke(painter, new object[] { left + margin + (k + 0.5f) * boilStep, top + 18f, seed });
+            }
+            return Patch(canvas, w, boilHeight, left, top, scale, true, null, 0f, 0);
+        }
+
+        // One group of a hand's strokes off a straight shore at x = shore with the water on its
+        // dir side: the sea's on rows from the middle down (PlaceGroup, a coast facing east or
+        // west), a lake's as one stack from the middle row out, below and above in turn
+        // (LakeStack), long and short rows in turn, each started as Anchored starts it.
+        const int waveWidth = 34, waveHeight = 30;
+        float rowPitch = Const("WaveRowPitch"), shoreGap = Const("WaveShoreGap"), overlap = Const("LakeOverlap");
+        Bitmap Waves(string hand, int count, int dir, int scale)
+        {
+            float left = 2400f, top = 3000f + 40f * count;
+            float shore = dir > 0 ? left + 6f : left + waveWidth - 6f;
+            object canvas = NewCanvas(waveWidth, waveHeight, left, top, scale);
+            object painter = Painter(canvas, scale);
+            object style = painterType.GetField(hand, All).GetValue(null);
+            Set(painter, "m_hand", style);
+            bool lake = (bool)Get(style, "m_lake");
+            float crest = (float)Get(style, "m_unit"), lift = (float)Get(style, "m_lift");
+            // The stand-in shore, in the coast's pen: CoastWidth on the sheet, the tile's Pen in
+            // a close-up (DrawTileCoast), thinned by the canvas's pen scale.
+            stroke.Invoke(canvas, new object[] { shore, top, shore, top + waveHeight, scale == 1 ? Const("CoastWidth") : 1f, 1f });
+            int salt = unchecked(12345 + 9 * 7919);
+            int mid = Mathf.FloorToInt((top + waveHeight * 0.5f) / rowPitch);
+            var rows = new System.Collections.Generic.List<int>();
+            var longRows = new System.Collections.Generic.List<bool>();
+            if (lake)
+            {
+                rows.Add(mid);
+                longRows.Add(true);
+                for (int k = 1; rows.Count < count; k++)
+                {
+                    rows.Add(mid + k);
+                    longRows.Add((k & 1) == 0);
+                    if (rows.Count == count) break;
+                    rows.Add(mid - k);
+                    longRows.Add((k & 1) == 0);
+                }
+            }
+            else
+            {
+                for (int k = 0; k < count; k++)
+                {
+                    rows.Add(mid - count / 2 + k);
+                    longRows.Add((k & 1) == 0);
+                }
+            }
+            for (int i = 0; i < rows.Count; i++)
+            {
+                int r = rows[i];
+                float y = (float)rowY.Invoke(painter, new object[] { r, salt });
+                // A sea stroke starts WaveShoreGap off the shore, a lake's at the shore itself.
+                float start = lake ? shore : shore + dir * shoreGap;
+                int seed = (int)hashInt.Invoke(null, new object[] { r, Mathf.RoundToInt(start) * dir, salt + 7 });
+                int crests = (int)crestsOf.Invoke(painter, new object[] { seed, longRows[i] });
+                float length = crests * crest * (1f + ((float)unit.Invoke(null, new object[] { seed, 3 }) - 0.5f) * 0.2f);
+                float x0 = dir > 0 ? start : start - length;
+                if (lake)
+                {
+                    length += overlap;
+                    if (dir > 0) x0 -= overlap;
+                }
+                drawWave.Invoke(painter, new object[] { x0, y, length, crests, lift, seed, salt, dir });
+            }
+            return Patch(canvas, waveWidth, waveHeight, left, top, scale, false, null, shore, -dir);
+        }
+
+        // Every illustration's patch: its larger box, plain or mirrored, and a margin round it.
+        var patchW = new int[names.Length];
+        var patchH = new int[names.Length];
+        for (int k = 0; k < names.Length; k++)
+        {
+            Rect a = Box(k, false), b = Box(k, true);
+            patchW[k] = Mathf.CeilToInt(Mathf.Max(a.width, b.width)) + 2 * margin;
+            patchH[k] = Mathf.CeilToInt(Mathf.Max(a.height, b.height)) + 2 * margin;
+        }
+        int widest = Mathf.Max(Mathf.Max(patchW), waveWidth);
+        int sheetColumn = widest + pad, bigColumn = widest * big + pad;
+        int c1 = nameWidth, c2 = c1 + sheetColumn, c3 = c2 + sheetColumn, c4 = c3 + bigColumn;
+        // The boil marks' close-up strip runs on across both close-up columns.
+        int width = Mathf.Max(c4 + bigColumn, c3 + (boils * boilStep + 2 * margin) * big) + pad;
+        var heights = new System.Collections.Generic.List<int>();
+        for (int k = 0; k < names.Length; k++) heights.Add(patchH[k] * big + pad);
+        heights.Add(boilHeight * big + pad);
+        for (int k = 0; k < 3; k++) heights.Add(waveHeight * big + pad);
+        int height = header + 40;
+        foreach (int h in heights) height += h;
+
+        var paperColor = System.Drawing.Color.FromArgb(paper.r, paper.g, paper.b);
+        using (var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb))
+        using (var g = System.Drawing.Graphics.FromImage(bitmap))
+        using (var font = new System.Drawing.Font("Palatino Linotype", 15f, GraphicsUnit.Pixel))
+        using (var small = new System.Drawing.Font("Palatino Linotype", 12f, System.Drawing.FontStyle.Italic, GraphicsUnit.Pixel))
+        using (var ink = new SolidBrush(System.Drawing.Color.FromArgb(inkColour.r, inkColour.g, inkColour.b)))
+        {
+            g.Clear(paperColor);
+            g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+            g.DrawString("sea mark", font, ink, 8, 8);
+            g.DrawString("sheet", font, ink, c1 + 4, 8);
+            g.DrawString("mirrored", font, ink, c2 + 4, 8);
+            g.DrawString("close-up, 4x", font, ink, c3 + 4, 8);
+            g.DrawString("mirrored", font, ink, c4 + 4, 8);
+
+            // Lays a patch centred in its column's cell of the row at top.
+            void Place(Bitmap patch, int column, int top, int rowHeight)
+            {
+                int x = column, y = top + (rowHeight - patch.Height) / 2;
+                g.DrawImage(patch, new Rectangle(x, y, patch.Width, patch.Height));
+                patch.Dispose();
+            }
+            void Label(int top, int rowHeight, string name, params string[] notes)
+            {
+                int y = top + rowHeight / 2 - 10 - 8 * notes.Length;
+                g.DrawString(name, font, ink, 8, y);
+                for (int i = 0; i < notes.Length; i++) g.DrawString(notes[i], small, ink, 8, y + 20 + 16 * i);
+            }
+
+            int rowTop = header, next = 0;
+            for (int k = 0; k < names.Length; k++)
+            {
+                int rowHeight = heights[next++];
+                Rect box = Box(k, false);
+                Label(rowTop, rowHeight, names[k],
+                    k == bonemaw ? "the Ashlands' boiling sea" : "the open ocean",
+                    $"{box.width:0} x {box.height:0} sheet px box",
+                    k == leviathan ? "mirrored: shell flipped, shade kept east" : "with its sea wash (SeaWash)");
+                Place(Illustration(k, false, 1, patchW[k], patchH[k]), c1, rowTop, rowHeight);
+                Place(Illustration(k, true, 1, patchW[k], patchH[k]), c2, rowTop, rowHeight);
+                Place(Illustration(k, false, big, patchW[k], patchH[k]), c3, rowTop, rowHeight);
+                Place(Illustration(k, true, big, patchW[k], patchH[k]), c4, rowTop, rowHeight);
+                rowTop += rowHeight;
+            }
+
+            int boilRow = heights[next++];
+            Label(rowTop, boilRow, "Boil marks", "the Ashlands' boiling sea", $"{boils} seeds (Simmer)", "sheet, then close-up 4x");
+            Place(Boiling(1), c1, rowTop, boilRow);
+            Place(Boiling(big), c3, rowTop, boilRow);
+            rowTop += boilRow;
+
+            var waves = new[]
+            {
+                new object[] { "s_seaHand", 5, "Sea waves", "a coast's group of 5" },
+                new object[] { "s_lakeHand", 5, "Lake lines, large lake", "a group of 5" },
+                new object[] { "s_smallLakeHand", 4, "Lake lines, small lake", "a group of 4" },
+            };
+            foreach (object[] wave in waves)
+            {
+                int rowHeight = heights[next++];
+                Label(rowTop, rowHeight, (string)wave[2], (string)wave[3], "off a straight stand-in shore", "facing east; mirrored: west");
+                Place(Waves((string)wave[0], (int)wave[1], 1, 1), c1, rowTop, rowHeight);
+                Place(Waves((string)wave[0], (int)wave[1], -1, 1), c2, rowTop, rowHeight);
+                Place(Waves((string)wave[0], (int)wave[1], 1, big), c3, rowTop, rowHeight);
+                Place(Waves((string)wave[0], (int)wave[1], -1, big), c4, rowTop, rowHeight);
+                rowTop += rowHeight;
+            }
+            g.DrawString("Waves and lake lines are placed at the traced coast's bends in game (it needs a world); here only their rows, crests and strokes are the mod's.", small, ink, 8, rowTop + 8);
+            bitmap.Save(path, ImageFormat.Png);
         }
         System.Console.WriteLine(path);
         return 0;
-    }
-
-    static Bitmap Ink(byte[] ink, int w, int h, System.Drawing.Color paper, System.Drawing.Color pen)
-    {
-        var bmp = new Bitmap(w, h, PixelFormat.Format24bppRgb);
-        BitmapData data = bmp.LockBits(new Rectangle(0, 0, w, h), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
-        var row = new byte[data.Stride];
-        for (int y = 0; y < h; y++)
-        {
-            for (int x = 0; x < w; x++)
-            {
-                float a = ink[y * w + x] / 255f;
-                row[x * 3] = (byte)(paper.B + (pen.B - paper.B) * a);
-                row[x * 3 + 1] = (byte)(paper.G + (pen.G - paper.G) * a);
-                row[x * 3 + 2] = (byte)(paper.R + (pen.R - paper.R) * a);
-            }
-            Marshal.Copy(row, 0, data.Scan0 + y * data.Stride, row.Length);
-        }
-        bmp.UnlockBits(data);
-        return bmp;
     }
 
     // rgba rows run south first; down is a box downscale factor.

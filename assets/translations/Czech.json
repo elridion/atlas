@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Tvůj atlas je zatím prázdný. Zaznamenej své objevy u kartografického stolu.",
-  "atlas_drawing": "Runy ještě nejsou vyryté. Vrať se, až inkoust zaschne.",
-  "atlas_failed": "Atlas se nepodařilo nakreslit. Podrobnosti najdeš v logu."
+  "atlas_blank": "Tvoje mapa je zatím prázdná.",
+  "atlas_drawing": "Inkoust ještě nezaschl.",
+  "atlas_failed": "Mapu se nepodařilo nakreslit."
 }

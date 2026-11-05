@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Il tuo atlante è ancora bianco. Registra le tue scoperte a un tavolo da cartografo.",
-  "atlas_drawing": "Le rune non sono ancora incise. Torna quando l'inchiostro si sarà asciugato.",
-  "atlas_failed": "Non è stato possibile disegnare l'atlante. I dettagli sono nel log."
+  "atlas_blank": "La tua mappa è ancora bianca.",
+  "atlas_drawing": "L'inchiostro non si è ancora asciugato.",
+  "atlas_failed": "Non è stato possibile disegnare la mappa."
 }

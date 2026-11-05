@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "O teu atlas ainda está em branco. Regista as tuas descobertas numa mesa de cartografia.",
-  "atlas_drawing": "As runas ainda não foram gravadas. Volta quando a tinta secar.",
-  "atlas_failed": "Não foi possível desenhar o atlas. Os detalhes estão no registo."
+  "atlas_blank": "O teu mapa ainda está em branco.",
+  "atlas_drawing": "A tinta ainda não secou.",
+  "atlas_failed": "Não foi possível desenhar o mapa."
 }

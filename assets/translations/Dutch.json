@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Je atlas is nog leeg. Leg je ontdekkingen vast aan een cartografietafel.",
-  "atlas_drawing": "De runen zijn nog niet gekerfd. Kom terug als de inkt droog is.",
-  "atlas_failed": "De atlas kon niet worden getekend. Het logboek bevat de details."
+  "atlas_blank": "Je kaart is nog leeg.",
+  "atlas_drawing": "De inkt is nog niet droog.",
+  "atlas_failed": "De kaart kon niet worden getekend."
 }

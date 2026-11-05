@@ -1,5 +1,5 @@
 {
-  "atlas_blank": "Tvoj atlas je još prazan. Zabilježi svoja otkrića na kartografskom stolu.",
-  "atlas_drawing": "Rune još nisu urezane. Vrati se kad se tinta osuši.",
-  "atlas_failed": "Atlas se nije mogao nacrtati. Pojedinosti su u zapisniku."
+  "atlas_blank": "Tvoja karta je još prazna.",
+  "atlas_drawing": "Tinta se još nije osušila.",
+  "atlas_failed": "Karta se nije mogla nacrtati."
 }

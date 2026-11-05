@@ -22,6 +22,45 @@ The first build generates publicized Valheim assemblies in `Valheim_Data/Managed
 The build touches nothing outside the repo. To test in game, install the zip with a mod manager
 (e.g. import it into a [Gale](https://github.com/Kesomannen/gale) profile).
 
+## Preview renders
+
+`tools/preview/` renders the atlas offline from the minimap cache of a local world, so drawing
+changes can be checked without starting the game. It needs a Valheim install (override the Steam
+path with `$env:VALHEIM_INSTALL`), a world you have explored with the map on (its cache lives in
+`%USERPROFILE%\AppData\LocalLow\IronGate\Valheim\worlds_local\<world>`) and a Gale profile with
+BepInEx, whose core DLLs the script copies beside the preview. From the repo root, in PowerShell:
+
+```
+# Build the mod and the preview, then render views of a world into tools/preview/img/
+.\tools\preview\run.ps1 -World Velen -Views overview,start:0:0:600:1,tilesMeadows:-48:192:4
+
+# Add pins drawn into the sheet (GLYPH:x:z, append :x for a checked pin) and the Sacrificial Stones
+.\tools\preview\run.ps1 -Views start:0:0:600:1 -Pin 'House:205:-119','Fire:158:-158:x' -Temple '-111:263'
+
+# The pin catalogue (every glyph, plain and checked, at sheet size and 4x); run.ps1 must have run once
+.\tools\preview\out\Preview.exe --pincat tools\preview\img\pincat.png
+
+# The sea mark catalogue (sea illustrations with their wash, boil marks, sea waves, lake lines, at sheet size and 4x)
+.\tools\preview\out\Preview.exe --seacat tools\preview\img\seacat.png
+
+# All published samples into tools/preview/img/; -Publish also replaces those in screenshots/
+.\tools\preview\samples.ps1
+.\tools\preview\samples.ps1 -Publish
+```
+
+Views are comma-separated:
+
+| View | Renders |
+| --- | --- |
+| `overview` | The whole sheet |
+| `NAME:x:z:width:scale` | A `width`-pixel crop of the sheet centred on world `x`, `z`, magnified `scale` times |
+| `tilesNAME:x:z:zoom` | Close-up tiles (`zoom` 2 or 4) round world `x`, `z`, as the map shows them zoomed in |
+
+`-Alt 'NAME:x:z:radius'` forces a biome variant there (e.g. `'Wolf Mountain:-7500:3000:900'`),
+since the preview cannot compute them. Output is written to `tools/preview/img/`, which is ignored
+by git. The preview cannot run the world generator, so rivers, Deep North woods and other
+generator-driven details differ from the game.
+
 ## Project layout
 
 | Path | Purpose |

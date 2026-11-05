@@ -246,7 +246,8 @@ namespace Atlas
 
         // A pin glyph (PinGlyphs) in the box of size sheet pixels from (left, top): its body
         // scrapes the ink and every body mask, so the ground's own wash fills it, then its lines
-        // are laid in the pins' red ink (m_pinInk), struck through with paper when checked. Drawn at this canvas's resolution, so a
+        // are laid in the pins' red ink (m_pinInk), scraped away in part when checked
+        // (PinGlyphs.Abrade). Drawn at this canvas's resolution, so a
         // close-up gets a sharp pin.
         public void Pin(PinGlyph glyph, float left, float top, float size, bool struck)
         {
@@ -266,7 +267,7 @@ namespace Atlas
             float pen = m_penScale * PinGlyphs.PinUnits / size;
             int seed = Noise.HashInt(Mathf.RoundToInt(left * 4f), Mathf.RoundToInt(top * 4f), 7411) | 1;
             PinMark mark = PinGlyphs.Draw(glyph, pixels, pen, seed);
-            PinMark strike = struck ? PinGlyphs.Draw(PinGlyph.Checked, pixels, pen, seed) : null;
+            if (struck) PinGlyphs.Abrade(mark, pen, seed);
             int x0 = Mathf.RoundToInt(X(left)), y0 = Mathf.RoundToInt(Y(top));
             for (int y = 0; y < pixels; y++)
             {
@@ -290,8 +291,6 @@ namespace Atlas
                         m_pinInk[i] = (byte)(m_pinInk[i] * keep);
                     }
                     byte ink = mark.m_ink[j];
-                    // Glyphs are inked solid, so the strike is scraped through them as paper.
-                    if (strike != null) ink = (byte)(ink * (255 - strike.m_ink[j]) / 255);
                     if (ink > m_pinInk[i]) m_pinInk[i] = ink;
                 }
             }

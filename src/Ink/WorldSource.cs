@@ -110,6 +110,12 @@ namespace Atlas
         public float[] m_wood;
         // The Ashlands' lava fields as a smooth field, edge at 0.5 (Woods.BuildLava).
         public float[] m_lavaField;
+        // How hot the Ashlands' boiling sea is (0 to 1): vanilla's own ocean gradient, which its
+        // mask keeps in blue under water and which tints vanilla's map there, averaged over water
+        // only and softened (BuildAshSea), so it fades out smoothly at the biome's edge and never
+        // takes a lava field's blue from the land beside it.
+        public float[] m_ashSea;
+        private const int AshSeaBlur = 6;
         // The swamp's wetness (1 in its pools, 0 on its dry ground, from the heights before the
         // shallow pools are raised) and the swamp itself (1 inside, 0 outside, edge at 0.5), both
         // softened by SwampBlur passes, so marks gather round the real pools and thin out at the
@@ -293,6 +299,7 @@ namespace Atlas
             }
             if (m_altBiomes != null) ReadGroves();
             MarkSwampSea();
+            BuildAshSea();
             MarkNorthForest();
             MarkMountainForest();
             for (int i = 0; i < count; i++)
@@ -308,6 +315,30 @@ namespace Atlas
             m_floatHeights = null;
             m_wood = Woods.Build(this);
             m_lavaField = Woods.BuildLava(this);
+        }
+
+        // The boiling sea's heat (m_ashSea). Only the Ashlands' and the open ocean's water count:
+        // the gradient runs on a little past the Ashlands into the ocean, while the odd swamp or
+        // forest pool with blue in its mask would leave a red speck. Water and value are blurred
+        // apart and divided, so the shore takes the water's heat, not the lava's.
+        private void BuildAshSea()
+        {
+            int count = m_size * m_size;
+            var heat = new float[count];
+            var water = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                if (m_height[i] > m_waterLevel) continue;
+                water[i] = 1f;
+                if (m_biome[i] == Land.Ashlands || m_biome[i] == Land.Ocean) heat[i] = m_lava[i] / 255f;
+            }
+            for (int pass = 0; pass < AshSeaBlur; pass++)
+            {
+                Paper.Blur(heat, m_size);
+                Paper.Blur(water, m_size);
+            }
+            for (int i = 0; i < count; i++) heat[i] = water[i] > 0.01f ? Mathf.Clamp01(heat[i] / water[i]) : 0f;
+            m_ashSea = heat;
         }
 
         // Each map pixel's biome sector, read once per world. Vanilla's sector grid is the minimap's

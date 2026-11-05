@@ -96,7 +96,8 @@ namespace Atlas
                     if (water > 0f)
                     {
                         Parchment(parchment, cell, paper, fx, fy, ref haveParchment, ref pr, ref pg, ref pb);
-                        Paper.WaterColor(pr, pg, pb, out float wr, out float wg, out float wb);
+                        Paper.WaterColor(pr, pg, pb, world, sx * InkPainter.MetresPerPixel - InkPainter.HalfExtent,
+                            InkPainter.HalfExtent - sy * InkPainter.MetresPerPixel, out float wr, out float wg, out float wb);
                         lr += (wr - lr) * water;
                         lg += (wg - lg) * water;
                         lb += (wb - lb) * water;

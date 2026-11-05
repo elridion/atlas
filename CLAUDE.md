@@ -13,7 +13,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 ## Where things are
 
 - `src/AtlasPlugin.cs` binds the config (section `Pins`: one switch per kind of the game's own
-  marks, read when the pins are built, `AtlasView.Shown`; the player's own pins always show),
+  marks, read when the pins are built, `AtlasView.Shown`; `PlayerPins` for the player's own
+  pins, `UnexploredPins` for pins outside the explored land; section `Fog`: `Glimpse`),
   loads translations, applies the patches and calls `AtlasMap.Update` every frame. Location
   pins (`PinType.None`) count as traders when drawn as Trader, Tent or Cauldron, otherwise as
   other places.
@@ -30,8 +31,12 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (dot, stone circle) and traced sprites stay centred.
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, house: longhouse,
   the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer, not a work hammer;
-  circle: dot; portal: the stone portal, a round arch of stacked stones; death: memorial stone with the yr rune on a slab, never a
-  cross; checked: struck through with paper, `InkCanvas.Pin`, a red strike vanishing on a solid glyph). The game's own pins get map signs too: bed (spawn point), a
+  circle: dot; portal: a ring of six solid stones sunk onto a thin stepped slab, open at the bottom where the
+  opening meets the slab, every joint radial, the long top stone without a joint at the crown
+  (the user's design); death: a grave of two round-topped steles on a plinth, the shorter one
+  set forward east of the taller, one behind the other in the oblique view (the user's design),
+  never a cross; checked: the ink scraped away in part (the user's design, `PinGlyphs.Abrade`,
+  below), not struck through: a red strike vanishes on a solid glyph). The game's own pins get map signs too: bed (spawn point), a
   solid horned skull in the language of the game's boss icon (Boss, from Vegvisirs), Hildir1-3
   as barrow (Smouldering Tombs), cave mouth (Howling Caverns) and tower (Sealed Towers); location
   pins by `LocationSpriteData.m_name`: `StartTemple` the Sacrificial Stones (below),
@@ -44,7 +49,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `AtlasMap.KeepPins` builds the list (`SheetPin`: place, glyph, checked) from the snapshot's
   pen-drawn pins the settings show (`AtlasView.InSheet`). `InkPainter.Paint` takes the list; each pin is a `Kind.Pin` glyph, part of the map
   (the user's design): sized for what it stands for against a tree of about 13 sheet pixels
-  (`PinSheetSize`: campfire, bed and circle 10, a longhouse or tent about a tree at 16, a boss
+  (`PinSheetSize`: campfire, bed and circle 10, a grave 12, a longhouse, tent or portal about a tree at 16, a boss
   altar 18, a barrow 20, a cave or tower 22, the Sacrificial Stones 26), standing on its place by `PinGlyphs.Lift`. That
   size is levelled to the trees: close-ups draw pins smaller by their level of detail as they
   draw their trees (`InkCanvas.Pin` scales the box about the pin's foot by the canvas's pen
@@ -64,7 +69,19 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   hand-drawn waver (`PinGlyphs.Waver`: every
   point moved by a smooth noise seeded by the pin's place, straight lines and outlines cut
   into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
-  so the ground's own wash shows round it; checked pins are struck through. Recorded as `Op.Pin`, so
+  so the ground's own wash shows round it. A checked pin (vanilla's `PinData.m_checked`, which
+  the player toggles) looks as if someone tried to scrape its paint away (`PinGlyphs.Abrade`,
+  called by `InkCanvas.Pin` when struck): the whole glyph keeps `AbradeRubbed` 0.72 of its ink,
+  then one ragged swath along a scraping direction 20-40 degrees up to the east lifts it in
+  streaks to `AbradeGhost` 0.3, the deepest grooves to `AbradeGroove` 0.06. Only the ink is
+  lifted, never the body, so the silhouette still names the pin and the ground's wash shows
+  through the grooves. Partial cover on the pin plane is a paler red over the wash, not grey,
+  so the pen rule below does not apply: the rubbed-back glyph keeps checked pins paler at the
+  opening zoom, where the streaks average out. The swath and streaks are in pin units and pens
+  (streaks about a pen across, so at least a pixel on the sheet), through the pin's waver and
+  seeded by its place, so sheet and close-ups scrape alike. Markers take the same look per
+  glyph (`AtlasView.Textures` with `isChecked`: the body shared, the pen of a sheet pin of
+  their size, a seed from the glyph's key). Recorded as `Op.Pin`, so
   close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so
   relief and trees in front may cover part of one, together up to `MarkCover` 45% of it (the
   user's rule). Cover is measured on `CoverSamples` 12 x 12 points of the pin's box, only those
@@ -109,8 +126,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   for the session (`s_sheet`, about 100 MB) and lays the texture again whenever the fog lays a new
   glimpse (`KeepMips`, `s_glimpseSerial`); the first is laid only once the fog is there, so
   login does not lay it twice. A second texture split from the ink would cost as much in video
-  memory, and no custom shader is possible without asset bundles. Names are left off for
-  now (`s_showNames`), to be given another pass. The preview takes `-Temple wx:wz` and
+  memory, and no custom shader is possible without asset bundles. The always-on name
+  layout is left off (`s_showNames`); instead the hovered pin's name shows beside it
+  (`AtlasView.UpdateHover`: bold vanilla pin font in `Paper.PinInkColor` on a plain copy of
+  its material with no outline, underlay or glow; the user's design). The preview takes `-Temple wx:wz` and
   `-Pin GLYPH:wx:wz[:checked]`.
   The Sacrificial Stones are a pin like every other, with no special treatment anywhere (the
   user's call, made twice): the game's own location pin for `StartTemple` from the snapshot,
@@ -189,8 +208,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Any change to the drawing bumps `InkCache.Version`, or players keep the old cached sheet;
   it counts up from 1 (the first release's version). Only the exact version is read, so any
   other, the development sheets' 23 to 26 included, is drawn again.
-- **Persisted config.** Section and key names (`Pins`, `BedPin`, `DeathPin`, `BossPins`,
-  `TraderPins`, `HildirPins`, `PlacePins`): renaming one resets players' settings.
+- **Persisted config.** Section and key names (`Pins`, `PlayerPins`, `BedPin`, `DeathPin`,
+  `BossPins`, `TraderPins`, `HildirPins`, `PlacePins`, `UnexploredPins`; `Fog`, `Glimpse`):
+  renaming one resets players' settings.
 - **Docs follow code.** `package/README.md` keeps the settings table in sync with
   `AtlasPlugin.Awake`, and the table behaviour, controls and pen mark tables
   in sync with `TablePatches`, `AtlasView` and the scatter rules in `InkPainter.PlaceGlyphs` and
@@ -397,6 +417,27 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (`Paper.SeaGlaze`, from `InkRecord.m_seaWashes`); the sheet's ink texture cannot glaze, so
   `InkWithMips` lays it as the colour and opacity that give the same glaze over clean water
   (`SeaInk`). The ink sheet itself is unchanged.
+- **The Ashlands' boiling sea** is warmed as vanilla's map warms it: vanilla's mask keeps its
+  ocean gradient in blue under water (0 at the biome's edge, 1 far out), so
+  `WorldSource.BuildAshSea` takes it on Ashlands and Ocean water only (blue in a swamp or forest
+  pool would leave red specks), averaged over water and blurred `AshSeaBlur` passes so the shore
+  takes the water's heat, not a lava field's (`m_ashSea`). `Paper.WaterColor` with a world point
+  glazes `s_ashSea` (burnt red ochre, 0.26) over the water by that heat, on the sheet and in
+  close-ups alike, so it fades in with vanilla's gradient and no seam shows at the biome's edge.
+  A few simmer marks (`Simmer`, the user's design) are scattered
+  over it: a column of three bubbles shrinking and swaying as they rise (a speck over most),
+  from a continuous wave line, with three strictly level lines of one wave seen in perspective
+  (`BoilPiece`: crests fixed on the sheet, `BoilWave` long and `BoilLift` high, each row
+  `BoilTrainShift` of a wave on from the one behind). The back row is drawn at `BoilScaleBack`
+  0.8, broken by the column with a long and a short piece; the front, unbroken and 15-18 px
+  wide, runs under the big bubble at scale 1; the lower, about half as wide, at `BoilScaleLow`
+  1.2. Wavelength, lift and length scale together and the gaps between rows are foreshortened
+  alike (`BoilBackRise` 3.6, `BoilLowDrop` 4.4). Every line is `Pen` (the prototype's 0.8 broke
+  the pen rule below). Lone wave strokes far out read as birds; under the bubbles they read as
+  boiling water. Drawn by `DrawBoiling` after the illustrations, on the floes' layer: a hashed `BoilStep` grid
+  (salt 62), `BoilOdds`, `BoilSpacing` 300 px apart, heat at least `BoilHeat` 0.8, and no ink
+  within `BoilClear` (coast, waves, islets, the bonemaw) nor the frame. Velen gets seven on the
+  whole map; the user asked for very sparse, so err on fewer.
 - Ring lines at fixed distances, short double curves in staggered rows, tildes tilted with the
   coast, tildes at scored points of the shore with a scatter at sea, and a band of short tildes
   along every coast all read badly; keep groups at the bends.
@@ -795,7 +836,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `InkPainter` by reflection; painting the whole world takes about 2.5 s. It is a separate
   project, never shipped: `Atlas.csproj` removes `tools\**` from its items and the package holds
   only the DLL. `run.ps1 -World <name> -Views ...` renders into `tools/preview/img/` (ignored);
-  `samples.ps1 -Publish` refreshes the 31 samples in `screenshots/` (16-21 are views forced to biome variants with `-Alt`) (committed). Refresh them
+  `samples.ps1 -Publish` refreshes the 32 samples in `screenshots/` (16-21 are views forced to biome variants with `-Alt`, 22 the sea mark catalogue, `Preview --seacat`) (committed). Refresh them
   after visual changes. It needs Valheim's Managed DLLs (`VALHEIM_INSTALL` overrides the Steam
   path) and BepInEx's core DLLs from a Gale profile copied beside the exe, which `run.ps1` does,
   and writes `System.Console`, as `assembly_valheim` has a global `Console` class.

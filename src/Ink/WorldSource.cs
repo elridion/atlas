@@ -646,6 +646,27 @@ namespace Atlas
             return bottom + (top - bottom) * fz;
         }
 
+        // The lowest ground within radius map pixels (a disc), never below the water: a pool's bed
+        // is no floor for the ground round it.
+        public float FloorAt(float wx, float wz, int radius)
+        {
+            int i = Index(wx, wz);
+            int x0 = i % m_size, z0 = i / m_size;
+            float floor = float.MaxValue;
+            for (int dz = -radius; dz <= radius; dz++)
+            {
+                int z = z0 + dz;
+                if (z < 0 || z >= m_size) continue;
+                for (int dx = -radius; dx <= radius; dx++)
+                {
+                    int x = x0 + dx;
+                    if (x < 0 || x >= m_size || dx * dx + dz * dz > radius * radius) continue;
+                    floor = Math.Min(floor, m_height[z * m_size + x]);
+                }
+            }
+            return Math.Max(floor, m_waterLevel);
+        }
+
         // Height change per metre, from neighbouring map pixels.
         public float SlopeAt(float wx, float wz)
         {

@@ -833,7 +833,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   decoded world each session, not cached; it is ready about a second after the world's minimap.
 - Woods are shapes, not scattered trees, so forest and open land do not read as a mix.
   `Woods.Build` turns vanilla's forest mask (red in Meadows, Black Forest, Plains;
-  green in the Mistlands) into a field: copses and clearings under 12 and 16 map pixels dropped,
+  all Mistlands land, below) into a field: copses and clearings under 12 and 16 map pixels dropped,
   then blurred, edge at 0.5. Trees stand only where their foot and crown centre are inside, so
   the outer crowns alone form the edge. Do not draw edge lines: a scalloped edge after the trees
   looks fuzzy with a gap inside it, and a plain line under the trees reads as height contours.
@@ -849,7 +849,15 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (`Paper.WoodInk`, over the biome's open wash), close-ups with `Paper.WoodGlaze`. Vanilla's mask
   (`Minimap.GetMaskColor`) marks all Black Forest land as forest, Meadows by
   `WorldGenerator.InForest`, Plains where the forest factor is under 0.8 and the Mistlands by a
-  smoothstep of it, so the Black Forest is one solid wood with no invented clearings. (Cells
+  smoothstep of it, so the Black Forest is one solid wood with no invented clearings. The
+  Mistlands' green (`1 - SmoothStep(1.1, 1.3, ff)`) is not woods but the mist: the game's
+  "Mist area" vegetation takes the same factor under 1.15, while most Yggdrasil shoots ignore
+  the factor and the two that use it need 1 to 4. So all Mistlands land is wood (`Woods.Build`,
+  `GeneratorSampler` 1), and the green (from `MistArea` 215, factor under 1.15, about 71% of
+  Mistlands land) is read as the mist area (`Spot.m_mist`, from the sheet's map pixel in
+  close-ups too): mist banks lie only there and giant trees are thinner there (below). The
+  Mistlands' ground keeps its open wash (`Paper.Washed` gives it no `WoodWash`), so its
+  crowns and crags stay a shade deeper than the ground. (Cells
   under water keep the biome colour but no forest, so a histogram of the mask overstates open
   land.)
   The mask marks no forest in the Deep North, yet vanilla grows woods there: every Deep North
@@ -925,8 +933,14 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   filled with the Deep North's body wash, not left showing the sea's.
 - The Mistlands keep their wash. Mist banks are veils of three wavy lines (middle longest, a
   slight tilt, a break or two) with no scraped band under them (bands read as heavy padding),
-  laid in the valleys and thinning with height to `MistCeiling` (the game's mist clears on the
-  heights), off steep ground. Banks are glyphs (`Kind.Mist`, `PlaceMist`), sorted in with the
+  laid only in the mist area (`Spot.m_mist`, above) and off steep ground, in the hollows: the
+  odds `MistOdds` 0.9 fall with the bank's height over the lowest ground within `MistReach` 5
+  map pixels (60 m; `WorldSource.FloorAt`, never below the water), all kept up to `MistFull`
+  6 m, none from `MistClear` 18 m. The game's `ParticleMist` emits above the lowest ground
+  within 50 m and up to about 10 m over its emitter, which stands on the lower slopes about
+  1.5-9.5 m over the biome's base, so its mist fills hollows and the knolls stand out of it; a
+  ceiling of absolute height (75 m) did nothing, as only 0.4% of the land rises that high.
+  Banks are found on the sheet only; close-ups replay them from the record. Banks are glyphs (`Kind.Mist`, `PlaceMist`), sorted in with the
   trees and crags by their lowest line, so whatever stands in front hides them; drawn over
   everything, with boxes round every spire kept clear, they leave only stray lines. There is no
   `Mist` ink layer. A bank's foot is its bottom line's level (`MistGap` below its centre), and
@@ -960,9 +974,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   patinated Mistlands reads lighter and lilac there while close-ups show it deeper than the
   ground, so `Paper.MistInk` lays it as the colour and opacity that give the rock's glaze over
   the Mistlands' wash (as `SeaInk` does for the sea wash).
-  Scarps cover the steep rock, which would otherwise be bare paper even inside the forest mask:
-  about 40% of Mistlands land is steeper than `SpireSlope`, where trees keep off, mist keeps
-  off above 1.3 of it and filler spires stand on only a third of an 18 G grid.
+  Scarps cover the steep rock, which would otherwise be nearly bare paper: about 63% of
+  Mistlands land is steeper than `SpireSlope` (the sheet's 12 m pixels), where giant trees
+  stand only sparsely, mist keeps off above 1.3 of it and filler spires stand on only a third
+  of an 18 G grid.
   `DrawScarps` (salt 19, so sheet and tiles draw it alike) puts a survey cliff sign (`Scarp`: a
   slightly broken edge along the contour, four or five hachures downhill, longest in the middle)
   on ground of `SpireSlope` and up, `ScarpStep` 6 G, staggered, `ScarpOdds`, `ScarpShore` off
@@ -977,7 +992,14 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   close-ups after `PlaceTrees`), still on the background layer under every glyph; close-ups test
   their own trees and the sheet's other glyphs from `InkRecord.AddGlyphBox`.
   Giant trees are Yggdrasil shoots (a kinked trunk on flared roots, one or two branches, one
-  broad, slightly ragged canopy, `HandCrown` wobble a little raised), packed on a 7 T grid;
+  broad, slightly ragged canopy, `HandCrown` wobble a little raised), packed on a 7 T grid
+  (`GiantOdds` 0.9, `GiantMistOdds` 0.6 in the mist area: the game grows about 126 shoots a
+  zone there and 226 outside it) on flat ground; the big shoots (`YggaShoot1-4`, tilt up to
+  80 degrees, a terrain delta of 2-3 m) grow on the rough ground too, so steep ground gets a
+  sparse grid of its own (`GiantSteepStep` 16 T, `GiantSteepOdds` 0.5, salt 38), sparse so the
+  scarps keep most of the rock (`ClearOfGlyphs`). Flat or steep is the sheet's slope at the
+  spot's map pixel (`SheetSlope`) in close-ups too: their own slope, over an 8-16 m baseline,
+  finds more steep ground than the sheet's 24 m;
   extra lobes behind or beside the crown look lumpy and leave thin black crescents along its
   edge, and three round crowns on a stick read as lollipops.
 - Every pen line is at least `Pen` (1 px) and full strength: thinner or fainter lines average to

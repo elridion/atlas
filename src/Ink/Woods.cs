@@ -4,8 +4,9 @@ namespace Atlas
     /// Where the woods are, as one smooth field over vanilla's map pixels (1 deep in a wood, 0 in
     /// the open, the edge at 0.5), so the atlas can draw each wood as a shape with an edge rather
     /// than trees scattered point by point. It comes from vanilla's forest mask (red in Meadows,
-    /// Black Forest and Plains, green in the Mistlands, the forest factor in the Deep North and
-    /// height and slope in the Mountains, which the mask leaves out), cleaned of copses and clearings too small
+    /// Black Forest and Plains, the forest factor in the Deep North and height and slope in the
+    /// Mountains, which the mask leaves out; all Mistlands land, whose green is the mist area,
+    /// not woods), cleaned of copses and clearings too small
     /// to draw, then softened so the traced edge runs as a curve instead of 12 m stairs.
     /// </summary>
     internal static class Woods
@@ -50,7 +51,9 @@ namespace Atlas
                 // The Mountains' red is their firs' ground (WorldSource.MarkMountainForest).
                 if (biome == Land.Meadows || biome == Land.BlackForest || biome == Land.Plains || biome == Land.Mountain)
                     wood[i] = world.m_forest[i] > 127;
-                else if (biome == Land.Mistlands) wood[i] = world.m_mist[i] > 127;
+                // The Mistlands' green is the mist area, not woods; the Yggdrasil shoots grow over
+                // all its land, most of them whatever the forest factor (ZoneSystem's vegetation).
+                else if (biome == Land.Mistlands) wood[i] = true;
                 // The Deep North's forest (WorldSource.MarkNorthForest), except on the high ground
                 // drawn as peaks, which trees keep off.
                 else if (biome == Land.DeepNorth)

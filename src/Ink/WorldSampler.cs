@@ -18,17 +18,15 @@ namespace Atlas
     /// terrain build thread (HeightmapBuilder); the river cache they read is behind a lock. The
     /// wood field follows vanilla's forest mask (Minimap.GetMaskColor) as a continuous value, and
     /// in the Deep North, which the mask leaves out, the forest factor its trees grow by; in the
-    /// Mountains, which it leaves out too, and on the Mistlands pools raised to land, the sheet's
-    /// own wood field.
+    /// Mountains, which it leaves out too, the sheet's own wood field.
     /// </summary>
     internal sealed class GeneratorSampler : IWorldSampler
     {
         // Vanilla's forest limits on its forest factor: Meadows woods under 1.15
-        // (WorldGenerator.InForest), Plains under 0.8, Mistlands where the mask's smoothstep from
-        // 1.1 to 1.3 is below half.
+        // (WorldGenerator.InForest), Plains under 0.8. The Mistlands' mask (a smoothstep from 1.1
+        // to 1.3) is the mist area, not woods, so all their land is wood.
         private const float MeadowsForest = 1.15f;
         private const float PlainsForest = 0.8f;
-        private const float MistlandsForest = 1.2f;
         // Every Deep North tree grows under this forest factor (ZoneSystem's vegetation from
         // _LocationList_DeepNorth: snowy firs and pines, forest threshold 0 to 1.15), though
         // vanilla's mask marks no forest there. Its woods stop below the peaks' ground, falling
@@ -65,7 +63,8 @@ namespace Atlas
                 case Land.BlackForest: wood = m_world.GroveAt(wx, wz, land) == Grove.ClearCut ? -1f : 1f; break;
                 case Land.Meadows: wood = MeadowsForest - Factor(wx, wz); break;
                 case Land.Plains: wood = PlainsForest - Factor(wx, wz); break;
-                case Land.Mistlands: wood = MistlandsForest - Factor(wx, wz); break;
+                // All Mistlands land is wood, as on the sheet (Woods.Build).
+                case Land.Mistlands: wood = 1f; break;
                 case Land.DeepNorth:
                     float below = InkPainter.DeepNorthPeakHeight - (height - m_waterLevel);
                     wood = Mathf.Min(DeepNorthForest - Factor(wx, wz), below * NorthHeightFall);

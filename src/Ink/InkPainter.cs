@@ -274,12 +274,20 @@ namespace Atlas
         private const float HillGap = 1.5f;
         private const float SummitCore = 0.3f;
         private const float SummitShown = 0.5f;
-        // Mist banks: the gap between a bank's three lines (canvas pixels), the step between points
-        // along a line, and the height above the water (metres) by which banks have thinned to
-        // their fewest, as the game's mist clears on the heights.
+        // Mist banks: the gap between a bank's three lines (canvas pixels) and the step between
+        // points along a line. Banks lie only in the mist area, the mask's green from MistArea
+        // (0.84, a forest factor under 1.15, the game's "Mist area" vegetation), and thin with
+        // their height over the lowest ground within MistReach map pixels (60 m; the game's
+        // ParticleMist emits above the lowest ground within 50 m, up to about 10 m over its
+        // emitter on the lower slopes): all kept up to MistFull metres, none from MistClear, so
+        // the mist fills the hollows and the knolls stand out of it.
         private const float MistGap = 2f * G;
         private const float MistStep = 1.5f * G;
-        private const float MistCeiling = 75f;
+        private const int MistArea = 215;
+        private const int MistReach = 5;
+        private const float MistFull = 6f;
+        private const float MistClear = 18f;
+        private const float MistOdds = 0.9f;
         // Deep North pressure ridges: the scale of the noise their bands follow (canvas pixels) and
         // how close to a crest line a chevron must lie (1 is on the crest).
         private const float RidgeScale = 70f * G;
@@ -297,8 +305,8 @@ namespace Atlas
         // River ink keeps this far (canvas pixels) from any water the coast already draws, or it
         // runs along a bank or a lake shore and the two lines merge into a smear.
         private const float RiverShoreClear = 2f;
-        // Mistlands ground this steep (height per metre) is broken crag: filler spires stand there,
-        // and woods and mist keep off it. Summit spires stand on the real summits: the highest
+        // Mistlands ground this steep (height per metre) is broken crag: scarps mark it, giant trees
+        // stand sparser there, and filler spires stand and mist keeps off from 1.3 times it. Summit spires stand on the real summits: the highest
         // map pixel within SpireCells that rises SpireProminence metres over its surroundings.
         private const float SpireSlope = 0.45f;
         private const int SpireCells = 5;
@@ -323,7 +331,7 @@ namespace Atlas
         // SummitShrinkSteps sizes in all, before it is left out.
         private const float SummitShrink = 0.85f;
         private const int SummitShrinkSteps = 4;
-        // Scarps: the Mistlands' broken rock, where trees keep off, as small cliff edges along the
+        // Scarps: the Mistlands' broken rock, where trees stand sparse, as small cliff edges along the
         // contour with hachures falling downhill. On ground of SpireSlope and steeper, on a grid
         // of ScarpStep G with ScarpOdds of its cells drawn, ScarpShore (canvas pixels) off the
         // water so the coast's islets and waves stay clear, clear of the mist banks' lines; a
@@ -341,6 +349,19 @@ namespace Atlas
         // within this half width (both in the tree's size).
         private const float GiantCrownFoot = 2.9f;
         private const float GiantTrunkHalf = 1.5f;
+        // Giant trees on the Mistlands' flat ground stand on a 7 T grid with GiantOdds of its cells
+        // taken, GiantMistOdds inside the mist area: the game grows about 126 shoots a zone there
+        // and 226 outside it, where the two that need a forest factor of 1 to 4 join in. The big
+        // shoots (YggaShoot1-4, tilt up to 80 degrees, a terrain delta of 2-3 m) grow on the rough
+        // ground too, which is about 63% of Mistlands land at 12 m pixels; there they stand
+        // sparser, on a grid of their own (GiantSteepStep T, GiantSteepOdds, salt GiantSteepSalt),
+        // so the scarps keep most of the rock. Flat or steep is the sheet's slope at the spot's
+        // map pixel, so close-ups split the ground as the sheet does.
+        private const float GiantOdds = 0.9f;
+        private const float GiantMistOdds = 0.6f;
+        private const float GiantSteepStep = 16f;
+        private const float GiantSteepOdds = 0.5f;
+        private const int GiantSteepSalt = 38;
         // Sea thorns stand in the Ashlands' sea down to this depth (metres), as the game's
         // cliff_ashlands8 do, on a grid of ThornStep with ThornOdds of its cells taken, their
         // foot at least ThornWater (canvas pixels) from land so the waterline stays on water.
@@ -1260,11 +1281,16 @@ namespace Atlas
             spot.m_slope = m_world.SlopeAt(spot.m_worldX, spot.m_worldZ);
             spot.m_wood = m_wood[spot.m_pixel] != 0;
             spot.m_woodDistance = m_woodDistance[spot.m_pixel];
-            spot.m_mist = m_world.m_mist[source] > 127;
+            spot.m_mist = m_world.m_mist[source] > MistArea;
             spot.m_lavaLevel = m_world.Sample(m_world.m_lavaField, spot.m_worldX, spot.m_worldZ);
             spot.m_lava = spot.m_lavaLevel > 0.5f;
             return spot;
         }
+
+        // The slope of the sheet's map pixel under a spot, which the sheet and every close-up read
+        // alike (a close-up's own slope is measured over a shorter baseline and finds more steep
+        // ground).
+        private float SheetSlope(Spot s) => m_grid != null ? m_world.SlopeAt(s.m_worldX, s.m_worldZ) : s.m_slope;
 
         // The same from a detail tile's grid. Distances are given in the tile's own units (sheet
         // pixels times the level of detail), so the rules' margins shrink with their glyphs.
@@ -1286,6 +1312,9 @@ namespace Atlas
             spot.m_grove = m_world.GroveAt(spot.m_worldX, spot.m_worldZ, spot.m_land);
             spot.m_slope = m_grid.Slope(x, y);
             spot.m_wood = m_grid.IsWood(x, y);
+            // The mist area from the sheet's map pixel, so close-ups thin the giant trees in the
+            // mist as the sheet does.
+            spot.m_mist = m_world.m_mist[m_world.Index(spot.m_worldX, spot.m_worldZ)] > MistArea;
             spot.m_shore = m_grid.Distance(m_grid.m_shore, x, y) * m_lod;
             spot.m_woodDistance = m_grid.Distance(m_grid.m_woodDistance, x, y) * m_lod;
             spot.m_lavaLevel = m_world.Sample(m_world.m_lavaField, spot.m_worldX, spot.m_worldZ);
@@ -2367,8 +2396,13 @@ namespace Atlas
             // Plains: copses of small round trees where vanilla grows its sparse woods.
             ScatterTrees(5f * m_t, 25, 0.9f, Kind.PlainsTree, s => InWood(s, Land.Plains, 6f * m_t));
             // Mistlands: gnarled trees packed closely enough that their canopies mass into one dark
-            // wood, as the Black Forest's pines do, off the steep ground where the spires stand.
-            ScatterTrees(7f * m_t, 29, 0.9f, Kind.GiantTree, s => s.m_slope < SpireSlope && InWood(s, Land.Mistlands, 13f * m_t));
+            // wood, as the Black Forest's pines do, thinner in the mist area, and a sparse scatter
+            // over the steep ground among the scarps and spires.
+            float giant = 13f * m_t;
+            ScatterTrees(7f * m_t, 29, GiantOdds, Kind.GiantTree, s => (!s.m_mist || s.m_roll < GiantMistOdds)
+                && SheetSlope(s) < SpireSlope && InWood(s, Land.Mistlands, giant));
+            ScatterTrees(GiantSteepStep * m_t, GiantSteepSalt, GiantSteepOdds, Kind.GiantTree,
+                s => SheetSlope(s) >= SpireSlope && InWood(s, Land.Mistlands, giant));
             HideCoveredCrowns(first);
             // A close-up's trees; the sheet limits its trees once the relief is placed (PlaceGlyphs).
             if (m_grid != null)
@@ -2659,8 +2693,9 @@ namespace Atlas
         // bank's lowest line): a tree or crag in front hides the bank behind it, and a bank lies
         // over the crowns behind it. Each bank is a veil of three long wavy
         // lines, the middle one longest, with no parchment band scraped under them: the bands
-        // read as heavy padding. Banks lie in the valleys and thin out with height, as the game's
-        // mist clears on the heights, and keep off steep crag ground.
+        // read as heavy padding. Banks lie in the mist area's hollows and thin out with height over
+        // the ground round them, as the game's mist fills the hollows and leaves the knolls clear,
+        // and keep off steep crag ground. Found on the sheet only; close-ups replay them.
         // The banks are found before the ground fills (FindMist), so the scarps can keep off them,
         // and join the glyphs here.
         private void PlaceMist() => m_glyphs.AddRange(m_mist);
@@ -2670,7 +2705,9 @@ namespace Atlas
             Scatter(30f * G, 12f * G, 0.5f, 0.5f, 13, s =>
             {
                 if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 6f || s.m_slope >= SpireSlope * 1.3f) return;
-                if (!(s.m_roll < Mathf.Lerp(0.9f, 0.35f, Mathf.Clamp01(s.m_above / MistCeiling)))) return;
+                if (!s.m_mist) return;
+                float rise = m_world.HeightAt(s.m_worldX, s.m_worldZ) - m_world.FloorAt(s.m_worldX, s.m_worldZ, MistReach);
+                if (!(s.m_roll < MistOdds * (1f - Mathf.InverseLerp(MistFull, MistClear, rise)))) return;
                 // The foot, by which banks sort in with the trees and crags, is the bottom line's
                 // level; the bank is drawn as far north of it as its lowest line dips (MistFoot), so
                 // no line runs on south of the foot.

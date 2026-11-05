@@ -522,9 +522,11 @@ namespace Atlas
                     // Deep North's chalk, which it would whiten; there the snow keeps one colour
                     // and the dark pines alone mark the wood. The Mountains' fir woods keep the
                     // mountain wash too, so the biome reads as mountains under its trees, the
-                    // same grey the peaks' bodies are filled with.
+                    // same grey the peaks' bodies are filled with. The Mistlands are wood
+                    // throughout, so their ground keeps the open wash and their crowns and crags
+                    // stay a shade deeper than it (WoodTint, MistInk).
                     Land ground = world.m_biome[world.Index(wx, wz)];
-                    if (world.Sample(world.m_wood, wx, wz) > 0.5f && ground != Land.DeepNorth && ground != Land.Mountain) s += WoodWash;
+                    if (world.Sample(world.m_wood, wx, wz) > 0.5f && ground != Land.DeepNorth && ground != Land.Mountain && ground != Land.Mistlands) s += WoodWash;
                     red[i] = Filter(tint.m_color.r, PaperColor.r) * s * land;
                     green[i] = Filter(tint.m_color.g, PaperColor.g) * s * land;
                     blue[i] = Filter(tint.m_color.b, PaperColor.b) * s * land;

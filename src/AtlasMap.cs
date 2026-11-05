@@ -314,7 +314,7 @@ namespace Atlas
             }
             // Close-ups are drawn from the new record from now on.
             s_record = result.m_record;
-            s_tiles.Clear();
+            s_tiles.NewRecord();
             if (s_sheet != null && result.m_key == s_rawKey) return;
             SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_record.m_trees.ToArray(), result.m_density, result.m_key);
         }

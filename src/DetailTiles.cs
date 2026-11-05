@@ -100,6 +100,16 @@ namespace Atlas
             DropTiles();
         }
 
+        // A new painting of the same world: its tiles are drawn again from the new record (set by
+        // SetSource), under the same glimpse and fog. Clearing those too left close-ups without
+        // the glimpse's bare parchment and greyer ink until the next fog, since the world is now
+        // painted after login and finishes after the fog is laid.
+        public void NewRecord()
+        {
+            DropTiles();
+            m_record = null;
+        }
+
         // Forgets everything, for a new world. Running tiles are cancelled and their results dropped.
         public void Clear()
         {

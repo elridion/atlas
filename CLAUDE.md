@@ -196,7 +196,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   ones that mark places: location pins (`m_locationPins`), `m_spawnPointPin` and `m_deathPin`,
   which a saved-only filter leaves off the atlas. Daymark's dungeon and deposit pins are
   ordinary Icon2 and Icon3 pins. `Preview --pincat` renders the glyph table
-  (`screenshots/atlas-sample-15-pin-catalogue.png`). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
+  (`screenshots/atlas-sample-27-pin-catalogue.png`). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
   ink over a gap of their own letters grown a little (a TextMeshPro underlay used only as a
   `Mask`, paper behind it), placed by `PinLayout` at the clearest of the eight classic positions
   by the sheet's ink density (`InkDensity`, a summed-area table built before the sheet is
@@ -920,15 +920,25 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   0.3 with a smaller one beside it, drawn north one first) are placed as the stumps are
   (`DrawBoulders`, after `DrawStumps`, one sheet grid `BoulderStep` 5 G, salt 39, gathered into
   scree by a `BoulderStand` 30 px noise, `BoulderOdds` 0.6 inside and `BoulderFloor` 0.2 of that
-  between, `BoulderClear` off every glyph's footprint, off rivers); about 2.2 G wide they read
-  as pebbles. Its lone pines are conifers on a per-level `LonePineStep` 14 T grid, salt 40,
+  between, `BoulderClear` off every glyph's footprint, off rivers, and off water by their
+  sheet-sized half width plus `BoulderShore` 1.5 sheet pixels, so none stands on the coast's line
+  or against the lake lines on the water beside it; the sheet size, not the level's, so every zoom
+  keeps the same ones); about 2.2 G wide they read as pebbles. Its lone pines are conifers on a per-level `LonePineStep` 14 T grid, salt 40,
   `LonePineOdds` 0.15, on its open land clear of every non-tree glyph placed before
   (`ClearOfPlaced`; close-ups load the record's glyph boxes before their trees for it). No
   stipple there: the boulders carry the ground. The Black Forest has no other ground fill:
   vanilla's mask marks all its land as forest (its old stones on open ground never drew);
-  Pinetree Black
-  Forest, Smalltree Meadows, Drake/Fortress Mountain, Lox/Death Plains `Sparse` (`SparseKeep` 0.5
-  by the cell's hash `SparseRoll`); Wolf Mountain, Trees Mistlands `Dense` (the rule's grids are
+  Pinetree Black Forest, Drake/Fortress Mountain `Sparse` (`SparseKeep` 0.5 by the cell's hash
+  `SparseRoll`); Lox/Death Plains and Birch Meadows `Light` (`LightKeep` 0.75, same hash): the
+  Plains variants block only `birch2_aut_heath` (10 a zone, scale 1-1.5) and keep
+  `birch1_aut_plains` (30), and Birch Meadows blocks `beech1_meadows` but adds
+  `birch1/2_meadows2` (10 + 5-9), `beech5_meadows` (10) and `oak2_meadows` (1-2), about 0.75 of
+  the normal ~47 big trees (its birches also grow on ground the minimap shows open; not drawn,
+  the user's call); Smalltree Meadows `Smalltree`: vanilla blocks `beech1_meadows` (40),
+  `birch1` and `birch2` and adds 100 `beech_small3/4_meadows` and bushes, so its big trees drop
+  to about 0.17 (`beech2_meadows` 5-10 and the oaks) while it has more trees than a plain wood;
+  every tree stays, `SmalltreeBig` 0.17 of them (hash `SmalltreeRoll`) at full size and the rest
+  with crowns `SmalltreeSize` 0.65 (`SizeOf`, the size passed to `Add`); Wolf Mountain, Trees Mistlands `Dense` (the rule's grids are
   already 90-95% full, so `ScatterTrees` gives dense spots a grid of their own, `DenseSpacing`
   0.85 of the step, salt +`DenseSalt`, every cell taken, about 1.4-1.5 times the trees) and Bog
   Swamp `Dense` (dead trees at `BogDeadTreeOdds` 0.85 instead of 0.45); all others none. Spots
@@ -1100,7 +1110,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `InkPainter` by reflection; painting the whole world takes about 2.5 s. It is a separate
   project, never shipped: `Atlas.csproj` removes `tools\**` from its items and the package holds
   only the DLL. `run.ps1 -World <name> -Views ...` renders into `tools/preview/img/` (ignored);
-  `samples.ps1 -Publish` refreshes the 33 samples in `screenshots/` (16-21 and 23, a Rock Black Forest, are views forced to biome variants with `-Alt`, 22 the sea mark catalogue, `Preview --seacat`) (committed). Refresh them
+  `samples.ps1 -Publish` refreshes the 38 samples in `screenshots/` (committed): 01-03 the world,
+  region and start island, then each biome's close and wide view followed by its variants that the
+  atlas draws differently, forced over the biome's own wide view with `-Alt` (one run per set of
+  variants of different biomes), 25-26 pins, 27 the pin catalogue, 28 the sea mark catalogue
+  (`Preview --seacat`). A new alt biome in `GroveOf` gets a sample there. Refresh them
   after visual changes. It needs Valheim's Managed DLLs (`VALHEIM_INSTALL` overrides the Steam
   path) and BepInEx's core DLLs from a Gale profile copied beside the exe, which `run.ps1` does,
   and writes `System.Console`, as `assembly_valheim` has a global `Console` class.

@@ -208,8 +208,10 @@ namespace Atlas
         // open-country glyphs keep from a wood (canvas pixels), so the outer crowns alone bound it.
         private const float WoodEdge = 0.5f;
         private const float WoodClearance = 5f;
-        // Alt biomes (Grove): a sparse grove keeps this share of its trees, by the cell's hash
-        // number SparseRoll; a dense grove's own grid is DenseSpacing of the rule's step with
+        // Alt biomes (Grove): a sparse grove keeps SparseKeep of its trees and a light one
+        // LightKeep, by the cell's hash number SparseRoll; a small-tree grove keeps every tree,
+        // SmalltreeBig of them (hash number SmalltreeRoll) at full size and the rest at
+        // SmalltreeSize; a dense grove's own grid is DenseSpacing of the rule's step with
         // every cell taken (about 1.4-1.5 times the trees; the rule's grids are already 90-95%
         // full), salted DenseSalt past the rule's; a Bog Swamp's dead trees stand with
         // BogDeadTreeOdds instead of 0.45. A clear-cut's stumps are few, as the Meadows' tufts
@@ -217,6 +219,10 @@ namespace Atlas
         // noise of StumpStand sheet pixels gathers them into.
         private const float SparseKeep = 0.5f;
         private const int SparseRoll = 90;
+        private const float LightKeep = 0.75f;
+        private const float SmalltreeBig = 0.17f;
+        private const float SmalltreeSize = 0.65f;
+        private const int SmalltreeRoll = 96;
         private const float DenseSpacing = 0.85f;
         private const int DenseSalt = 50;
         private const float BogDeadTreeOdds = 0.85f;
@@ -238,6 +244,9 @@ namespace Atlas
         private const float BoulderFloor = 0.2f;
         private const float BoulderStand = 30f;
         private const float BoulderClear = 0.6f;
+        // How far (sheet pixels) a boulder's whole sheet-sized footprint keeps off the water, so
+        // it stands clear of the coast's line and of the lake lines drawn on the water beside it.
+        private const float BoulderShore = 1.5f;
         // The share of boulders with a smaller one beside them.
         private const float BoulderPair = 0.3f;
         private const int BoulderSalt = 39;
@@ -1609,6 +1618,9 @@ namespace Atlas
                 // Gathered into loose scree by a slow noise: an even scatter reads as a stipple.
                 float stand = Mathf.Lerp(BoulderFloor, 1f, Mathf.Clamp01((Noise(s.m_x / BoulderStand, s.m_y / BoulderStand, m_world.m_seed + BoulderSalt) - 0.35f) / 0.4f));
                 if (!(s.m_roll < BoulderOdds * stand)) return;
+                // Off the water by the boulder's size on the sheet, not this level's, so every zoom
+                // keeps the same ones; the coast and lake lines are inked before.
+                if (s.m_shore < BoulderHalf(s.m_seed) * G + BoulderShore) return;
                 float half = BoulderHalf(s.m_seed) * m_g;
                 float clear = BoulderClear * m_g;
                 if (!ClearOfGlyphs(s.m_x, s.m_y - 0.5f * half, half + clear, 0.5f * half + clear)) return;
@@ -2388,7 +2400,9 @@ namespace Atlas
 
         // One biome's trees: a candidate on each cell of a spacing grid, kept with odds, where
         // inWood holds. The alt biomes change only how many stand in the same wood shapes: a
-        // clear-cut or a boulder field has none, a sparse grove keeps SparseKeep of them by a hash of their own, and a
+        // clear-cut or a boulder field has none, a sparse or light grove keeps its share of them
+        // (KeepOf) by a hash of their own, a small-tree grove (only ever on Meadows ground) keeps
+        // them all but draws most of them smaller (SizeOf), and a
         // dense grove, which the rule's own grid cannot pack fuller (it is already nearly full),
         // takes every cell of a finer grid of its own (DenseSpacing, salt DenseSalt on), its own
         // grid leaving those spots out so the two do not overlap. Decided from hashes and the
@@ -2398,9 +2412,9 @@ namespace Atlas
             Scatter(spacing, salt, s =>
             {
                 if (!(s.m_roll < odds) || WorldSource.IsOpen(s.m_grove) || s.m_grove == Grove.Dense) return;
-                if (s.m_grove == Grove.Sparse && !(Unit(s.m_seed, SparseRoll) < SparseKeep)) return;
+                if (!(Unit(s.m_seed, SparseRoll) < KeepOf(s.m_grove))) return;
                 if (!inWood(s)) return;
-                Add(s, kind, m_t);
+                Add(s, kind, m_t * SizeOf(s));
             });
             if (!m_world.HasGrove(Grove.Dense)) return;
             Scatter(spacing * DenseSpacing, salt + DenseSalt, s =>
@@ -2409,6 +2423,22 @@ namespace Atlas
                 Add(s, kind, m_t);
             });
         }
+
+        // The share of a wood's trees a grove keeps.
+        private static float KeepOf(Grove grove)
+        {
+            switch (grove)
+            {
+                case Grove.Sparse: return SparseKeep;
+                case Grove.Light: return LightKeep;
+                default: return 1f;
+            }
+        }
+
+        // A tree's size against the rule's: a small-tree grove's woods are mostly small beeches
+        // with a few big ones left among them, so most crowns shrink and SmalltreeBig stay whole.
+        private static float SizeOf(Spot s) =>
+            s.m_grove == Grove.Smalltree && !(Unit(s.m_seed, SmalltreeRoll) < SmalltreeBig) ? SmalltreeSize : 1f;
 
         // Whether a glyph has a round crown (Glyphs: BroadleafCrown, PlainsCrown, GiantCrown).
         private static bool RoundCrown(Glyph g, out Crown crown)

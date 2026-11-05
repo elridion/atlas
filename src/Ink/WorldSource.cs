@@ -32,9 +32,13 @@ namespace Atlas
         // Open boulder ground: the big trees blocked, big boulders and a few lone pines instead
         // (Rock Black Forest).
         Rocky,
-        // Fewer trees (vanilla blocks or swaps the patch's big trees).
+        // Half the trees (vanilla blocks or swaps the patch's big trees).
         Sparse,
-        // More trees (vanilla adds trees to the patch).
+        // Three quarters of the trees (vanilla blocks one of the patch's big trees).
+        Light,
+        // As many trees, most of them small (vanilla swaps the big beeches for small ones).
+        Smalltree,
+        // More trees (vanilla adds trees to the patch). Kept last: SetGroves sizes by it.
         Dense,
     }
 
@@ -389,7 +393,8 @@ namespace Atlas
                     {
                         foreach (AltBiome alt in sector.AltBiomes)
                         {
-                            // Felling outranks boulders, boulders thinning, thinning thickening; vanilla's
+                            // Felling outranks boulders, boulders thinning, thinning small trees,
+                            // small trees thickening; vanilla's
                             // incompatibilities keep the others from meeting in one patch.
                             if (alt == null || !GroveOf(alt.m_name, out Land land, out Grove grove)) continue;
                             if (land != GeneratorSampler.ToLand(sector.Biome)) continue;
@@ -433,15 +438,22 @@ namespace Atlas
                 // 1-2) and adds rock_4_blackforest 30, rock_3_blackforest 15 (scale 3-6) and
                 // rock4_blackforest 3 a zone: a boulder field with saplings, not a wood.
                 case "Rock Black Forest": land = Land.BlackForest; grove = Grove.Rocky; return true;
-                case "Smalltree Meadows": land = Land.Meadows; grove = Grove.Sparse; return true;
+                // Vanilla blocks beech1_meadows (40 a zone), birch1 and birch2 and adds 100
+                // beech_small3/4_meadows and bushes, keeping only beech2_meadows (5-10) and the oaks
+                // of the big trees: as many trees, about a sixth of them big.
+                case "Smalltree Meadows": land = Land.Meadows; grove = Grove.Smalltree; return true;
+                // Vanilla blocks beech1_meadows and adds birch1/2_meadows2 (10 + 5-9),
+                // beech5_meadows (10) and oak2_meadows (1-2): about three quarters of the big
+                // trees. Its birches also grow on ground the minimap shows open; not drawn.
+                case "Birch Meadows": land = Land.Meadows; grove = Grove.Light; return true;
                 // Vanilla blocks the big firtree_mountain; the small firs stay.
                 case "Drake Mountain":
                 case "Fortress Mountain": land = Land.Mountain; grove = Grove.Sparse; return true;
                 // Adds 10-20 firtree_mountain2 a zone.
                 case "Wolf Mountain": land = Land.Mountain; grove = Grove.Dense; return true;
-                // Vanilla blocks birch2_aut_heath.
+                // Vanilla blocks birch2_aut_heath (10 a zone); birch1_aut_plains (30) stays.
                 case "Lox Plains":
-                case "Death Plains": land = Land.Plains; grove = Grove.Sparse; return true;
+                case "Death Plains": land = Land.Plains; grove = Grove.Light; return true;
                 // Adds dead small firs and other trees.
                 case "Bog Swamp": land = Land.Swamp; grove = Grove.Dense; return true;
                 case "Trees Mistlands": land = Land.Mistlands; grove = Grove.Dense; return true;

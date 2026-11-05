@@ -49,9 +49,11 @@ near-blank snowfield.
 
 Biome variants change their woods too. A felled Black Forest (Kalhygge) has no trees, only a few
 stands of stumps, hills and a light stipple. A rocky Black Forest is open ground too, with
-loose clusters of shaded boulders, hills and a few lone pines. Pine Black Forests, small-tree Meadows, drake and fortress Mountains
-and lox and death Plains have sparser woods, about half the trees. Wolf Mountains and tree-filled
-Mistlands have denser woods, and bog Swamps more dead trees.
+loose clusters of shaded boulders, hills and a few lone pines, kept clear of the shore. Pine Black
+Forests and drake and fortress Mountains have sparser woods, about half the trees; birch Meadows and
+lox and death Plains lose about a quarter of theirs. Small-tree Meadows keep full woods of smaller
+trees with a few big ones among them. Wolf Mountains and tree-filled Mistlands have denser woods,
+and bog Swamps more dead trees.
 
 | Biome | Marks |
 | --- | --- |

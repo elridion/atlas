@@ -34,9 +34,10 @@
   summit and hills on its other hilltops, not whole mountain ranges.
 - Biome variants show in their woods: a felled Black Forest is drawn with stands of stumps among its hills,
   a rocky Black Forest, where the game grows big boulders instead of its big trees, as open
-  ground with clusters of shaded boulders, hills and a few lone pines,
-  variants where the game grows fewer trees (pine Black Forests, small-tree Meadows,
-  drake and fortress Mountains, lox and death Plains) get sparser woods, and those where it grows
+  ground with clusters of shaded boulders, hills and a few lone pines clear of the shore,
+  variants where the game grows fewer trees get sparser woods (pine Black Forests and drake and
+  fortress Mountains about half the trees, birch Meadows and lox and death Plains three quarters),
+  small-tree Meadows full woods of smaller trees with a few big ones, and those where it grows
   more (wolf Mountains, tree-filled Mistlands, bog Swamps) get denser woods or more dead trees.
 - The Mountains' fir woods are drawn too, as dark pine woods on the gentler slopes where the game
   grows its firs, from the lush woods at the mountains' feet up between the peaks, which stand

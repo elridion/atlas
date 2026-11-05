@@ -23,8 +23,10 @@
   outer crowns, with the open land around it kept clear. A clump of Meadows trees too small to
   draw as a wood stands as one or two lone trees on its spot. As in the game, no Meadows or Black
   Forest tree stands on ground steeper than 30 degrees; such bare slopes inside a wood take
-  the open ground's marks (a light stipple in the Black Forest, grass in the Meadows) instead of
-  lying as empty dark green. Every tree carries its biome's wood
+  the open ground's marks (a light stipple in the Black Forest, tufts of grass in the Meadows)
+  instead of lying as empty dark green. Lone gnarled oaks with round billowy crowns stand here
+  and there on the open Meadows, about as often as the game grows its big oaks there, clear of
+  the woods, hills, water and steep ground; grass never peeks out from behind one. Every tree carries its biome's wood
   colour, as the peaks carry the mountains' grey, right out to the edge of its wood.
 - Every biome has its own pen marks: ranges of jagged, hatched peaks washed in the mountains' grey, ringed by foothills, grass and woods of
   round crowns in the Meadows, dark pine woods in the Black Forest, patches of marsh lines with reeds
@@ -42,7 +44,7 @@
   stippled as the Plains between them,
   variants where the game grows fewer trees get sparser woods (bog Swamps about a third of the
   dead trees, pine Black Forests, drake and fortress Mountains and hut Swamps about half, lox
-  Plains about a third as open grazing land, birch Meadows and death Plains three quarters), small-tree Meadows woods of
+  Plains about half as open grazing land, birch Meadows and death Plains three quarters), small-tree Meadows woods of
   small leafy trees, each a little crown with a three-lobed top, with only a rare big one among them, and those where it grows more (wolf Mountains, tree-filled
   Mistlands) get denser woods.
 - The Mountains' fir woods are drawn too, as dark pine woods on the gentler slopes where the game

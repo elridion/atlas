@@ -92,7 +92,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   out (`DropHiddenBehindMarks`): scraped round the pin, their slivers read as stray marks.
   Meadow grass tufts over a pin's box that stand in front of it are inked again after the
   glyphs (`m_markGrass`, `DrawGrassOverMarks`, sheet and close-ups), since the ground fills are
-  laid before any glyph and the pin's body would otherwise scrape them away. Pins also have a
+  laid before any glyph is inked and the pin's body would otherwise scrape them away. Pins also have a
   hand-drawn waver (`PinGlyphs.Waver`: every
   point moved by a smooth noise seeded by the pin's place, straight lines and outlines cut
   into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
@@ -878,6 +878,35 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   bare (the user kept that: the game's finer mesh is steeper still).
   The Mountains' (whose field already weighs the slope), the Deep North's and the Mistlands'
   woods do not apply it.
+  **Lone oaks** (`Oaks.cs`, `Kind.Oak`; the user's pick, F "gnarled" of a design round at 1.5x,
+  `OakBig`): the game's `oak1_meadows` grows on open Meadows (forest factor 1 to 3, i.e. outside
+  the woods, `Random.Range(0, 2)` a zone, about one per two 64 m zones; `maxTilt` 20). The atlas
+  draws a representative scatter at the game's rate, not the real oaks: reading the trees' ZDOs
+  would be exact on a host, but the user chose the scatter after that research. A bowed, gnarled
+  trunk with a broken stub and splayed roots under a round billowy crown (a core ellipse and
+  round puffs traced as one outline, `PuffOutline`), its east side shaded narrower than a
+  broadleaf's (the round crown filled near solid at sheet size). `PlaceOaks` runs after the
+  Meadows' woods and copses (`PlaceTrees`), on one sheet grid (`OakStep` 96 m, `OakOdds` 0.56,
+  `OakJitter` 0.85, salt `OakSalt` 44, `sheetGrid`), so the same oaks stand at every zoom; a
+  cell tries up to `OakTries` 7 hashed places and takes the first that fits (the large crown
+  fits few clearings), a candidate giving way to a higher-priority neighbour's possible places
+  within `OakGap` 14 sheet px (`OakCrowded`, hashes only). It fits (`Fits`) with its foot on open
+  Meadows (`IsOpenLand`, shore 4, `WoodClearance` from woods), off ground mostly steeper than
+  20 degrees (`MostlySteep` with `OakTilt` 0.364, the game's own limit), its crown's middle and
+  both flanks off woods, rivers and water, its column on land, its box clear of the copses'
+  trees, the hills and peaks (`ClearOfPlaced`) and the pins (`Add`). 20 oaks on Velen (22 with
+  the woods' 30-degree test). A round crown to `HideCoveredCrowns` and the pins' cover
+  (`OakCrown`), a crown to the fog, a tree to close-ups; `GlyphBox` 5 by 9 T times `OakBig`.
+  **Grass and oaks** (the user's rule): the Meadows' tufts are laid once every glyph is placed
+  (`DrawMeadowGrass` and `DrawWoodlessGround`, after `DrawBoulders`, sheet and close-ups; still
+  before any glyph is inked), from that level's own oaks (`FindOaks`, after the pins' and the
+  fog's removals in close-ups). `TuftByOak`: a tuft whose foot is north of an oak's foot and
+  whose strokes come within 1.5 pens of its crown's ellipse, trunk or roots
+  (`TuftTouchesOak`) is left out, as the oak would cut it into a stub; one south of the foot whose
+  box meets the oak's is drawn and inked again after the glyphs (`m_frontGrass`,
+  `DrawGrassOverMarks`), standing over the oak's foot as a pin's tufts in front do. Laid after
+  the rivers now, a tuft keeps the ends of its strokes off the river courses (`Tuft`, `OnRiver`),
+  where the river's scrape used to cut it.
   **Wood ground with no trees** (the user's request, sample 14): the wash darkens the whole wood
   field (`Paper.Washed`, `WoodWash` where the field is over 0.5), but the trees keep off steep
   ground, the shore, rivers and the land column's water, so steep Black Forest slopes (between
@@ -887,8 +916,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `DrawWoodlessGround` gives it its biome's open fill, once every glyph is placed (after
   `DrawBoulders`, sheet and tiles): in the Black Forest and the Plains the Plains' dot
   (`WoodlessStep` 4 G grid, `WoodlessStipple` 0.45, salt `WoodlessSalt` 43, 2 px off the shore),
-  in the Meadows the open meadows' own tufts and sheet grid (8 G, salt 14, 0.3, 3 sheet px off
-  the shore, `m_markGrass` over pins), each only where no Meadows, Black Forest or Plains tree's
+  in the Meadows the open meadows' tufts on a finer sheet grid of their own (the user's request:
+  on the open meadows' 8 G grid at 0.3 a steep strip got one tuft or none; `WoodlessGrassStep`
+  4 G, `WoodlessGrassJitter` 0.6, `WoodlessGrassOdds` 0.6, salt `WoodlessGrassSalt` 45, 3 sheet
+  px off the shore, `m_markGrass` over pins, the oaks' grass rule above), each only where no
+  Meadows, Black Forest or Plains tree's (lone oaks aside: they stand on open ground)
   footprint lies within `WoodlessGap` 6 T (the biome at the tree's foot from the world's map
   pixels, so Mountain firs hidden behind peaks do not block it), so a wood's own gaps and its
   margins stay bare. Each level of detail tests its own trees, as the boulder field's stipple
@@ -1006,8 +1038,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   and another 60 small dead firs (not drawn, too small); Pinetree Black Forest, Drake/Fortress
   Mountain and Hut Swamp `Sparse` (`SparseKeep` 0.5, same hash; Hut Swamp blocks `swamptree1`
   and `2` and adds `swamptree3` (20) and `4` (7), about 0.49 of the ancient trees); the swamp's variants thin its dead trees, whose odds
-  are multiplied by `KeepOf`; Lox Plains `Grazed` (`LoxKeep` 0.35, same hash; the user's call,
-  sparser than the game as open grazing land); Death Plains and Birch Meadows `Light`
+  are multiplied by `KeepOf`; Lox Plains `Grazed` (`LoxKeep` 0.5, same hash; the user's call,
+  sparser than the game as open grazing land, raised from 0.35); Death Plains and Birch Meadows `Light`
   (`LightKeep` 0.75, same hash): the Plains variants block only `birch2_aut_heath` (10 a zone, scale 1-1.5) and keep
   `birch1_aut_plains` (30), and Birch Meadows blocks `beech1_meadows` but adds
   `birch1/2_meadows2` (10 + 5-9), `beech5_meadows` (10) and `oak2_meadows` (1-2), about 0.75 of

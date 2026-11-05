@@ -16,7 +16,7 @@ namespace Atlas
     {
         // Canvas: CanvasSize pixels across HalfExtent metres either side of the world centre.
         public const int CanvasSize = 4096;
-        // The painted sheet's planes of CanvasSize² bytes: ink, one body mask per BodyKind, then
+        // The painted sheet's planes of CanvasSizeÂ² bytes: ink, one body mask per BodyKind, then
         // the pins' red ink (InkCanvas.m_pinInk).
         public const int SheetPlanes = 6;
         public const float HalfExtent = 10800f;
@@ -53,7 +53,7 @@ namespace Atlas
         // banks).
         private const float WideWater = 11f;
         private const float ChannelReach = 12f;
-        // Islets under SmallIsletArea square canvas pixels (about 4,200 m², some 65 m across) are
+        // Islets under SmallIsletArea square canvas pixels (about 4,200 mÂ², some 65 m across) are
         // left out of the waterline's trace, which counts them as water. This steers where the
         // waves find the coast's bends: at a lower area the trace wraps round the Mistlands' islet
         // fringes, its bends sit on islets (which get no waves) and the main coast behind stays
@@ -168,7 +168,7 @@ namespace Atlas
         // other's on a row through the land, so the stack reads as hand-drawn round one centre
         // instead of ruled on one vertical line.
         private const float IsletSway = 0.9f;
-        // Land masses from MajorLandCells (about 36,000 m², some 190 m across) are coast: they get
+        // Land masses from MajorLandCells (about 36,000 mÂ², some 190 m across) are coast: they get
         // the coast's groups at their bends. With a higher threshold, masses lying in channels
         // off the main coast get islet groups, though they read as part of the coast. An islet
         // whose bounds come within IsletCoastGap (about 63 m, the reach of a coast stroke) of such
@@ -186,7 +186,7 @@ namespace Atlas
         // TileIsletBand above and below its row too, since an islet's shore curves close round
         // the stroke.
         private const int IsletAnchor = 2;
-        // Islets of fewer map cells than this (1,700 m², about 40 m across) get no waves: the
+        // Islets of fewer map cells than this (1,700 mÂ², about 40 m across) get no waves: the
         // start's outer islets are 13 to 22 cells, the specks round them 2 to 6.
         private const int WavedIsletCells = 12;
         private const float DistanceScale = 4f;
@@ -233,8 +233,9 @@ namespace Atlas
         private const int SparseRoll = 90;
         private const float LightKeep = 0.75f;
         // The user chose a Lox Plains sparser than the game's (which only blocks one of the
-        // Plains' two birches, about 0.75 of the trees): open grazing land for the herds.
-        private const float LoxKeep = 0.35f;
+        // Plains' two birches, about 0.75 of the trees): open grazing land for the herds, at
+        // half the trees (raised from 0.35, the user's call).
+        private const float LoxKeep = 0.5f;
         // The game keeps about 8 of the Meadows' ~47 big trees a zone there (0.17), but that many
         // read as too many among the small ones: halved, the user's call.
         private const float SmalltreeBig = 0.085f;
@@ -286,6 +287,13 @@ namespace Atlas
         private const float WoodlessStep = 4f;
         private const float WoodlessStipple = 0.45f;
         private const int WoodlessSalt = 43;
+        // The Meadows' woodless ground takes the open meadows' grass tufts on a finer sheet grid
+        // of its own (WoodlessGrassStep glyph units, WoodlessGrassOdds), so a steep strip reads
+        // as grassland, not bare wash.
+        private const float WoodlessGrassStep = 4f;
+        private const float WoodlessGrassJitter = 0.6f;
+        private const float WoodlessGrassOdds = 0.6f;
+        private const int WoodlessGrassSalt = 45;
         // A copse's tree (PlaceCopses): its foot this share of its height (8 T) south of the map
         // pixel's centre, so the pixel lies midway between the foot and the crown's centre
         // (0.6 of the height up), and moved at most half this share of a map pixel either way.
@@ -539,6 +547,8 @@ namespace Atlas
             Pin,
             // A small-tree grove's small beech (SmallTrees), drawn instead of most of its broadleaves.
             SmallTree,
+            // A lone oak on open Meadows (Oaks).
+            Oak,
         }
 
         // Pins (the Sacrificial Stones among them) are drawn into the sheet as glyphs of their own,
@@ -620,6 +630,8 @@ namespace Atlas
         // inked again after the glyphs (DrawGrassOverMarks), so a tuft before a tower stands
         // over its foot as a tree would.
         private readonly List<Vector2> m_markGrass = new List<Vector2>();
+        // Tufts in front of a lone oak's foot (TuftByOak), inked again after the glyphs.
+        private readonly List<Vector2> m_frontGrass = new List<Vector2>();
 
         private bool OnAMark(Vector4 box)
         {
@@ -630,8 +642,9 @@ namespace Atlas
 
         private void DrawGrassOverMarks()
         {
-            if (m_markGrass.Count == 0) return;
+            if (m_markGrass.Count == 0 && m_frontGrass.Count == 0) return;
             m_canvas.m_layer = InkLayer.Background;
+            foreach (Vector2 tuft in m_frontGrass) Grass(tuft.x, tuft.y, m_g);
             foreach (Vector2 tuft in m_markGrass)
             {
                 var box = new Vector4(tuft.x - 1.6f * m_g, tuft.y - 2.8f * m_g, tuft.x + 1.2f * m_g, tuft.y);
@@ -1061,6 +1074,7 @@ namespace Atlas
             DrawScarps();
             DrawStumps();
             DrawBoulders();
+            DrawMeadowGrass();
             DrawWoodlessGround();
             m_glyphs.Sort((a, b) => Order(a).CompareTo(Order(b)));
             foreach (Glyph glyph in m_glyphs)
@@ -1113,6 +1127,7 @@ namespace Atlas
                 case Kind.PlainsTree:
                 case Kind.GiantTree:
                 case Kind.SmallTree:
+                case Kind.Oak:
                     return MarkShape.Crown;
                 case Kind.Conifer:
                 case Kind.Peak:
@@ -1129,7 +1144,7 @@ namespace Atlas
         // The glyphs a detail tile draws afresh at its own level of detail.
         private static bool IsTree(Kind kind) =>
             kind == Kind.Broadleaf || kind == Kind.Conifer || kind == Kind.PlainsTree || kind == Kind.GiantTree
-            || kind == Kind.SmallTree;
+            || kind == Kind.SmallTree || kind == Kind.Oak;
 
         // The coastline is traced on vanilla's own heights, unsmoothed, so it runs where vanilla's
         // map puts the water's edge: every island, lake, pond and swamp pool stays. Only single map
@@ -1525,21 +1540,10 @@ namespace Atlas
         // lines average away to grey at the opening zoom.
         private void DrawBackground()
         {
-            // Meadows: short tufts of grass. They are few, so they keep one grid and its margins in
-            // sheet pixels at every level of detail, and every zoom shows the same tufts: a grid
-            // of each level's own brings a fresh set at each zoom, thick in close-ups and almost
-            // none on the sheet. Only the tuft itself shrinks with the level, as the trees do.
-            Scatter(8f * G, 8f * G, 0.9f, 0f, 14, s =>
-            {
-                s.m_shore /= m_lod;
-                s.m_woodDistance /= m_lod;
-                if (!IsOpenLand(s, Land.Meadows, 3f) || !(s.m_roll < 0.3f)) return;
-                Grass(s.m_x, s.m_y, m_g);
-                // A tuft over a pin is inked again once the pin is drawn, if it stands in front.
-                if (OnAMark(new Vector4(s.m_x - 1.6f * m_g, s.m_y - 2.8f * m_g, s.m_x + 1.2f * m_g, s.m_y))) m_markGrass.Add(new Vector2(s.m_x, s.m_y));
-            }, sheetGrid: true);
-            // The Black Forest has no ground fill of its own: vanilla's mask marks all its land as
-            // forest, so it has no open ground but its open groves. A felled Black Forest
+            // The Meadows' grass tufts are laid once the glyphs are placed (DrawMeadowGrass), as
+            // they keep out from behind the lone oaks. The Black Forest has no ground fill of its
+            // own: vanilla's mask marks all its land as forest, so it has no open ground but its
+            // open groves. A felled Black Forest
             // (Kalhygge) gets stumps (DrawStumps) and a boulder field (Rock) boulders with the
             // Plains' stipple between (DrawBoulders, DrawRockStipple), once every glyph is placed.
             if (m_world.HasGrove(Grove.ClearCut))
@@ -1738,11 +1742,14 @@ namespace Atlas
             var trees = new Dictionary<int, List<Vector4>>();
             foreach (Glyph glyph in m_glyphs)
             {
-                if (!IsTree(glyph.m_kind)) continue;
+                // A lone oak stands on open ground, not in a wood; the grass keeps out from
+                // behind it (TuftByOak) as on the open meadows.
+                if (!IsTree(glyph.m_kind) || glyph.m_kind == Kind.Oak) continue;
                 Land foot = m_world.m_biome[m_world.Index(glyph.m_x * MetresPerPixel - HalfExtent, HalfExtent - glyph.m_y * MetresPerPixel)];
                 if (foot == Land.Meadows || foot == Land.BlackForest || foot == Land.Plains) FileBox(trees, GlyphBox(glyph));
             }
             float gap = WoodlessGap * m_t;
+            FindOaks();
             Scatter(WoodlessStep * m_g, WoodlessSalt, s =>
             {
                 if (!s.m_isLand || !s.m_wood || s.m_shore < 2f || !(s.m_roll < WoodlessStipple)) return;
@@ -1750,15 +1757,46 @@ namespace Atlas
                 if (!ClearOf(trees, s.m_x, s.m_y, gap, gap) || OnRiver(s.m_x, s.m_y)) return;
                 m_canvas.Dot(s.m_x, s.m_y, StippleRadius * m_pen);
             });
-            // The open meadows' own tufts and grid (DrawBackground), so they carry on from the open
-            // grass, inked again over a pin in front as those are.
+            // The Meadows' grass tufts, on a finer sheet grid of their own (the open meadows' is so
+            // sparse that a steep strip got one tuft or none), inked again over a pin in front as
+            // those are.
+            Scatter(WoodlessGrassStep * G, WoodlessGrassStep * G, WoodlessGrassJitter, 0f, WoodlessGrassSalt, s =>
+            {
+                if (!s.m_isLand || !s.m_wood || s.m_land != Land.Meadows || s.m_shore / m_lod < 3f || !(s.m_roll < WoodlessGrassOdds)) return;
+                if (!ClearOf(trees, s.m_x, s.m_y, gap, gap)) return;
+                Tuft(s.m_x, s.m_y);
+            }, sheetGrid: true);
+        }
+
+        // The open meadows' short tufts of grass, once every glyph is placed, so they keep out
+        // from behind the lone oaks (TuftByOak). They are few, so they keep one grid and its
+        // margins in sheet pixels at every level of detail, and every zoom shows the same tufts: a
+        // grid of each level's own brings a fresh set at each zoom, thick in close-ups and almost
+        // none on the sheet. Only the tuft itself shrinks with the level, as the trees do.
+        private void DrawMeadowGrass()
+        {
+            FindOaks();
             Scatter(8f * G, 8f * G, 0.9f, 0f, 14, s =>
             {
-                if (!s.m_isLand || !s.m_wood || s.m_land != Land.Meadows || s.m_shore / m_lod < 3f || !(s.m_roll < 0.3f)) return;
-                if (!ClearOf(trees, s.m_x, s.m_y, gap, gap) || OnRiver(s.m_x, s.m_y)) return;
-                Grass(s.m_x, s.m_y, m_g);
-                if (OnAMark(new Vector4(s.m_x - 1.6f * m_g, s.m_y - 2.8f * m_g, s.m_x + 1.2f * m_g, s.m_y))) m_markGrass.Add(new Vector2(s.m_x, s.m_y));
+                s.m_shore /= m_lod;
+                s.m_woodDistance /= m_lod;
+                if (!IsOpenLand(s, Land.Meadows, 3f) || !(s.m_roll < 0.3f)) return;
+                Tuft(s.m_x, s.m_y);
             }, sheetGrid: true);
+        }
+
+        // A Meadows grass tuft standing at (x, y), unless a lone oak in front would cut it or it
+        // lies on a river. Laid after the rivers, which used to scrape the tufts under them, so
+        // it tests both ends of its strokes. One over a pin or in front of an oak's foot is inked
+        // again after the glyphs (DrawGrassOverMarks).
+        private void Tuft(float x, float y)
+        {
+            if (OnRiver(x - 1f * m_g, y) || OnRiver(x + 0.8f * m_g, y) || OnRiver(x - 1.6f * m_g, y - 2.6f * m_g) || OnRiver(x + 1.2f * m_g, y - 2.8f * m_g)) return;
+            TuftOak oak = TuftByOak(x, y);
+            if (oak == TuftOak.Behind) return;
+            Grass(x, y, m_g);
+            if (oak == TuftOak.Front) m_frontGrass.Add(new Vector2(x, y));
+            else if (OnAMark(new Vector4(x - 1.6f * m_g, y - 2.8f * m_g, x + 1.2f * m_g, y))) m_markGrass.Add(new Vector2(x, y));
         }
 
         // Whether a tree glyph would keep clear of every non-tree glyph placed before it (the
@@ -1879,6 +1917,11 @@ namespace Atlas
                     // The lobed crown at its widest and tallest (SmallShape) with its scraped rim.
                     half = 3.4f * s;
                     height = 7.6f * s;
+                    break;
+                case Kind.Oak:
+                    // The billowy crown at its widest and tallest (OakShape, OakPuffs), at OakBig.
+                    half = 5f * s * OakBig;
+                    height = 9f * s * OakBig;
                     break;
                 case Kind.Pin:
                 {
@@ -2534,7 +2577,10 @@ namespace Atlas
             int first = m_glyphs.Count;
             // Meadows: egg-shaped broadleaf crowns (and a small-tree grove's), off steep ground.
             ScatterTrees(5.2f * m_t, 23, 0.95f, Kind.Broadleaf, s => InWood(s, Land.Meadows, 8f * m_t) && !SteepGround(s));
+            int copses = m_glyphs.Count;
             PlaceCopses();
+            // The open Meadows' lone oaks, clear of the copses' trees.
+            PlaceOaks(copses, m_glyphs.Count);
             // Black Forest, the Deep North and the Mountains: dense pines. Vanilla's Deep North
             // woods are snowy firs and pines and its Mountain woods firs, the same dark conifer
             // mass on the map. Mountain firs keep off the peaks' bases (ClearOfPeakBases), the
@@ -2665,6 +2711,7 @@ namespace Atlas
                 case Kind.PlainsTree: crown = PlainsCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
                 case Kind.GiantTree: crown = GiantCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
                 case Kind.SmallTree: crown = SmallCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
+                case Kind.Oak: crown = OakCrown(g.m_x, g.m_y, g.m_size, g.m_seed); return true;
                 default: crown = default(Crown); return false;
             }
         }
@@ -3235,7 +3282,7 @@ namespace Atlas
             }
             var members = new List<List<int>>();
             foreach (List<int> group in linked) SplitCluster(group, IsletLink, members);
-            // Per cluster: cells, the weighted sums of x, y, x², y², xy (each islet's own spread
+            // Per cluster: cells, the weighted sums of x, y, xÂ², yÂ², xy (each islet's own spread
             // as a uniform box) and whether an islet of WavedIsletCells is in it.
             var result = new List<IsletCluster>();
             for (int c = 0; c < members.Count; c++)

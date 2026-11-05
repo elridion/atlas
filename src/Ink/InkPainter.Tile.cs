@@ -85,6 +85,7 @@ namespace Atlas
             DrawScarps();
             DrawStumps();
             DrawBoulders();
+            DrawMeadowGrass();
             DrawWoodlessGround();
             m_canvas.m_layer = InkLayer.Tree;
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));

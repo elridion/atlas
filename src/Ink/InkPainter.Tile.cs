@@ -68,6 +68,11 @@ namespace Atlas
             float reach = GlyphReach + PeakCell;
             record.Peaks(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, peaks);
             foreach (Vector3 peak in peaks) AddPeakBase(peak);
+            // The sheet's other glyphs' footprints, before the trees, so a boulder field's lone
+            // pines keep off the hills as on the sheet (ClearOfPlaced).
+            var boxes = new List<Vector4>();
+            record.GlyphBoxes(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, boxes);
+            foreach (Vector4 box in boxes) AddGlyphBox(box);
             PlaceTrees();
             // Trees the band leaves out (cut by its end or thinned out) are left out here too, as
             // the sheet's are, by the same rule on the tile's own trees.
@@ -76,12 +81,10 @@ namespace Atlas
             // The scarps keep off the tile's own trees and the sheet's other glyphs, as on the
             // sheet, on the background under every glyph.
             foreach (Glyph glyph in m_glyphs) AddFootprint(glyph);
-            var boxes = new List<Vector4>();
-            record.GlyphBoxes(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, boxes);
-            foreach (Vector4 box in boxes) AddGlyphBox(box);
             m_canvas.m_layer = InkLayer.Background;
             DrawScarps();
             DrawStumps();
+            DrawBoulders();
             m_canvas.m_layer = InkLayer.Tree;
             m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
             // The sheet's other glyphs (peaks, spires, hills) are sorted in with the tile's own

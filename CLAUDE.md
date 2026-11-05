@@ -899,9 +899,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (otherwise one warning per session and no groves); `Decode` on the worker reads
   `GetBiomeSector` for every map pixel's centre (a plain read of arrays built at world load) into
   `m_grove`, only on pixels whose decoded biome is the sector's. `GroveOf` maps `AltBiome.m_name`:
-  Kalhygge Black Forest `ClearCut` (no trees; `IsClearCut` keeps it out of the canvas wood and
-  the samplers' wood, so ground fills and clearances treat it as open land; its stones give way
-  to `Stump`s on one sheet grid, salt 35, `StumpStep` 3.8 G: a short trunk stroke with two or
+  Kalhygge Black Forest `ClearCut` (no trees; `IsOpenGrove`, `WorldSource.IsOpen`, keeps it out
+  of the canvas wood and the samplers' wood, so ground fills and clearances treat it as open
+  land; it gets `Stump`s on one sheet grid, salt 35, `StumpStep` 3.8 G: a short trunk stroke with two or
   three roots (solid trunks with a sawn top are too heavy, felled logs read as axes), gathered
   loosely into stands by a slow noise (`StumpStand` 40 px, `StumpOdds` 0.5 inside them, `StumpFloor`
   0.5 of that between), as an even scatter reads as a stipple and bare ground between stands as lumps.
@@ -909,7 +909,24 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   in tiles) and keep `StumpClear` off every glyph's footprint (`ClearOfGlyphs`), so none stands
   on a hill. Between them a light stipple, `ClearCutStipple`, and hills on its hilltops
   by the normal hill rule, so the felled wood is not a blank; the Meadows' finer hilltop search
-  crowds it); Pinetree/Rock Black
+  crowds it); Rock Black Forest `Rocky`, open land as the clear-cut is (`IsOpen`; hills on its
+  hilltops; `ReadGroves` keeps the lowest value, so felling outranks it and it outranks
+  thinning): the game blocks `firtree_many_blackforest` (40 a zone), `Pinetree_01_blackforest`
+  (60) and `firtree_blackforest` (5), leaving only `firtree_blackforest2` (1-2) of the big
+  trees, and adds `rock_4_blackforest` 30, `rock_3_blackforest` 15 (scale 3-6, house-sized)
+  and `rock4_blackforest` 3, so it is a boulder field, not a half wood. Its boulders
+  (`Boulder`: a dome of nine uneven facets rounded once, base flatter than top, scraped to
+  parchment, the part east of a seed-tilted chord filled solid, about 3.5 G wide, `BoulderPair`
+  0.3 with a smaller one beside it, drawn north one first) are placed as the stumps are
+  (`DrawBoulders`, after `DrawStumps`, one sheet grid `BoulderStep` 5 G, salt 39, gathered into
+  scree by a `BoulderStand` 30 px noise, `BoulderOdds` 0.6 inside and `BoulderFloor` 0.2 of that
+  between, `BoulderClear` off every glyph's footprint, off rivers); about 2.2 G wide they read
+  as pebbles. Its lone pines are conifers on a per-level `LonePineStep` 14 T grid, salt 40,
+  `LonePineOdds` 0.15, on its open land clear of every non-tree glyph placed before
+  (`ClearOfPlaced`; close-ups load the record's glyph boxes before their trees for it). No
+  stipple there: the boulders carry the ground. The Black Forest has no other ground fill:
+  vanilla's mask marks all its land as forest (its old stones on open ground never drew);
+  Pinetree Black
   Forest, Smalltree Meadows, Drake/Fortress Mountain, Lox/Death Plains `Sparse` (`SparseKeep` 0.5
   by the cell's hash `SparseRoll`); Wolf Mountain, Trees Mistlands `Dense` (the rule's grids are
   already 90-95% full, so `ScatterTrees` gives dense spots a grid of their own, `DenseSpacing`
@@ -1083,7 +1100,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `InkPainter` by reflection; painting the whole world takes about 2.5 s. It is a separate
   project, never shipped: `Atlas.csproj` removes `tools\**` from its items and the package holds
   only the DLL. `run.ps1 -World <name> -Views ...` renders into `tools/preview/img/` (ignored);
-  `samples.ps1 -Publish` refreshes the 32 samples in `screenshots/` (16-21 are views forced to biome variants with `-Alt`, 22 the sea mark catalogue, `Preview --seacat`) (committed). Refresh them
+  `samples.ps1 -Publish` refreshes the 33 samples in `screenshots/` (16-21 and 23, a Rock Black Forest, are views forced to biome variants with `-Alt`, 22 the sea mark catalogue, `Preview --seacat`) (committed). Refresh them
   after visual changes. It needs Valheim's Managed DLLs (`VALHEIM_INSTALL` overrides the Steam
   path) and BepInEx's core DLLs from a Gale profile copied beside the exe, which `run.ps1` does,
   and writes `System.Console`, as `assembly_valheim` has a global `Console` class.

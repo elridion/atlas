@@ -29,6 +29,9 @@ namespace Atlas
         None,
         // Felled: no trees, stumps instead (Kalhygge Black Forest).
         ClearCut,
+        // Open boulder ground: the big trees blocked, big boulders and a few lone pines instead
+        // (Rock Black Forest).
+        Rocky,
         // Fewer trees (vanilla blocks or swaps the patch's big trees).
         Sparse,
         // More trees (vanilla adds trees to the patch).
@@ -386,7 +389,7 @@ namespace Atlas
                     {
                         foreach (AltBiome alt in sector.AltBiomes)
                         {
-                            // Felling outranks thinning, thinning outranks thickening; vanilla's
+                            // Felling outranks boulders, boulders thinning, thinning thickening; vanilla's
                             // incompatibilities keep the others from meeting in one patch.
                             if (alt == null || !GroveOf(alt.m_name, out Land land, out Grove grove)) continue;
                             if (land != GeneratorSampler.ToLand(sector.Biome)) continue;
@@ -424,8 +427,12 @@ namespace Atlas
             {
                 // A felled forest (kalhygge, a clear-cut).
                 case "Kalhygge Black Forest": land = Land.BlackForest; grove = Grove.ClearCut; return true;
-                case "Pinetree Black Forest":
-                case "Rock Black Forest": land = Land.BlackForest; grove = Grove.Sparse; return true;
+                case "Pinetree Black Forest": land = Land.BlackForest; grove = Grove.Sparse; return true;
+                // Vanilla blocks firtree_many_blackforest, Pinetree_01_blackforest and
+                // firtree_blackforest (about 105 big trees a zone down to firtree_blackforest2's
+                // 1-2) and adds rock_4_blackforest 30, rock_3_blackforest 15 (scale 3-6) and
+                // rock4_blackforest 3 a zone: a boulder field with saplings, not a wood.
+                case "Rock Black Forest": land = Land.BlackForest; grove = Grove.Rocky; return true;
                 case "Smalltree Meadows": land = Land.Meadows; grove = Grove.Sparse; return true;
                 // Vanilla blocks the big firtree_mountain; the small firs stay.
                 case "Drake Mountain":
@@ -471,8 +478,12 @@ namespace Atlas
             return found;
         }
 
-        // Whether world point (wx, wz) lies in a felled Black Forest, which counts as open land.
-        public bool IsClearCut(float wx, float wz) => m_grove != null && m_grove[Index(wx, wz)] == Grove.ClearCut;
+        // Whether a grove leaves its wood open land: a felled Black Forest or a boulder field, whose
+        // big trees the game blocks, keeps the wood's shape and wash but no canvas wood.
+        public static bool IsOpen(Grove grove) => grove == Grove.ClearCut || grove == Grove.Rocky;
+
+        // Whether world point (wx, wz) lies in an open grove (IsOpen), which counts as open land.
+        public bool IsOpenGrove(float wx, float wz) => m_grove != null && IsOpen(m_grove[Index(wx, wz)]);
 
         // A swamp's water counts as its ground (pools traced exactly at the minimap's detail break
         // every swamp into a maze of islets), except its deep water (over SwampShallow) joined to

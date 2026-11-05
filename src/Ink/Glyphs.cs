@@ -1050,14 +1050,90 @@ namespace Atlas
             m_canvas.Polyline(m_points, Pen);
         }
 
-        // A stone on the forest floor: a small flattened outline.
-        private void Stone(float x, float y, float s, int seed)
+        // A boulder's half width in glyph units, its companion's included, for the clearance.
+        private static float BoulderHalf(int seed) => Unit(seed, 90) < BoulderPair ? 3.9f : 2.6f;
+
+        // A boulder field's boulder (Grove.Rocky): a rounded, faceted lump seen from the side,
+        // its east side shaded as crowns and peaks are, sometimes with a smaller one beside it.
+        // The one further north is drawn first, so the front one scrapes it.
+        private void Boulder(float x, float y, float s, int seed)
         {
-            float rx = 1.4f * s * Vary(seed, 10, 0.25f);
-            float ry = rx * 0.7f;
-            m_canvas.EraseEllipse(x, y - ry, rx + 0.5f * m_pen, ry + 0.5f * m_pen);
-            m_canvas.Ring(x, y - ry, rx, ry, Pen);
+            if (!(Unit(seed, 90) < BoulderPair))
+            {
+                BoulderStone(x, y, s, seed);
+                return;
+            }
+            float side = Unit(seed, 91) < 0.5f ? -1f : 1f;
+            float small = Mathf.Lerp(0.5f, 0.7f, Unit(seed, 92));
+            float ox = x + side * Mathf.Lerp(2.6f, 3.2f, Unit(seed, 93)) * s;
+            float oy = y + Mathf.Lerp(-0.6f, 0.4f, Unit(seed, 94)) * s;
+            if (oy < y)
+            {
+                BoulderStone(ox, oy, s * small, seed + 7);
+                BoulderStone(x, y, s, seed);
+            }
+            else
+            {
+                BoulderStone(x, y, s, seed);
+                BoulderStone(ox, oy, s * small, seed + 7);
+            }
         }
+
+        // One boulder standing on (x, y): an outline of a few uneven facets round a dome, its
+        // base flatter than its top, the corners softened once, so it reads as a worn stone drawn
+        // by hand rather than an ellipse. The outline is scraped to parchment, the part east of a
+        // chord filled solid, then the outline inked.
+        private void BoulderStone(float x, float y, float s, int seed)
+        {
+            float rx = 2.2f * s * Vary(seed, 80, 0.2f);
+            float top = rx * Mathf.Lerp(0.75f, 1f, Unit(seed, 81));
+            float bottom = rx * Mathf.Lerp(0.3f, 0.4f, Unit(seed, 82));
+            float cy = y - bottom;
+            const int corners = 9;
+            float start = Unit(seed, 83) * Mathf.PI * 2f;
+            m_points.Clear();
+            for (int k = 0; k < corners; k++)
+            {
+                float a = start + (k + (Unit(seed, 100 + k) - 0.5f) * 0.5f) / corners * Mathf.PI * 2f;
+                float r = Mathf.Lerp(0.8f, 1.08f, Unit(seed, 110 + k));
+                float sin = Mathf.Sin(a);
+                m_points.Add(new Vector2(x + Mathf.Cos(a) * rx * r, cy + sin * (sin < 0f ? top : bottom) * r));
+            }
+            // Corner cutting (Chaikin) once: the facets stay, their corners rounded.
+            m_bodyOutline.Clear();
+            for (int k = 0; k < corners; k++)
+            {
+                Vector2 p = m_points[k], q = m_points[(k + 1) % corners];
+                m_bodyOutline.Add(Vector2.Lerp(p, q, 0.25f));
+                m_bodyOutline.Add(Vector2.Lerp(p, q, 0.75f));
+            }
+            m_canvas.EraseOutline(m_bodyOutline, BodyGrow * m_pen + 0.5f * m_pen);
+            // The shade: the outline's points east of a chord, by seed a little more or less of
+            // it and tilted, as a hand varies it. Near-convex, so the rasterizer fills it.
+            float chord = x + rx * Mathf.Lerp(-0.05f, 0.3f, Unit(seed, 84));
+            float tilt = (Unit(seed, 85) - 0.3f) * 0.5f;
+            m_points.Clear();
+            int n = m_bodyOutline.Count;
+            int first = -1;
+            for (int k = 0; k < n; k++)
+            {
+                if (East(m_bodyOutline[k], chord, tilt, cy)) continue;
+                if (East(m_bodyOutline[(k + 1) % n], chord, tilt, cy)) { first = (k + 1) % n; break; }
+            }
+            if (first >= 0)
+            {
+                for (int k = 0; k < n && East(m_bodyOutline[(first + k) % n], chord, tilt, cy); k++) m_points.Add(m_bodyOutline[(first + k) % n]);
+                if (m_points.Count >= 3) m_canvas.Fill(m_points);
+            }
+            m_points.Clear();
+            m_points.AddRange(m_bodyOutline);
+            m_points.Add(m_bodyOutline[0]);
+            m_points.Add(m_bodyOutline[1]);
+            m_canvas.Polyline(m_points, Mathf.Lerp(1f, 1.2f, Unit(seed, 86)));
+        }
+
+        // Whether a boulder's outline point lies east of its shade's chord, tilted with height.
+        private static bool East(Vector2 p, float chord, float tilt, float cy) => p.x > chord + (p.y - cy) * tilt;
 
         // A clear-cut's stump: a short trunk stroke, cut flat, with two or three roots splaying
         // from its foot, their reach and lean by seed, so no two stumps are stamped alike. A solid

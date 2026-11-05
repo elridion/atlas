@@ -57,8 +57,9 @@ namespace Atlas
             if (height <= m_waterLevel) return;
             switch (land)
             {
-                // A felled Black Forest is open land, as on the sheet (InkPainter.BuildFields).
-                case Land.BlackForest: wood = m_world.GroveAt(wx, wz, land) == Grove.ClearCut ? -1f : 1f; break;
+                // A felled Black Forest or a boulder field is open land, as on the sheet
+                // (InkPainter.BuildFields).
+                case Land.BlackForest: wood = WorldSource.IsOpen(m_world.GroveAt(wx, wz, land)) ? -1f : 1f; break;
                 case Land.Meadows: wood = MeadowsForest - Factor(wx, wz); break;
                 case Land.Plains: wood = PlainsForest - Factor(wx, wz); break;
                 // All Mistlands land is wood, as on the sheet (Woods.Build).
@@ -107,7 +108,7 @@ namespace Atlas
             height = m_world.HeightAt(wx, wz);
             land = m_world.m_biome[m_world.Index(wx, wz)];
             wood = height > m_world.m_waterLevel ? m_world.Sample(m_world.m_wood, wx, wz) - 0.5f : -1f;
-            if (land == Land.BlackForest && m_world.GroveAt(wx, wz, land) == Grove.ClearCut) wood = -1f;
+            if (land == Land.BlackForest && WorldSource.IsOpen(m_world.GroveAt(wx, wz, land))) wood = -1f;
         }
     }
 }

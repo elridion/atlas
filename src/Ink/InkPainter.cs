@@ -227,6 +227,23 @@ namespace Atlas
         private const float StumpClear = 0.6f;
         private const float StumpStand = 40f;
         private const float ClearCutStipple = 0.3f;
+        // A boulder field's (Grove.Rocky) boulders, as the stumps are: one sheet grid of
+        // BoulderStep glyph units, BoulderOdds inside the scree a slow noise of BoulderStand sheet
+        // pixels gathers them into and BoulderFloor of that between, kept BoulderClear glyph units
+        // past their own size off every glyph's footprint. Its few lone pines (vanilla keeps
+        // firtree_blackforest2, 1-2 a zone) stand on a per-level grid of LonePineStep tree units
+        // with LonePineOdds.
+        private const float BoulderStep = 5f;
+        private const float BoulderOdds = 0.6f;
+        private const float BoulderFloor = 0.2f;
+        private const float BoulderStand = 30f;
+        private const float BoulderClear = 0.6f;
+        // The share of boulders with a smaller one beside them.
+        private const float BoulderPair = 0.3f;
+        private const int BoulderSalt = 39;
+        private const float LonePineStep = 14f;
+        private const float LonePineOdds = 0.15f;
+        private const int LonePineSalt = 40;
         // Mountain trees keep off the peaks' bases (ClearOfPeakBases): the base reaches this share
         // of the peak's width either side of its foot (its corners lie at most 0.56 out), and
         // PeakBaseGap sheet pixels below it (the body's skirt is 2); a pine's crown is about
@@ -972,6 +989,7 @@ namespace Atlas
             m_canvas.m_layer = InkLayer.Background;
             DrawScarps();
             DrawStumps();
+            DrawBoulders();
             m_glyphs.Sort((a, b) => Order(a).CompareTo(Order(b)));
             foreach (Glyph glyph in m_glyphs)
             {
@@ -1145,9 +1163,10 @@ namespace Atlas
                     if (m_world.Sample(m_coast, wx, wz) > m_world.m_waterLevel)
                     {
                         m_land[pixel] = 1;
-                        // A felled Black Forest (Grove.ClearCut) keeps the wood's shape and wash
-                        // but is open land: no trees, and the ground fills may enter it.
-                        if (m_world.Sample(m_world.m_wood, wx, wz) > WoodEdge && !m_world.IsClearCut(wx, wz)) m_wood[pixel] = 1;
+                        // A felled Black Forest or a boulder field (WorldSource.IsOpen) keeps the
+                        // wood's shape and wash but is open land: no wood, and the ground fills
+                        // may enter it.
+                        if (m_world.Sample(m_world.m_wood, wx, wz) > WoodEdge && !m_world.IsOpenGrove(wx, wz)) m_wood[pixel] = 1;
                         continue;
                     }
                     // Sea if any of the four map pixels around it is sea water.
@@ -1443,15 +1462,10 @@ namespace Atlas
                 // A tuft over a pin is inked again once the pin is drawn, if it stands in front.
                 if (OnAMark(new Vector4(s.m_x - 1.6f * m_g, s.m_y - 2.8f * m_g, s.m_x + 1.2f * m_g, s.m_y))) m_markGrass.Add(new Vector2(s.m_x, s.m_y));
             }, sheetGrid: true);
-            // Black Forest: scattered stones on the open ground between the woods.
-            Scatter(10f * m_g, 17, s =>
-            {
-                if (!IsOpenLand(s, Land.BlackForest, 3f) || s.m_grove == Grove.ClearCut || !(s.m_roll < 0.4f)) return;
-                Stone(s.m_x, s.m_y, m_g, s.m_seed);
-            });
-            // A felled Black Forest (Kalhygge): a few stumps instead of the stones, so the
-            // clear-cut reads as felled forest rather than open ground. Like the Meadows' tufts,
-            // on one sheet grid with margins in sheet pixels, so every zoom shows the same stumps.
+            // The Black Forest has no ground fill of its own: vanilla's mask marks all its land as
+            // forest, so it has no open ground but its open groves. A felled Black Forest
+            // (Kalhygge) gets stumps (DrawStumps) and a boulder field (Rock) boulders
+            // (DrawBoulders), once every glyph is placed.
             if (m_world.HasGrove(Grove.ClearCut))
             {
                 // Between the stumps a light stipple of the cleared ground, sparser than the
@@ -1579,6 +1593,45 @@ namespace Atlas
                 if (!ClearOfGlyphs(s.m_x, s.m_y - 0.8f * m_g, StumpClear * m_g, 0.5f * StumpClear * m_g)) return;
                 Stump(s.m_x, s.m_y, m_g, s.m_seed);
             }, sheetGrid: true);
+        }
+
+        // A boulder field's boulders, as the stumps are: once every glyph is placed, off the hills,
+        // the lone pines and every other glyph's footprint, on the background layer under every
+        // glyph, on one sheet grid with margins in sheet pixels, so every zoom shows the same ones.
+        private void DrawBoulders()
+        {
+            if (!m_world.HasGrove(Grove.Rocky)) return;
+            Scatter(BoulderStep * G, BoulderStep * G, 0.9f, 0f, BoulderSalt, s =>
+            {
+                s.m_shore /= m_lod;
+                s.m_woodDistance /= m_lod;
+                if (s.m_grove != Grove.Rocky || !IsOpenLand(s, Land.BlackForest, 3f)) return;
+                // Gathered into loose scree by a slow noise: an even scatter reads as a stipple.
+                float stand = Mathf.Lerp(BoulderFloor, 1f, Mathf.Clamp01((Noise(s.m_x / BoulderStand, s.m_y / BoulderStand, m_world.m_seed + BoulderSalt) - 0.35f) / 0.4f));
+                if (!(s.m_roll < BoulderOdds * stand)) return;
+                float half = BoulderHalf(s.m_seed) * m_g;
+                float clear = BoulderClear * m_g;
+                if (!ClearOfGlyphs(s.m_x, s.m_y - 0.5f * half, half + clear, 0.5f * half + clear)) return;
+                // Rivers are inked before, so a boulder would sit on the stream.
+                if (OnRiver(s.m_x, s.m_y) || OnRiver(s.m_x - half, s.m_y) || OnRiver(s.m_x + half, s.m_y)) return;
+                Boulder(s.m_x, s.m_y, m_g, s.m_seed);
+            }, sheetGrid: true);
+        }
+
+        // Whether a tree glyph would keep clear of every non-tree glyph placed before it (the
+        // hills, peaks and pins): on the sheet those placed so far, in a close-up the sheet's
+        // footprints from the record.
+        private bool ClearOfPlaced(Glyph g)
+        {
+            Vector4 box = GlyphBox(g);
+            if (m_grid != null) return ClearOfGlyphs(0.5f * (box.x + box.z), 0.5f * (box.y + box.w), 0.5f * (box.z - box.x), 0.5f * (box.w - box.y));
+            foreach (Glyph other in m_glyphs)
+            {
+                if (IsTree(other.m_kind) || other.m_kind == Kind.Mist) continue;
+                Vector4 o = GlyphBox(other);
+                if (o.x < box.z && box.x < o.z && o.y < box.w && box.y < o.w) return false;
+            }
+            return true;
         }
 
         // The drawn footprint of every placed glyph but the mist (left, top, right, bottom),
@@ -1873,10 +1926,10 @@ namespace Atlas
                     // The Deep North's uplands: a peak on a real summit, hills on its other hilltops.
                     bool upland = land == Land.DeepNorth && above >= DeepNorthSummitHeight;
                     bool high = (land == Land.Mountain && above >= PeakHeight) || upland;
-                    // A clear-cut is open country too: with its trees felled its rises show.
-                    bool clearCut = land == Land.BlackForest && m_world.m_grove != null && m_world.m_grove[i] == Grove.ClearCut;
+                    // A clear-cut or a boulder field is open country too: with no wood its rises show.
+                    bool openGrove = land == Land.BlackForest && m_world.m_grove != null && WorldSource.IsOpen(m_world.m_grove[i]);
                     bool hillCountry = ((land == Land.Meadows || land == Land.Plains) && m_world.m_wood[i] < WoodEdge)
-                        || (land == Land.Mountain && above < PeakHeight) || clearCut;
+                        || (land == Land.Mountain && above < PeakHeight) || openGrove;
                     if (land == Land.Mistlands)
                     {
                         PlaceSummitSpire(h, size, x, z);
@@ -2302,6 +2355,18 @@ namespace Atlas
             float pine = 11f * m_t;
             ScatterTrees(5.5f * m_t, 24, 0.95f, Kind.Conifer, s => InWood(s, Land.BlackForest, pine) || InWood(s, Land.DeepNorth, pine)
                 || (InWood(s, Land.Mountain, pine) && ClearOfPeakBases(s.m_x, s.m_y, pine)));
+            // A boulder field keeps only a few lone big pines (vanilla's firtree_blackforest2,
+            // 1-2 a zone), standing on its open ground clear of the hills on its hilltops.
+            if (m_world.HasGrove(Grove.Rocky))
+            {
+                Scatter(LonePineStep * m_t, LonePineSalt, s =>
+                {
+                    if (s.m_grove != Grove.Rocky || !(s.m_roll < LonePineOdds) || !IsOpenLand(s, Land.BlackForest, 3f)) return;
+                    if (OnRiver(s.m_x, s.m_y) || OnRiver(s.m_x, s.m_y - pine * 0.6f) || !IsLandColumn(s.m_x, s.m_y, pine)) return;
+                    if (!ClearOfPlaced(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = m_t, m_kind = Kind.Conifer, m_seed = s.m_seed })) return;
+                    Add(s, Kind.Conifer, m_t);
+                });
+            }
             // Plains: copses of small round trees where vanilla grows its sparse woods.
             ScatterTrees(5f * m_t, 25, 0.9f, Kind.PlainsTree, s => InWood(s, Land.Plains, 6f * m_t));
             // Mistlands: gnarled trees packed closely enough that their canopies mass into one dark
@@ -2323,7 +2388,7 @@ namespace Atlas
 
         // One biome's trees: a candidate on each cell of a spacing grid, kept with odds, where
         // inWood holds. The alt biomes change only how many stand in the same wood shapes: a
-        // clear-cut has none, a sparse grove keeps SparseKeep of them by a hash of their own, and a
+        // clear-cut or a boulder field has none, a sparse grove keeps SparseKeep of them by a hash of their own, and a
         // dense grove, which the rule's own grid cannot pack fuller (it is already nearly full),
         // takes every cell of a finer grid of its own (DenseSpacing, salt DenseSalt on), its own
         // grid leaving those spots out so the two do not overlap. Decided from hashes and the
@@ -2332,7 +2397,7 @@ namespace Atlas
         {
             Scatter(spacing, salt, s =>
             {
-                if (!(s.m_roll < odds) || s.m_grove == Grove.ClearCut || s.m_grove == Grove.Dense) return;
+                if (!(s.m_roll < odds) || WorldSource.IsOpen(s.m_grove) || s.m_grove == Grove.Dense) return;
                 if (s.m_grove == Grove.Sparse && !(Unit(s.m_seed, SparseRoll) < SparseKeep)) return;
                 if (!inWood(s)) return;
                 Add(s, kind, m_t);

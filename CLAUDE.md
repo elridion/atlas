@@ -905,8 +905,12 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (`TuftTouchesOak`) is left out, as the oak would cut it into a stub; one south of the foot whose
   box meets the oak's is drawn and inked again after the glyphs (`m_frontGrass`,
   `DrawGrassOverMarks`), standing over the oak's foot as a pin's tufts in front do. Laid after
-  the rivers now, a tuft keeps the ends of its strokes off the river courses (`Tuft`, `OnRiver`),
-  where the river's scrape used to cut it.
+  the rivers now, which no longer scrape it, a tuft keeps its whole footprint on land (the
+  user's request; tufts at shores and banks stood half on the water): each end of both blades
+  and the points `TuftWaterClear` 1.5 sheet px round it (thinned by the level's pen) must be
+  land and off the river courses (`Tuft`, `TuftEndDry`: `IsLandAt`, `OnRiver`), against the
+  sheet's land or a close-up's own water. It drops 20 to 40 of Velen's
+  sheet tufts offline.
   **Wood ground with no trees** (the user's request, sample 14): the wash darkens the whole wood
   field (`Paper.Washed`, `WoodWash` where the field is over 0.5), but the trees keep off steep
   ground, the shore, rivers and the land column's water, so steep Black Forest slopes (between

@@ -22,7 +22,9 @@ function VariantSpot($biome) { if ($variantSpot.ContainsKey($biome)) { $variantS
 # Velen's start island with the Sacrificial Stones and a set of pins drawn into the sheet, one in
 # the mountains to its south (the preview has no location icons or snapshot of its own).
 $pins = 'House:205:-119','Fire:158:-158','Bed:-210:0','Portal:-527:316','Hammer:738:-527','Point:-1265:422:x','Death:0:-1001','Boss:120:-1180','Tower:-240:359','Trader:-60:-120','Forge:-80:-1110'
-$views = @('overview','wide:0:0:1000:1','start:0:0:600:1') + ($biomes | ForEach-Object { "tilesb${_}4:$($spot[$_]):4", "tilesb${_}2:$($spot[$_]):2" }) + @('tilesPinsStart4:0:60:4','tilesPinsMountain2:60:-1090:2')
+# The region and the start island at scale 1 are the sheet itself, as the game shows it there
+# (a tile render at scale 1 samples every 16 m and breaks narrow channels into beads).
+$views = @('overview','wide:0:0:1000:1:sheet','start:0:0:600:1:sheet') + ($biomes | ForEach-Object { "tilesb${_}4:$($spot[$_]):4", "tilesb${_}2:$($spot[$_]):2" }) + @('tilesPinsStart4:0:60:4','tilesPinsMountain2:60:-1090:2')
 & "$s\run.ps1" -Temple '-111:263' -Pin $pins -Views $views 2>&1 | Select-Object -Last 2
 # The variants: [biome, alt biome name, view name, sample slug]. An --alt only fills cells of its
 # own biome within its radius, so one run takes one variant per biome; two of the same biome on

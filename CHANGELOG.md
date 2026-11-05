@@ -64,7 +64,7 @@
   Deep North's shores and on its side of the deep channel at its border, not out on the open
   northern sea; the Deep North's lakes are washed a lighter blue. Rivers and
   streams are drawn as ink lines, except across the Ashlands, where the game carves none, and
-  streams that run down into the Deep North, which the game never carves.
+  streams that run down into the Deep North, which the game never carves. Grass tufts keep clear of the water at shores and riverbanks.
 - A few sea monsters are inked out in wide stretches of open water, spread over the seas rather
   than crowded along the map's rim, as on old maps:
   sea serpents and serpent coils where the game's Serpents swim, the odd leviathan, and the

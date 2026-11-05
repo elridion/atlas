@@ -382,6 +382,10 @@ namespace Atlas
         // River ink keeps this far (canvas pixels) from any water the coast already draws, or it
         // runs along a bank or a lake shore and the two lines merge into a smear.
         private const float RiverShoreClear = 2f;
+        // A Meadows grass tuft keeps every end of its two blades this far (sheet pixels, thinned
+        // by the level's pen) from water and river courses: drawn after the rivers since they no
+        // longer scrape it, a tuft at a bank or shore otherwise stood half on the water.
+        private const float TuftWaterClear = 1.5f;
         // Mistlands ground this steep (height per metre) is broken crag: scarps mark it, giant trees
         // stand sparser there, and filler spires stand and mist keeps off from 1.3 times it. Summit spires stand on the real summits: the highest
         // map pixel within SpireCells that rises SpireProminence metres over its surroundings.
@@ -1786,17 +1790,28 @@ namespace Atlas
         }
 
         // A Meadows grass tuft standing at (x, y), unless a lone oak in front would cut it or it
-        // lies on a river. Laid after the rivers, which used to scrape the tufts under them, so
-        // it tests both ends of its strokes. One over a pin or in front of an oak's foot is inked
-        // again after the glyphs (DrawGrassOverMarks).
+        // would reach water or a river. Laid after the rivers, which used to scrape the tufts
+        // under them, so it tests both ends of both blades (Grass), each with TuftWaterClear round
+        // it: against the sheet's land or a close-up's own. One over a
+        // pin or in front of an oak's foot is inked again after the glyphs (DrawGrassOverMarks).
         private void Tuft(float x, float y)
         {
-            if (OnRiver(x - 1f * m_g, y) || OnRiver(x + 0.8f * m_g, y) || OnRiver(x - 1.6f * m_g, y - 2.6f * m_g) || OnRiver(x + 1.2f * m_g, y - 2.8f * m_g)) return;
+            if (!TuftEndDry(x - 1f * m_g, y) || !TuftEndDry(x + 0.8f * m_g, y)
+                || !TuftEndDry(x - 1.6f * m_g, y - 2.6f * m_g) || !TuftEndDry(x + 1.2f * m_g, y - 2.8f * m_g)) return;
             TuftOak oak = TuftByOak(x, y);
             if (oak == TuftOak.Behind) return;
             Grass(x, y, m_g);
             if (oak == TuftOak.Front) m_frontGrass.Add(new Vector2(x, y));
             else if (OnAMark(new Vector4(x - 1.6f * m_g, y - 2.8f * m_g, x + 1.2f * m_g, y))) m_markGrass.Add(new Vector2(x, y));
+        }
+
+        // Whether a blade's end and the points TuftWaterClear round it are land off every river.
+        private bool TuftEndDry(float x, float y)
+        {
+            float r = TuftWaterClear * m_pen;
+            return Dry(x, y) && Dry(x - r, y) && Dry(x + r, y) && Dry(x, y - r) && Dry(x, y + r);
+
+            bool Dry(float px, float py) => IsLandAt(px, py) && !OnRiver(px, py);
         }
 
         // Whether a tree glyph would keep clear of every non-tree glyph placed before it (the

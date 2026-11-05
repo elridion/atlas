@@ -39,6 +39,12 @@ namespace Atlas
         private const float ThornHeight = 7.5f;
         private const float ThornWedge = 0.4f;
         private const float ThornLowDrop = 2.6f;
+        // A spire standing in the water: how far its waterline reaches out past either foot, as
+        // a share of the pinnacle's width (the front one's; those behind half as far), and how
+        // far the line leans to one side, as a share of that reach.
+        private const float SpireReachMin = 0.25f;
+        private const float SpireReachMax = 0.4f;
+        private const float SpireLean = 0.25f;
         private readonly List<Vector2> m_west = new List<Vector2>(8);
         private readonly List<Vector2> m_east = new List<Vector2>(8);
 
@@ -55,7 +61,7 @@ namespace Atlas
                 case Kind.PlainsTree: PlainsTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.DeadTree: DeadTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Spire:
-                    Spire(g.m_x, g.m_y, g.m_size, g.m_seed);
+                    Spire(g.m_x, g.m_y, g.m_size, g.m_seed, g.m_wet);
                     break;
                 case Kind.GiantTree: GiantTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Thorn: Thorns(g.m_x, g.m_y, g.m_size, g.m_seed); break;
@@ -833,15 +839,16 @@ namespace Atlas
 
         // A Mistlands crag: a black pinnacle in the peaks' hand, often with a smaller one or two
         // standing behind it, drawn back to front. One symmetric trapezoid with upright strokes
-        // on every spire reads as a fence post.
-        private void Spire(float x, float y, float s, int seed)
+        // on every spire reads as a fence post. A spire in the water (wet) stands on level
+        // waterlines as the sea thorns do, so it reads as rock rising out of the shallows.
+        private void Spire(float x, float y, float s, int seed, bool wet)
         {
             float width = SpireHeightOf(s, seed) * 0.45f;
             if (Unit(seed, 40) < 0.55f)
-                Pinnacle(x - width * 0.4f, y - width * 0.1f, s * Mathf.Lerp(0.55f, 0.75f, Unit(seed, 41)), seed + 1);
+                Pinnacle(x - width * 0.4f, y - width * 0.1f, s * Mathf.Lerp(0.55f, 0.75f, Unit(seed, 41)), seed + 1, wet, false);
             if (Unit(seed, 42) < 0.2f)
-                Pinnacle(x + width * 0.45f, y - width * 0.08f, s * Mathf.Lerp(0.5f, 0.65f, Unit(seed, 43)), seed + 2);
-            Pinnacle(x, y, s, seed);
+                Pinnacle(x + width * 0.45f, y - width * 0.08f, s * Mathf.Lerp(0.5f, 0.65f, Unit(seed, 43)), seed + 2, wet, false);
+            Pinnacle(x, y, s, seed, wet, true);
         }
 
         // A spire's height for its size, shared with summit placement, which sets the foot so the
@@ -852,13 +859,17 @@ namespace Atlas
         // a ledge, some with a broken twin tip; the body scraped and filled as a peak's (ScrapeBody,
         // Skirt), with the Mistlands' rock (BodyKind.Mist); a solid wedge down most of the east face, as the rock is black, and
         // hatching below it.
-        private void Pinnacle(float x, float y, float s, int seed)
+        // In the water (wet) its feet stand level on the waterline and its body ends there, with
+        // no skirt run into the ground: the line drawn across its foot after, reaching further
+        // out on one side, and for the front one a shorter line under it set east, the map's
+        // shade side, as under the sea thorns.
+        private void Pinnacle(float x, float y, float s, int seed, bool wet, bool front)
         {
             float height = SpireHeightOf(s, seed);
             float width = height * Mathf.Lerp(0.45f, 0.62f, Unit(seed, 11));
             var apex = new Vector2(x + (Unit(seed, 12) - 0.5f) * 0.1f * height, y - height);
-            var left = new Vector2(x - width * 0.5f, y + (Unit(seed, 16) - 0.5f) * 0.6f * s);
-            var right = new Vector2(x + width * 0.5f, y + (Unit(seed, 17) - 0.5f) * 0.6f * s);
+            var left = new Vector2(x - width * 0.5f, wet ? y : y + (Unit(seed, 16) - 0.5f) * 0.6f * s);
+            var right = new Vector2(x + width * 0.5f, wet ? y : y + (Unit(seed, 17) - 0.5f) * 0.6f * s);
             m_west.Clear();
             m_west.Add(left);
             m_west.Add(Flank(left, apex, 0.4f, -0.06f * width));
@@ -882,11 +893,11 @@ namespace Atlas
             for (int i = 1; i < m_east.Count; i++) m_points.Add(m_east[i]);
             // Filled with the Mistlands' rock as a peak's body is with the mountains' wash, and
             // its skirt run into the ground below in the same way.
-            BaseFade(left, right);
+            if (!wet) BaseFade(left, right);
             m_canvas.m_markBody = BodyKind.Mist;
             ScrapeBody(m_points);
             m_canvas.m_markBody = BodyKind.None;
-            Skirt(left, right, BodyKind.Mist);
+            if (!wet) Skirt(left, right, BodyKind.Mist);
 
             var foot = new Vector2(apex.x + width * 0.05f, y);
             Poly(apex, Along(m_east, SpireWedge), Vector2.Lerp(apex, foot, SpireWedge));
@@ -902,6 +913,14 @@ namespace Atlas
             }
             m_canvas.Polyline(m_west, 1.4f);
             m_canvas.Polyline(m_east, 1.4f);
+            if (!wet) return;
+            float reach = width * Mathf.Lerp(SpireReachMin, SpireReachMax, Unit(seed, 26)) * (front ? 1f : 0.5f);
+            float lean = (Unit(seed, 27) - 0.5f) * 2f * SpireLean * reach;
+            m_canvas.Stroke(left.x - reach + lean, y, right.x + reach + lean, y, Pen);
+            if (!front) return;
+            float below = y + ThornLowDrop * m_pen;
+            float start = x - width * Mathf.Lerp(0.1f, 0.3f, Unit(seed, 28));
+            m_canvas.Stroke(start, below, start + width * Mathf.Lerp(0.6f, 0.9f, Unit(seed, 29)), below, Pen);
         }
 
         // A Mistlands tree as the game's Yggdrasil shoots: a kinked trunk on flared roots, one or

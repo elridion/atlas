@@ -20,16 +20,17 @@
 - The parchment's edge is trimmed by hand: a slightly wandering cut with worn, rounded corners and
   a darker, handled rim.
 - Woods are drawn where the game grows its forests, each one a dense mass of trees bounded by its
-  outer crowns, with the open land around it kept clear. Every tree carries its biome's wood
+  outer crowns, with the open land around it kept clear. As in the game, no Meadows or Black
+  Forest tree stands on ground steeper than 30 degrees. Every tree carries its biome's wood
   colour, as the peaks carry the mountains' grey, right out to the edge of its wood.
 - Every biome has its own pen marks: ranges of jagged, hatched peaks washed in the mountains' grey, ringed by foothills, grass and woods of
   round crowns in the Meadows, dark pine woods in the Black Forest, patches of marsh lines with reeds
   among many tall ancient dead trees on the Swamp's higher ground, a dry stipple and copses on the Plains, rolling hills on the real hilltops of the
   Meadows and Plains, each drawn a little differently (low or round, a long ridge, a double crest or a shoulder), gnarled trees over the whole of the
-  Mistlands, thinner where the mist lies and sparse on the steep rock, veils of mist filling the hollows of its misty ground, black crags, and small hatched scarps marking the steep rock between them (its many small pools kept as water), a cinder stipple, hatched vermilion lava fields wherever the game lays its lava, down to small pools, and spikes of rock standing out of its boiling sea in the Ashlands (no rock is drawn on its land, where the game scatters it at random and it would only mislead), and a
-  near-blank snowfield with ice ridges in the Deep North, kept clear of the shore, the peaks and each other.
+  Mistlands, thinner where the mist lies and sparse on the steep rock, veils of mist filling the hollows of its misty ground, black crags, some rising out of its shallow sea on a level waterline as the game's rock spires do, and small hatched scarps marking the steep rock between them (its many small pools kept as water), a cinder stipple, hatched vermilion lava fields wherever the game lays its lava, down to small pools, and spikes of rock standing out of its boiling sea in the Ashlands (no rock is drawn on its land, where the game scatters it at random and it would only mislead), and a
+  near-blank snowfield with thin bands of snow marks in the Deep North, kept clear of the shore, the peaks and each other.
 - The Deep North's snowy forests are drawn as woods of dense dark pines, as in the Black Forest,
-  wherever the game grows its firs and pines there, up its high ground too; its ice ridges keep
+  wherever the game grows its firs and pines there, up its high ground too; its snow marks keep
   to the open snow. Its high ground is drawn as the gentle uplands it is: a peak on each real
   summit and hills on its other hilltops, not whole mountain ranges.
 - Biome variants show in their woods: a felled Black Forest is drawn with stands of stumps among its hills,
@@ -39,7 +40,7 @@
   variants where the game grows fewer trees get sparser woods (bog Swamps about a third of the
   dead trees, pine Black Forests, drake and fortress Mountains and hut Swamps about half, lox
   Plains about a third as open grazing land, birch Meadows and death Plains three quarters), small-tree Meadows woods of
-  small leafy trees, each a little crown with a three-lobed top, with a few big ones among them, and those where it grows more (wolf Mountains, tree-filled
+  small leafy trees, each a little crown with a three-lobed top, with only a rare big one among them, and those where it grows more (wolf Mountains, tree-filled
   Mistlands) get denser woods.
 - The Mountains' fir woods are drawn too, as dark pine woods on the gentler slopes where the game
   grows its firs, from the lush woods at the mountains' feet up between the peaks, which stand

@@ -235,7 +235,9 @@ namespace Atlas
         // The user chose a Lox Plains sparser than the game's (which only blocks one of the
         // Plains' two birches, about 0.75 of the trees): open grazing land for the herds.
         private const float LoxKeep = 0.35f;
-        private const float SmalltreeBig = 0.17f;
+        // The game keeps about 8 of the Meadows' ~47 big trees a zone there (0.17), but that many
+        // read as too many among the small ones: halved, the user's call.
+        private const float SmalltreeBig = 0.085f;
         private const int SmalltreeRoll = 96;
         private const float SmalltreeKeep = 0.75f;
         private const int SmalltreeKeepRoll = 97;
@@ -338,14 +340,15 @@ namespace Atlas
         private const float MistFull = 6f;
         private const float MistClear = 18f;
         private const float MistOdds = 0.9f;
-        // Deep North pressure ridges: the scale of the noise their bands follow (canvas pixels) and
-        // how close to a crest line a chevron must lie (1 is on the crest).
-        private const float RidgeScale = 70f * G;
-        private const float RidgeBand = 0.9f;
+        // Deep North snow marks (chevrons): the scale of the noise their bands follow (canvas
+        // pixels) and how close to a crest line of it a chevron must lie (1 is on the crest).
+        // Only a mark of the snow, not a landform: the game has no ice ridges on land.
+        private const float SnowMarkScale = 70f * G;
+        private const float SnowMarkBand = 0.9f;
         // How far a chevron keeps from the shore (in the rules' shore units) and from the next
         // chevron (in G).
-        private const float RidgeShore = 4f * G;
-        private const float RidgeGap = 1.5f;
+        private const float SnowMarkShore = 4f * G;
+        private const float SnowMarkGap = 1.5f;
         // Rivers: the pen for a river, a stream at its mouth (thinning to Pen at its source), the extra
         // width scraped clear on either side, and the step between points along a course (canvas px).
         private const float RiverWidth = 1.2f;
@@ -370,6 +373,15 @@ namespace Atlas
         // far it slides: above that its top may rise over water, but a crag on an islet with only
         // its foot on land stands in the sea.
         private const float SpireLandBase = 0.3f;
+        // The game's rock spires (Mistlands_RockSpire1) stand down to 10 m under the water line,
+        // so a spire may stand in the Mistlands' sea where it is at most SpireDepth metres deep,
+        // its foot SpireWater (canvas pixels) off land and its waterline clear of land, on a level
+        // waterline as the sea thorns do. The filler grid takes SpireWaterOdds of its cells
+        // there: the game's density is not representable, and more fill the shallows round the
+        // islet fields.
+        private const float SpireDepth = 10f;
+        private const float SpireWater = 4f;
+        private const float SpireWaterOdds = 0.25f;
         // Where a real summit lies on its glyph, as a share of the glyph's height up from the
         // foot. The glyphs are drawn in elevation but placed on a plan, and whatever stands
         // south of where it belongs lies over ground that is not its own: with the apex on the
@@ -412,6 +424,16 @@ namespace Atlas
         private const float GiantSteepStep = 16f;
         private const float GiantSteepOdds = 0.5f;
         private const int GiantSteepSalt = 38;
+        // No Meadows or Black Forest tree grows on ground steeper than 30 degrees (the game's
+        // maxTilt 30 on every one, 20 on the oaks), so their woods keep off broken ground: where
+        // most land map pixels within SteepWindow round the spot are tan 30 or steeper (read from
+        // the world's map pixels, so close-ups agree). Tested per pixel (4-9% of their land) it cut
+        // bare strips along every valley's banks, which 12 m pixels make read steep; the user
+        // chose the window, as the Mountains' firs have (MarkMountainForest). Not in the
+        // Mountains, whose wood field already weighs the slope, nor the Deep North or the
+        // Mistlands, whose giant shoots tilt up to 80 degrees.
+        private const float TreeTilt = 0.577f;
+        private const int SteepWindow = 2;
         // Sea thorns stand in the Ashlands' sea down to this depth (metres), as the game's
         // cliff_ashlands8 do, on a grid of ThornStep with ThornOdds of its cells taken, their
         // foot at least ThornWater (canvas pixels) from land so the waterline stays on water.
@@ -909,6 +931,8 @@ namespace Atlas
             public int m_seed;
             // A hill drawn without the smaller dome behind it, dropped to keep it off water.
             public bool m_lone;
+            // A Mistlands spire standing in shallow water, drawn on a level waterline.
+            public bool m_wet;
             // A mark's place in the drawing order (Order), at or south of its foot, and the share of
             // its box the relief in front of it covers (OrderMarks).
             public float m_order;
@@ -1330,6 +1354,8 @@ namespace Atlas
         // The slope of the sheet's map pixel under a spot, which the sheet and every close-up read
         // alike (a close-up's own slope is measured over a shorter baseline and finds more steep
         // ground).
+        private bool SteepGround(Spot s) => m_world.MostlySteep(s.m_worldX, s.m_worldZ, SteepWindow, TreeTilt);
+
         private float SheetSlope(Spot s) => m_grid != null ? m_world.SlopeAt(s.m_worldX, s.m_worldZ) : s.m_slope;
 
         // The same from a detail tile's grid. Distances are given in the tile's own units (sheet
@@ -1564,16 +1590,16 @@ namespace Atlas
                 m_canvas.Dot(s.m_x, s.m_y, StippleRadius * m_pen);
             });
             // Deep North: a near-blank snowfield, as the classic map leaves its northern waste. Its
-            // only marks are chevrons of pressure ridges, gathered into thin winding bands (the
-            // crest lines of a ridged noise) with open snow between, rather than sprinkled evenly.
+            // only marks are snow marks, chevrons gathered into thin winding bands (the crest
+            // lines of a ridged noise) with open snow between, rather than sprinkled evenly.
             // Each chevron keeps clear of the water, of the peaks, of the woods and of the other
             // chevrons: ones touching a shore, a peak's foot or each other read as clutter.
-            float ridgeStep = 8f * m_g;
-            Scatter(ridgeStep, 15, s =>
+            float snowStep = 8f * m_g;
+            Scatter(snowStep, 15, s =>
             {
-                if (!IsOpenLand(s, Land.DeepNorth, RidgeShore)) return;
-                if (!IsRidge(s.m_x, s.m_y) || !(s.m_roll < 0.8f)) return;
-                if (RidgeCrowded(s, ridgeStep) || NearHighGround(s.m_x, s.m_y)) return;
+                if (!IsOpenLand(s, Land.DeepNorth, SnowMarkShore)) return;
+                if (!OnSnowMarkBand(s.m_x, s.m_y) || !(s.m_roll < 0.8f)) return;
+                if (SnowMarkCrowded(s, snowStep) || NearHighGround(s.m_x, s.m_y)) return;
                 m_canvas.Stroke(s.m_x - 2.4f * m_g, s.m_y, s.m_x, s.m_y - 2f * m_g, Pen);
                 m_canvas.Stroke(s.m_x, s.m_y - 2f * m_g, s.m_x + 2.4f * m_g, s.m_y, Pen);
             });
@@ -1765,6 +1791,9 @@ namespace Atlas
                 case Kind.Spire:
                     height = SpireHeightOf(s, g.m_seed);
                     half = 0.42f * height;
+                    // A spire in the water: its waterline reaching out either side (at most the
+                    // front pinnacle's width, SpireReach) and the shorter line under its foot.
+                    if (g.m_wet) return new Vector4(g.m_x - 0.62f * height, g.m_y - height, g.m_x + 0.62f * height, g.m_y + ThornLowDrop + 1f);
                     break;
                 case Kind.Thorn:
                     // The tallest thorn, its companions and waterline either side, and the
@@ -1844,17 +1873,17 @@ namespace Atlas
             ? m_grid.Sample(m_grid.m_height, x, y)
             : m_world.HeightAt(x * MetresPerPixel - HalfExtent, HalfExtent - y * MetresPerPixel);
 
-        // Whether a point lies on a crest line of the pressure ridges' noise.
-        private bool IsRidge(float x, float y) =>
-            1f - Math.Abs(2f * Noise(x / RidgeScale, y / RidgeScale, m_world.m_seed + 9) - 1f) >= RidgeBand;
+        // Whether a point lies on a crest line of the snow marks' band noise.
+        private bool OnSnowMarkBand(float x, float y) =>
+            1f - Math.Abs(2f * Noise(x / SnowMarkScale, y / SnowMarkScale, m_world.m_seed + 9) - 1f) >= SnowMarkBand;
 
         // Whether a neighbouring cell of the chevron grid could put a chevron of higher priority
-        // within RidgeGap of this one. Decided from the grid's hashes and the ridge noise alone,
+        // within SnowMarkGap of this one. Decided from the grid's hashes and the band noise alone,
         // without the ground, so the sheet and every tile agree; a neighbour off the snow can still
         // make a chevron give way, which only thins the bands' ends.
-        private bool RidgeCrowded(Spot s, float step)
+        private bool SnowMarkCrowded(Spot s, float step)
         {
-            float halfWidth = 2.4f * m_g, height = 2f * m_g, gap = RidgeGap * m_g;
+            float halfWidth = 2.4f * m_g, height = 2f * m_g, gap = SnowMarkGap * m_g;
             float priority = Unit(s.m_seed, 30);
             for (int dy = -1; dy <= 1; dy++)
             {
@@ -1866,7 +1895,7 @@ namespace Atlas
                     if (!(Unit(seed, 3) < 0.8f) || Unit(seed, 30) < priority) continue;
                     float x = (gx + 0.5f + (Unit(seed, 1) - 0.5f) * 0.9f) * step;
                     float y = (gy + 0.5f + (Unit(seed, 2) - 0.5f) * 0.9f) * step;
-                    if (Math.Abs(x - s.m_x) < 2f * halfWidth + gap && Math.Abs(y - s.m_y) < height + gap && IsRidge(x, y)) return true;
+                    if (Math.Abs(x - s.m_x) < 2f * halfWidth + gap && Math.Abs(y - s.m_y) < height + gap && OnSnowMarkBand(x, y)) return true;
                 }
             }
             return false;
@@ -2267,22 +2296,49 @@ namespace Atlas
             float edge = EdgeRadius / MetresPerPixel * EdgeFraction;
             if (dx * dx + dy * dy > edge * edge || !IsLandAt(cx, cy)) return;
             int seed = HashInt(x, z, m_world.m_seed + 78);
-            float s = Mathf.Lerp(1.1f, 1.6f, Mathf.Clamp01((prominence - SpireProminence) / 60f)) * G;
-            for (int step = 0; step < SpireShrinkSteps; step++, s *= SpireShrink)
+            float largest = Mathf.Lerp(1.1f, 1.6f, Mathf.Clamp01((prominence - SpireProminence) / 60f)) * G;
+            // On land at any size first; only a summit whose crag fits nowhere on it (an islet's)
+            // stands it in the shallows at its foot, rising out of the water over the islet.
+            for (int pass = 0; pass < 2; pass++)
             {
-                float height = SpireHeightOf(s, seed), half = height * 0.31f;
-                for (int k = 0; k < SpireAnchorSteps; k++)
+                float s = largest;
+                for (int step = 0; step < SpireShrinkSteps; step++, s *= SpireShrink)
                 {
-                    float anchor = SummitAnchor * (1f - k / (SpireAnchorSteps - 1f));
-                    float footY = cy + height * anchor;
-                    if (LandAt(cx, footY) != Land.Mistlands) continue;
-                    if (!IsLandAt(cx - half, footY) || !IsLandAt(cx + half, footY)) continue;
-                    if (!IsLandColumn(cx, footY, height * Mathf.Max(anchor, SpireLandBase)) || m_landDistance[PixelAt(cx, footY)] < 4f) continue;
-                    m_glyphs.Add(new Glyph { m_x = cx, m_y = footY, m_size = s, m_kind = Kind.Spire, m_seed = seed });
-                    m_spires.Add(new Vector3(cx, footY, height * 0.35f));
-                    return;
+                    float height = SpireHeightOf(s, seed), half = height * 0.31f;
+                    for (int k = 0; k < SpireAnchorSteps; k++)
+                    {
+                        float anchor = SummitAnchor * (1f - k / (SpireAnchorSteps - 1f));
+                        float footY = cy + height * anchor;
+                        var spire = new Glyph { m_x = cx, m_y = footY, m_size = s, m_kind = Kind.Spire, m_seed = seed, m_wet = pass == 1 };
+                        if (pass == 0)
+                        {
+                            if (LandAt(cx, footY) != Land.Mistlands) continue;
+                            if (!IsLandAt(cx - half, footY) || !IsLandAt(cx + half, footY)) continue;
+                            if (!IsLandColumn(cx, footY, height * Mathf.Max(anchor, SpireLandBase)) || m_landDistance[PixelAt(cx, footY)] < 4f) continue;
+                        }
+                        else if (!WetSpireFoot(spire)) continue;
+                        m_glyphs.Add(spire);
+                        m_spires.Add(new Vector3(cx, footY, height * 0.35f));
+                        return;
+                    }
                 }
             }
+        }
+
+        // Whether a spire may stand in the water at its foot: the Mistlands' sea, at most
+        // SpireDepth metres deep there, the foot SpireWater off land and its waterline and the
+        // shorter line under it (the glyph's box across its foot) over water, so it reads as rock
+        // rising out of the shallows. Sheet only: spires are sheet glyphs replayed by close-ups.
+        private bool WetSpireFoot(Glyph g)
+        {
+            int pixel = PixelAt(g.m_x, g.m_y);
+            if (m_land[pixel] != 0 || m_sea[pixel] == 0 || LandAt(g.m_x, g.m_y) != Land.Mistlands) return false;
+            if (m_waterDistance[pixel] / DistanceScale < SpireWater) return false;
+            float wx = g.m_x * MetresPerPixel - HalfExtent, wz = HalfExtent - g.m_y * MetresPerPixel;
+            if (m_world.HeightAt(wx, wz) - m_world.m_waterLevel < -SpireDepth) return false;
+            Vector4 box = GlyphBox(g);
+            return !IsLandAt(box.x, g.m_y) && !IsLandAt(box.z, g.m_y) && !IsLandAt(g.m_x, box.w)
+                && !IsLandAt(box.x, box.w) && !IsLandAt(box.z, box.w);
         }
 
         // Leaves out every Mistlands crag whose drawn shape overlaps a mountain peak's: where the
@@ -2412,13 +2468,15 @@ namespace Atlas
         private void PlaceTrees()
         {
             int first = m_glyphs.Count;
-            // Meadows: egg-shaped broadleaf crowns.
-            ScatterTrees(5.2f * m_t, 23, 0.95f, Kind.Broadleaf, s => InWood(s, Land.Meadows, 8f * m_t));
+            // Meadows: egg-shaped broadleaf crowns (and a small-tree grove's), off steep ground.
+            ScatterTrees(5.2f * m_t, 23, 0.95f, Kind.Broadleaf, s => InWood(s, Land.Meadows, 8f * m_t) && !SteepGround(s));
             // Black Forest, the Deep North and the Mountains: dense pines. Vanilla's Deep North
             // woods are snowy firs and pines and its Mountain woods firs, the same dark conifer
-            // mass on the map. Mountain firs keep off the peaks' bases (ClearOfPeakBases).
+            // mass on the map. Mountain firs keep off the peaks' bases (ClearOfPeakBases), the
+            // Black Forest's off steep ground.
             float pine = 11f * m_t;
-            ScatterTrees(5.5f * m_t, 24, 0.95f, Kind.Conifer, s => InWood(s, Land.BlackForest, pine) || InWood(s, Land.DeepNorth, pine)
+            ScatterTrees(5.5f * m_t, 24, 0.95f, Kind.Conifer, s => (InWood(s, Land.BlackForest, pine) && !SteepGround(s))
+                || InWood(s, Land.DeepNorth, pine)
                 || (InWood(s, Land.Mountain, pine) && ClearOfPeakBases(s.m_x, s.m_y, pine)));
             // A boulder field keeps only a few lone big pines (vanilla's firtree_blackforest2,
             // 1-2 a zone), standing on its open ground clear of the hills on its hilltops.
@@ -2426,7 +2484,7 @@ namespace Atlas
             {
                 Scatter(LonePineStep * m_t, LonePineSalt, s =>
                 {
-                    if (s.m_grove != Grove.Rocky || !(s.m_roll < LonePineOdds) || !IsOpenLand(s, Land.BlackForest, 3f)) return;
+                    if (s.m_grove != Grove.Rocky || !(s.m_roll < LonePineOdds) || !IsOpenLand(s, Land.BlackForest, 3f) || SteepGround(s)) return;
                     if (OnRiver(s.m_x, s.m_y) || OnRiver(s.m_x, s.m_y - pine * 0.6f) || !IsLandColumn(s.m_x, s.m_y, pine)) return;
                     if (!ClearOfPlaced(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = m_t, m_kind = Kind.Conifer, m_seed = s.m_seed })) return;
                     Add(s, Kind.Conifer, m_t);
@@ -2652,10 +2710,18 @@ namespace Atlas
             PlaceMist();
             PlaceDeadTrees();
             // Mistlands: crags on the real summits (PlaceSummitSpire) and filler crags on the steep,
-            // broken ground only, clear of the summits; high flat plateaus are not crags.
+            // broken ground only, clear of the summits; high flat plateaus are not crags. Some
+            // stand in the shallow sea off its coasts, as the game's rock spires do (WetSpireFoot).
             Scatter(18f * G, 28, s =>
             {
-                if (!s.m_isLand || s.m_land != Land.Mistlands || s.m_shore < 5f || !(s.m_roll < 0.35f)) return;
+                if (!s.m_isLand)
+                {
+                    if (!(s.m_roll < SpireWaterOdds) || NearSummitSpire(s.m_x, s.m_y, 7f * G)) return;
+                    var wet = new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.Spire, m_seed = s.m_seed, m_wet = true };
+                    if (WetSpireFoot(wet) && ClearOfMarks(wet)) m_glyphs.Add(wet);
+                    return;
+                }
+                if (s.m_land != Land.Mistlands || s.m_shore < 5f || !(s.m_roll < 0.35f)) return;
                 if (s.m_slope < SpireSlope * 1.3f || NearSummitSpire(s.m_x, s.m_y, 7f * G)) return;
                 if (!IsLandColumn(s.m_x, s.m_y, 22f * G)) return;
                 Add(s, Kind.Spire, G);
@@ -2967,9 +3033,12 @@ namespace Atlas
             // as if the ice were not there and the floes win (the user's call), as the Deep
             // North's coasts all carry an ice fringe and keeping the waves off it left them bare.
             m_floeSet = new HashSet<int>();
-            // The Ashlands' sea thorns are drawn before the waves; the waves keep off them and
-            // their waterlines.
-            foreach (Glyph thorn in m_thorns)
+            // The Ashlands' sea thorns and the Mistlands' spires in the water are drawn before the
+            // waves; the waves keep off them and their waterlines.
+            var rocks = new List<Glyph>(m_thorns);
+            foreach (Glyph g in m_glyphs)
+                if (g.m_kind == Kind.Spire && g.m_wet) rocks.Add(g);
+            foreach (Glyph thorn in rocks)
             {
                 Vector4 box = GlyphBox(thorn);
                 float half = (box.w - box.y) * 0.5f;

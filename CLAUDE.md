@@ -848,6 +848,16 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the outer crowns alone form the edge. Do not draw edge lines: a scalloped edge after the trees
   looks fuzzy with a gap inside it, and a plain line under the trees reads as height contours.
   Ground fills and hills keep `WoodClearance` from every wood.
+  **Steep ground**: no Meadows or Black Forest tree grows on ground steeper than 30 degrees in
+  game (`maxTilt` 30, the oaks 20), so the Meadows' broadleaves (a small-tree grove's small trees
+  too), the Black Forest's conifers and a boulder field's lone pines keep off broken ground:
+  where most land map pixels within `SteepWindow` 2 round the spot are `TreeTilt` 0.577 (tan 30)
+  or steeper (`WorldSource.MostlySteep`, from the world's map pixels, so close-ups agree with the
+  sheet; the user's choice over a per-pixel test, as the Mountains' firs have a window). About
+  4-9% of that land is that steep per pixel; valley sides steep across their whole width stay
+  bare (the user kept that: the game's finer mesh is steeper still).
+  The Mountains' (whose field already weighs the slope), the Deep North's and the Mistlands'
+  woods do not apply it.
   Every tree's body takes its biome's wood wash strictly, as a peak's takes the mountains'
   (`BodyKind.Wood`, `Paper.WoodTint`: the biome's tint plus `WoodWash`, none extra in the
   Mountains and the Deep North), so crowns at a wood's or a biome's edge keep their colour
@@ -884,13 +894,13 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   peaks: over `DeepNorthSummitHeight` 45 m a real summit (the summit rule, 53-63 a world) takes a
   peak and its other hilltops hills (`PlaceSummitsAndHills`, `HilltopCells`, `HillProminence`,
   half a width off woods as everywhere), the user's choice over summits alone or slope-gated
-  fillers (those landed on sea cliffs and the border moat's ramp). Chevrons keep off those
+  fillers (those landed on sea cliffs and the border moat's ramp). Snow marks keep off those
   summits and hilltops only (`NorthTops`, found once per world from its heights and kept on
   the `WorldSource` for the sheet and every close-up, since ground fills are drawn before the
   glyphs are placed). It used to fill all ground over 45 m (16-20% of the Deep North) with
   peaks and cut the woods there.
   Its trees are the Black Forest's conifers (same rule, salt 24). The trees' own `maxTilt` 30 is
-  not applied, as for the other biomes. `Mathf.PerlinNoise` under the factor means the offline
+  not applied there (the user's scope: only the Meadows and the Black Forest take it, below). `Mathf.PerlinNoise` under the factor means the offline
   harness cannot compute it: it sets `WorldSource.s_forestFactor` to Perlin's improved noise,
   which agrees with vanilla's Meadows mask on only about 71% of cells, so preview woods in the
   Deep North are in the wrong places (their character and density are about right).
@@ -968,7 +978,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the user's call); Smalltree Meadows `Smalltree`: vanilla blocks `beech1_meadows` (40),
   `birch1` and `birch2` and adds 100 `beech_small3/4_meadows` and bushes, so its big trees drop
   to about 0.17 (`beech2_meadows` 5-10 and the oaks) while it has more trees than a plain wood;
-  `SmalltreeBig` 0.17 of its spots (hash `SmalltreeRoll`) stay full-size broadleaves and
+  `SmalltreeBig` 0.085 of its spots (hash `SmalltreeRoll`; the game's share of 0.17 halved by
+  the user's call, as that many big crowns read as too many) stay full-size broadleaves and
   `SmalltreeKeep` 0.75 of the rest (hash `SmalltreeKeepRoll` 97) take the small-tree glyph,
   `Kind.SmallTree` (`SmallTrees.cs`: one small crown whose top is three rounded lobes, the
   classic map's leafy-tree sign, on a short trunk, its east side shaded over `SmallShade` 0.8 of a
@@ -992,9 +1003,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   whether the data is always ready when the minimap is; a sheet cached in a session without the
   data keeps plain woods while close-ups show the variants.
 - Ground fills on open land stay sparse, since the wash tells biomes apart. The Deep North is
-  a deliberate near-blank snowfield with rare chevrons, like the classic map's northern waste,
-  not snow stars, drifts, ice shards or cracked ice. Its woods (above) are the one dense mark;
-  the open snow between stays blank. Chevrons keep off the shore, off the woods (`IsOpenLand`,
+  a deliberate near-blank snowfield with rare snow marks (chevrons in thin winding bands,
+  `SnowMarkScale`, `OnSnowMarkBand`), like the classic map's northern waste, not snow stars,
+  drifts, ice shards or cracked ice. They are a mark of the snow, not a landform: the game has
+  no ice or pressure ridges on land, so code and docs call them snow marks. Its woods (above)
+  are the one dense mark; the open snow between stays blank. Snow marks keep off the shore, off the woods (`IsOpenLand`,
   as ground fills), off the Mountains' peak ground and the Deep North's summits and hilltops
   (searched mostly south of the mark, since a peak rises north of its foot) and off each other (a
   hash-only neighbour test like the marsh marks'), so the sheet and tiles agree. Ice floes are
@@ -1011,7 +1024,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   10 G grid at `FloeOdds` 0.5 there, their outline `FloeShoreGap` 1.5 px off land
   (`FloeRadius`). About 70% of the floes used to stand on the open Ocean. They are drawn after
   the waves and scrape them; the waves are laid as if the ice were not there (the user's call:
-  the floes win), so `m_floeSet` holds only the sea thorns. Lakes get no floes (the user's
+  the floes win), so `m_floeSet` holds only the sea thorns and the spires in the water. Lakes get no floes (the user's
   call) but a lighter water glaze (`WorldSource.m_northLake`, Deep North water not joined to the
   map's edge, at `Paper.NorthLakeWater` 0.55 of the water's strength, sheet and close-ups).
 - The Mistlands keep their wash. Mist banks are veils of three wavy lines (middle longest, a
@@ -1048,7 +1061,21 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   it over land (the top may rise over water), or it shrinks by `SpireShrink` up to
   `SpireShrinkSteps` sizes, else is left out. Filler crags stand only on ground steeper than
   1.3 `SpireSlope`, clear
-  of the summits; a fixed trapezoid on every high pixel reads as fence posts. Their bodies are
+  of the summits; a fixed trapezoid on every high pixel reads as fence posts.
+  **Spires in the water**: the game's `Mistlands_RockSpire1` stands down to 10 m under the water
+  line, so crags also stand in the Mistlands' sea where it is at most `SpireDepth` 10 m deep
+  (`WetSpireFoot`: sea water of the Mistlands at the foot, `SpireWater` 4 px off land, the box
+  across the foot and under it on water). Filler crags take `SpireWaterOdds` 0.25 of the 18 G
+  grid's water cells there (the game's density is not representable; demoo gets 14, Velen 16
+  at 0.2, against some 1,260-1,310 on land); a summit whose crag fits nowhere on land at any
+  size (an islet's) tries the same sizes and slides with its foot in the shallows (about 75 on
+  Velen), rising out of the water over the islet. A wet crag (`Glyph.m_wet`) is drawn as the sea
+  thorns are: its pinnacles' feet level, no base fade or skirt, a strictly level waterline
+  across each foot reaching `SpireReachMin`-`SpireReachMax` of its width past either foot (those
+  behind half as far), and under the front one a shorter line set east (`ThornLowDrop`). Its box
+  (`GlyphBox`) is 0.62 of its height either side. It stays relief (fog and pins as before), and
+  the waves keep off it as off the thorns (its box joins `m_floeSet`), though the Mistlands'
+  islet fields get no waves anyway. Sheet only, replayed by close-ups. Their bodies are
   filled as the peaks' are: scraped and marked `BodyKind.Mist`, with the peaks' `ScrapeBase` and
   base fade, so the glyph in front decides. The fill is the Mistlands' own wash as its woods have
   it (`Paper.WoodTint(Land.Mistlands)`, the same as its tree crowns), so the rock is that

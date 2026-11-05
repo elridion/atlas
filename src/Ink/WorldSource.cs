@@ -777,6 +777,24 @@ namespace Atlas
             return Math.Max(floor, m_waterLevel);
         }
 
+        // Whether most land map pixels within radius (a square) round the point are at least
+        // maxSlope steep: broken ground, not a lone steep pixel or a valley's thin bank.
+        public bool MostlySteep(float wx, float wz, int radius, float maxSlope)
+        {
+            int i = Index(wx, wz);
+            int x0 = i % m_size, z0 = i / m_size, land = 0, steep = 0;
+            for (int z = Math.Max(1, z0 - radius); z <= Math.Min(m_size - 2, z0 + radius); z++)
+                for (int x = Math.Max(1, x0 - radius); x <= Math.Min(m_size - 2, x0 + radius); x++)
+                {
+                    int j = z * m_size + x;
+                    if (m_height[j] <= m_waterLevel) continue;
+                    land++;
+                    float dx = m_height[j + 1] - m_height[j - 1], dz = m_height[j + m_size] - m_height[j - m_size];
+                    if (Mathf.Sqrt(dx * dx + dz * dz) / (2f * m_pixelSize) >= maxSlope) steep++;
+                }
+            return steep * 2 > land;
+        }
+
         // Height change per metre, from neighbouring map pixels.
         public float SlopeAt(float wx, float wz)
         {

@@ -182,9 +182,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   blocks): they read as a different, parchment-filled pin at low zoom. `PinGlyphs.StoneCircle`
   in a 26 px box: a ring of solid standing stones round a low altar in the map's oblique view,
   drawn back to front a line of paper apart. The ring's centre is on the location (the user's
-  call: standing on the front of the ring put the ring north of it): `StonesPlaceY`, 2 pin units
-  over the altar (`StonesCentreY`), where the eye takes the ring's middle with its taller back
-  stones (the user's call, after the pin reference showed the altar reading low), but the glyph is sorted by the front of the ring (`StonesFoot`, `PinGlyphs.Sink`: the
+  call: standing on the front of the ring put the ring north of it): `StonesPlaceY`, a quarter pin
+  unit over the altar (`StonesCentreY`; 2 px in the pin reference's 8x sheet view, the user's
+  call), but the glyph is sorted by the front of the ring (`StonesFoot`, `PinGlyphs.Sink`: the
   `Glyph`'s `m_y` lies that far below the place, `PinBox` adds it back), so a tree between the
   altar and the front stones is drawn behind the ring, not over its front.
   The ground inside the ring is not cleared: only the stones scrape what lies behind them.

@@ -786,11 +786,11 @@ namespace Atlas
         // altar in the map's oblique view, as its peaks and trees are drawn. Each stone is a solid
         // block, drawn from the back of the ring to the front, a line of paper apart from what
         // lies behind it. Its centre is on its place, since the ring stands round the spot (the
-        // user's call): StonesPlaceY, 2 units over the altar (StonesCentreY), where the eye takes
-        // the ring's middle with its taller stones behind (the user's call); it is sorted by the
-        // front of the ring (StonesFoot, Sink), where its nearest stones stand.
+        // user's call): StonesPlaceY, a quarter unit over the altar (StonesCentreY), 2 px in the
+        // pin reference's 8x sheet view (the user's call); it is sorted by the front of the ring
+        // (StonesFoot, Sink), where its nearest stones stand.
         private const float StonesCentreY = 15f;
-        private const float StonesPlaceY = StonesCentreY - 2f;
+        private const float StonesPlaceY = StonesCentreY - 0.25f;
         private const float StonesFoot = 19f;
         private const float StonesRadius = 9f;
         private const float StonesTilt = 0.42f;

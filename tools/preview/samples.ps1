@@ -1,10 +1,11 @@
 param([switch]$Publish)
-# Renders the 39 atlas samples into img/: the world, the region and the start island; each biome's
+# Renders the 40 atlas samples into img/: the world, the region and the start island; each biome's
 # close and wide view followed by its biome variants that the atlas draws differently (forced
 # with -Alt over the biome's own wide view (the Mountain variants over fir woods elsewhere), since the preview cannot compute biome variants: Smalltree
 # and Birch Meadows; a Kalhygge clear-cut, wide and close, Rock and Pinetree Black Forest; Bog and Hut Swamp;
 # Wolf, Drake and Fortress Mountain; Lox and Death Plains; Trees Mistlands); pins drawn into the
-# sheet round the start island and in the mountains; the pin catalogue and the sea mark catalogue.
+# sheet round the start island and in the mountains; the pin catalogue, the pin reference (each
+# glyph with a crosshair on its place) and the sea mark catalogue.
 # -Publish replaces the samples in the repo's screenshots/.
 $s = $PSScriptRoot
 $shots = (Resolve-Path "$s\..\..").Path + "\screenshots"
@@ -54,10 +55,11 @@ foreach ($run in 0..2)
     & "$s\run.ps1" -Views $runViews -Alt $alts 2>&1 | Select-Object -Last 2
 }
 & "$s\out\Preview.exe" --pincat "$s\img\pincat.png"
+& "$s\out\Preview.exe" --pinref "$s\img\pinref.png" | Select-Object -Last 1
 & "$s\out\Preview.exe" --seacat "$s\img\seacat.png"
 if (-not $Publish) { return }
 # Publish only a complete set: a failed render must not wipe the published samples.
-$need = @('overview','wide','start','tilesPinsStart4','tilesPinsMountain2','pincat','seacat','tilesClearcut4') + ($variants | ForEach-Object { $_[2] }) + ($biomes | ForEach-Object { "tilesb${_}4", "tilesb${_}2" })
+$need = @('overview','wide','start','tilesPinsStart4','tilesPinsMountain2','pincat','pinref','seacat','tilesClearcut4') + ($variants | ForEach-Object { $_[2] }) + ($biomes | ForEach-Object { "tilesb${_}4", "tilesb${_}2" })
 $missing = $need | Where-Object { -not (Test-Path "$s\img\$_.png") }
 if ($missing) { "render incomplete, samples not published: $($missing -join ', ')"; exit 1 }
 New-Item -ItemType Directory -Force $shots | Out-Null
@@ -82,5 +84,6 @@ foreach ($b in $biomes)
 Copy-Item "$s\img\tilesPinsStart4.png" ("$shots\atlas-sample-{0:D2}-pins-start.png" -f $n++)
 Copy-Item "$s\img\tilesPinsMountain2.png" ("$shots\atlas-sample-{0:D2}-pins-mountains.png" -f $n++)
 Copy-Item "$s\img\pincat.png" ("$shots\atlas-sample-{0:D2}-pin-catalogue.png" -f $n++)
+Copy-Item "$s\img\pinref.png" ("$shots\atlas-sample-{0:D2}-pin-reference.png" -f $n++)
 Copy-Item "$s\img\seacat.png" ("$shots\atlas-sample-{0:D2}-sea-catalogue.png" -f $n++)
 (Get-ChildItem $shots -Filter 'atlas-sample-*.png').Count

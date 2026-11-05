@@ -173,7 +173,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   layout is left off (`s_showNames`); instead the hovered pin's name shows beside it
   (`AtlasView.UpdateHover`: bold vanilla pin font in `Paper.PinInkColor` on a plain copy of
   its material with no outline, underlay or glow; the user's design). The preview takes `-Temple wx:wz` and
-  `-Pin GLYPH:wx:wz[:checked]`.
+  `-Pin GLYPH:wx:wz[:checked]`, and `-PinCross` marks their places (below).
   The Sacrificial Stones are a pin like every other, with no special treatment anywhere (the
   user's call, made twice): the game's own location pin for `StartTemple` from the snapshot,
   shown by `PlacePins`, drawn into the sheet and glimpsed like Haldor or the Forge, inked solid
@@ -201,7 +201,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   ones that mark places: location pins (`m_locationPins`), `m_spawnPointPin` and `m_deathPin`,
   which a saved-only filter leaves off the atlas. Daymark's dungeon and deposit pins are
   ordinary Icon2 and Icon3 pins. `Preview --pincat` renders the glyph table
-  (`screenshots/atlas-sample-28-pin-catalogue.png`). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
+  (`screenshots/atlas-sample-28-pin-catalogue.png`); `Preview --pinref` shows where each
+  glyph's place lies on it (`atlas-sample-29-pin-reference.png`, below). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
   ink over a gap of their own letters grown a little (a TextMeshPro underlay used only as a
   `Mask`, paper behind it), placed by `PinLayout` at the clearest of the eight classic positions
   by the sheet's ink density (`InkDensity`, a summed-area table built before the sheet is
@@ -1256,12 +1257,21 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `InkPainter` by reflection; painting the whole world takes about 2.5 s. It is a separate
   project, never shipped: `Atlas.csproj` removes `tools\**` from its items and the package holds
   only the DLL. `run.ps1 -World <name> -Views ...` renders into `tools/preview/img/` (ignored);
-  `samples.ps1 -Publish` refreshes the 39 samples in `screenshots/` (committed): 01-03 the world,
+  `samples.ps1 -Publish` refreshes the 40 samples in `screenshots/` (committed): 01-03 the world,
   region and start island, then each biome's close and wide view followed by its variants that the
   atlas draws differently, forced over the biome's own wide view with `-Alt` (one run per set of
   variants of different biomes; Bog and Hut Swamp in separate runs), 26-27 pins, 28 the pin
-  catalogue, 29 the sea mark catalogue
-  (`Preview --seacat`). A new alt biome in `GroveOf` gets a sample there. Refresh them
+  catalogue, 29 the pin reference, 30 the sea mark catalogue
+  (`Preview --seacat`). Pin places: `Preview --pinref <png>` draws every pen-drawn glyph (all
+  `PinGlyphs` kinds but `Traced`) on plain parchment with a 1 px cyan crosshair on its place:
+  the sheet 1:1, its pixels 8x, a 4x and an 8x close-up. Each is placed by the painter's own
+  `FindMarks`, `DrawGlyph` and `PinBox` (`Lift`, `Sink`) at level of detail 1, and the close-ups
+  replay that box through `InkCanvas.Pin` as `InkRecord.Replay` does, so the cross shows the
+  drawing's truth: the foot of elevation glyphs, the dot's centre, the Stones' altar. It prints
+  each glyph's ink extent round its place (`PINREF`, 8x close-up px). `run.ps1 -PinCross`
+  (`--pincross`) draws the same cross on every `-Pin` and `-Temple` place in any view but `trim`,
+  by that view's own sheet-to-image mapping: a full cross from 3x up, arms pointing in from
+  outside the glyph below (the `pins` views' test markers are not crossed). A new alt biome in `GroveOf` gets a sample there. Refresh them
   after visual changes. It needs Valheim's Managed DLLs (`VALHEIM_INSTALL` overrides the Steam
   path) and BepInEx's core DLLs from a Gale profile copied beside the exe, which `run.ps1` does,
   and writes `System.Console`, as `assembly_valheim` has a global `Console` class.

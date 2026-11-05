@@ -22,8 +22,10 @@ using UnityEngine;
 // --layers also writes the biome map, land wash and body masks of the whole sheet.
 // --alt NAME:wx:wz:radiusMetres forces an alt biome's effect on the woods there (ForceAltBiomes).
 // --temple wx:wz places the Sacrificial Stones there; --pin GLYPH:wx:wz[:checked] (repeatable)
-// draws a pin into the sheet.
-// Preview --pincat <png> and Preview --seacat <png> render the pin and sea mark boards alone.
+// draws a pin into the sheet; --pincross marks each such pin's place with a cyan crosshair in
+// every view but trim (the test pins of pins views are markers, not crossed).
+// Preview --pincat <png> and Preview --seacat <png> render the pin and sea mark boards alone;
+// Preview --pinref <png> every pin glyph with a crosshair on its place.
 internal static class Program
 {
     const BindingFlags All = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static;
@@ -34,6 +36,7 @@ internal static class Program
         s_atlas = Assembly.LoadFrom(Environment.GetEnvironmentVariable("ATLAS_DLL") ?? Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Atlas.dll"));
         if (args[0] == "--seacat") return SeaCatalogue(args[1]);
         if (args[0] == "--pincat") return PinCatalogue(args[1]);
+        if (args[0] == "--pinref") return PinReference(args[1]);
         string dir = args[0], outDir = args[1];
         Directory.CreateDirectory(outDir);
         var sw = Stopwatch.StartNew();
@@ -251,6 +254,30 @@ internal static class Program
 
         MethodInfo render = T("Atlas.DetailTile").GetMethod("Render", All);
         const float half = 10800f, mpp = 2f * half / canvas;
+        // --pincross: a crosshair on every --pin and --temple place, over an output of n x n
+        // pixels (rows from the south) showing the sheet from (left, top) at scale, before Save
+        // shrinks it by down (the lines down pixels wide, so one pixel after).
+        bool pinCross = Array.IndexOf(args, "--pincross") >= 0;
+        MethodInfo pinSize = T("Atlas.InkPainter").GetMethod("PinSheetSize", All);
+        void PinCross(byte[] rgba, int n, float left, float top, int scale, int down = 1)
+        {
+            if (!pinCross) return;
+            foreach (object pin in sheetPins)
+            {
+                float sx = ((float)pinType.GetField("m_x").GetValue(pin) + half) / mpp;
+                float sy = (half - (float)pinType.GetField("m_z").GetValue(pin)) / mpp;
+                float box = (float)pinSize.Invoke(null, new[] { pinType.GetField("m_glyph").GetValue(pin) });
+                CrossSpan(box, scale, down, out float gap, out float reach);
+                Crosshair((i, j, a) =>
+                {
+                    if (i < 0 || j < 0 || i >= n || j >= n) return;
+                    int o = ((n - 1 - j) * n + i) * 4;
+                    rgba[o] = (byte)(rgba[o] + (s_crossColour.r - rgba[o]) * a + 0.5f);
+                    rgba[o + 1] = (byte)(rgba[o + 1] + (s_crossColour.g - rgba[o + 1]) * a + 0.5f);
+                    rgba[o + 2] = (byte)(rgba[o + 2] + (s_crossColour.b - rgba[o + 2]) * a + 0.5f);
+                }, (sx - left) * scale, (sy - top) * scale, gap, reach, down);
+            }
+        }
         // The edge views' fog, laid once a run, the ink under it and the record groups it leaves out.
         FogLayer edgeLayer = null;
         byte[] edgeInk = null;
@@ -275,6 +302,7 @@ internal static class Program
                             Buffer.BlockCopy(tile, y * 1024, all, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
                     }
                 Dirt(all, 768, tx0 * tileSize, ty0 * tileSize, 3 * tileSize, scale, dirt, fog);
+                PinCross(all, 768, tx0 * tileSize, ty0 * tileSize, scale);
                 Save(Path.Combine(outDir, p[0] + ".png"), all, 768, 768, 1);
             }
             else if (p[0] == "biomes")
@@ -368,6 +396,7 @@ internal static class Program
                 byte[] rgba = Sheet(inkWith(layer.m_glimpse, layer.m_edge), layer.m_glimpsed, fog, left, top, w, scale);
                 OverlayFog(rgba, w * scale, left, top, w, scale, layer.m_fog, fog);
                 Dirt(rgba, w * scale, left, top, w, scale, dirt, fog);
+                PinCross(rgba, w * scale, left, top, scale);
                 Save(Path.Combine(outDir, p[0] + ".png"), rgba, w * scale, w * scale, 1);
             }
             else if (p[0].StartsWith("edge"))
@@ -417,6 +446,7 @@ internal static class Program
                 int ow = w * scale;
                 OverlayFog(rgba, ow, left, top, w, scale, edgeLayer.m_fog, fog);
                 Dirt(rgba, ow, left, top, w, scale, dirt, fog);
+                PinCross(rgba, ow, left, top, scale, down);
                 Save(Path.Combine(outDir, p[0] + ".png"), rgba, ow, ow, down);
             }
             else if (p[0] == "seamarks")
@@ -486,6 +516,7 @@ internal static class Program
                     }
                 DrawPins(all, 768, tx0 * tileSize, ty0 * tileSize + 3 * tileSize, scale, source, sheet, !p[0].StartsWith("pinsbare"), washed, fog);
                 Dirt(all, 768, tx0 * tileSize, ty0 * tileSize, 3 * tileSize, scale, dirt, fog);
+                PinCross(all, 768, tx0 * tileSize, ty0 * tileSize, scale);
                 Save(Path.Combine(outDir, p[0] + ".png"), all, 768, 768, 1);
             }
             else if (p[0] == "trim")
@@ -526,6 +557,7 @@ internal static class Program
             {
                 var rgba = Sheet(inkMips, washed, fog, 0, 0, canvas, 1);
                 Dirt(rgba, canvas, 0, 0, canvas, 1, dirt, fog);
+                PinCross(rgba, canvas, 0, 0, 1, 4);
                 Save(Path.Combine(outDir, "overview.png"), rgba, canvas, canvas, 4);
             }
             else
@@ -536,10 +568,260 @@ internal static class Program
                 var rgba = p.Length > 5 && p[5] == "sheet" ? Sheet(inkMips, washed, fog, left, top, w, scale)
                     : (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt(left, top, w, w), scale, 3f, 4, CancellationToken.None, null, null, null });
                 Dirt(rgba, w * scale, left, top, w, scale, dirt, fog);
+                PinCross(rgba, w * scale, left, top, scale);
                 Save(Path.Combine(outDir, p[0] + ".png"), rgba, w * scale, w * scale, 1);
             }
             System.Console.WriteLine($"{p[0]} {sw.ElapsedMilliseconds} ms");
         }
+        return 0;
+    }
+
+    // Every pen-drawn pin glyph (PinGlyph but Traced, which stays a marker traced from its
+    // sprite in game): glyph, the vanilla pin and what it is drawn as.
+    static readonly string[][] s_pinRows =
+    {
+        new[] { "Fire", "Fire (Icon0)", "campfire" },
+        new[] { "House", "House (Icon1)", "longhouse" },
+        new[] { "Hammer", "Hammer (Icon2)", "Mjolnir pendant" },
+        new[] { "Point", "Circle (Icon3)", "dot" },
+        new[] { "Portal", "Portal (Icon4)", "stone portal" },
+        new[] { "Death", "Death (tombstone)", "two steles on a plinth" },
+        new[] { "Bed", "Bed (spawn point)", "game's pin: bed" },
+        new[] { "Boss", "Boss (Vegvisir)", "game's pin: horned skull" },
+        new[] { "Tomb", "Hildir 1", "Smouldering Tombs: barrow" },
+        new[] { "Cavern", "Hildir 2", "Howling Caverns: cave mouth" },
+        new[] { "Tower", "Hildir 3", "Sealed Towers: tower" },
+        new[] { "StoneCircle", "Sacrificial Stones", "location: stone circle" },
+        new[] { "Trader", "Haldor", "location: bag" },
+        new[] { "Tent", "Hildir's camp", "location: tent" },
+        new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
+        new[] { "Forge", "Forge of Potential", "location: crowned pillar" },
+    };
+
+    // The pin location mark (--pinref, --pincross): a cyan that no ink or wash of the map uses.
+    static readonly Color32 s_crossColour = new Color32(0, 190, 255, 255);
+
+    // A crosshair on (x, y) in continuous output pixels (pixel i spans i to i + 1, y down): two
+    // lines width pixels wide, each pixel covered by its overlap with the line, from gap to
+    // reach either side of the point. plot(column, row, coverage) blends one pixel.
+    static void Crosshair(Action<int, int, float> plot, float x, float y, float gap, float reach, float width)
+    {
+        float w = width * 0.5f;
+        for (int i = (int)Math.Floor(x - w); i < x + w; i++)
+        {
+            float cover = Math.Min(i + 1, x + w) - Math.Max(i, x - w);
+            if (cover <= 0f) continue;
+            for (int j = (int)Math.Floor(y - reach); j < y + reach; j++)
+                if (Math.Abs(j + 0.5f - y) >= gap) plot(i, j, cover);
+        }
+        for (int j = (int)Math.Floor(y - w); j < y + w; j++)
+        {
+            float cover = Math.Min(j + 1, y + w) - Math.Max(j, y - w);
+            if (cover <= 0f) continue;
+            for (int i = (int)Math.Floor(x - reach); i < x + reach; i++)
+            {
+                // The vertical line already took the pixels it crosses.
+                if (Math.Abs(i + 0.5f - x) < w) continue;
+                if (Math.Abs(i + 0.5f - x) >= gap) plot(i, j, cover);
+            }
+        }
+    }
+
+    // The crosshair's gap and reach for a pin of box sheet pixels drawn at scale output pixels a
+    // sheet pixel: at 3x and up a full cross through the glyph; smaller, arms pointing at the
+    // place from outside the glyph, so a cross over a 10-26 px glyph does not hide it.
+    static void CrossSpan(float box, int scale, int down, out float gap, out float reach)
+    {
+        float drawn = box * scale;
+        gap = scale >= 3 ? 0f : drawn * 0.6f + down;
+        reach = scale >= 3 ? drawn * 0.75f + 6f * down : gap + 10f * down;
+    }
+
+    // --pinref <png>: where each pin's place (the world point it marks) lies on its glyph. Each
+    // glyph is placed as the sheet places a pin: InkPainter.FindMarks (its size, its foot sunk
+    // below the place by PinGlyphs.Sink), drawn by the painter's own DrawGlyph (PinBox: the
+    // box lifted by PinGlyphs.Lift, InkCanvas.Pin) on a plain parchment at the sheet's scale;
+    // then its recorded box replayed on close-up canvases as a close-up replays Op.Pin
+    // (InkCanvas.Pin scaling the box about the place by the close-up's pen scale). A cyan
+    // crosshair marks the place mapped from the pin's world point, so it shows the drawing's
+    // truth, not a second derivation: on the foot of elevation glyphs, the centre of the dot,
+    // the altar of the Stones. Columns: the sheet 1:1, the sheet's pixels magnified 8x, a 4x and
+    // an 8x close-up. Prints the ink's extent round each place (8x close-up pixels).
+    static int PinReference(string path)
+    {
+        const int magnify = 8, nameWidth = 270, pad = 14, header = 34, margin = 6, arms = 26;
+        int[] closeUps = { 4, 8 };
+        Type kind = T("Atlas.PinGlyph"), painterType = T("Atlas.InkPainter"), canvasType = T("Atlas.InkCanvas");
+        Type pinType = T("Atlas.SheetPin"), wsType = T("Atlas.WorldSource"), glyphs = T("Atlas.PinGlyphs");
+        MethodInfo sheetSize = painterType.GetMethod("PinSheetSize", All), findMarks = painterType.GetMethod("FindMarks", All);
+        MethodInfo drawGlyph = painterType.GetMethod("DrawGlyph", All), pinBox = painterType.GetMethod("PinBox", All);
+        MethodInfo pinOn = canvasType.GetMethod("Pin", All);
+        MethodInfo liftOf = glyphs.GetMethod("Lift", All), sinkOf = glyphs.GetMethod("Sink", All);
+        float mpp = Convert.ToSingle(painterType.GetField("MetresPerPixel", All).GetValue(null));
+        float half = Convert.ToSingle(painterType.GetField("HalfExtent", All).GetValue(null));
+        ConstructorInfo canvasNew = canvasType.GetConstructor(new[] { typeof(int), typeof(int), typeof(float), typeof(float), typeof(float) });
+        ConstructorInfo painterNew = painterType.GetConstructor(BindingFlags.NonPublic | BindingFlags.Instance, null,
+            new[] { wsType, canvasType, T("Atlas.TileGrid"), typeof(float), typeof(RectInt), typeof(CancellationToken) }, null);
+        object world = Activator.CreateInstance(wsType, true);
+        var paper = (Color32)T("Atlas.Paper").GetField("PaperColor", All).GetValue(null);
+        var pinInk = (Color32)T("Atlas.Paper").GetField("PinInkColor", All).GetValue(null);
+        var inkColour = (Color32)T("Atlas.Paper").GetField("InkColor", All).GetValue(null);
+        string[][] rows = s_pinRows;
+
+        // Every glyph's square of sheet pixels round its place; the columns fit the largest.
+        var squares = new int[rows.Length];
+        int largest = 0;
+        for (int r = 0; r < rows.Length; r++)
+        {
+            float box = (float)sheetSize.Invoke(null, new object[] { Enum.Parse(kind, rows[r][0]) });
+            squares[r] = Mathf.CeilToInt(box) + 2 * margin;
+            largest = Math.Max(largest, squares[r]);
+        }
+        int oneCell = largest + 2 * arms;
+        int c1 = nameWidth, c2 = c1 + oneCell + pad, c3 = c2 + largest * magnify + pad, c4 = c3 + largest * closeUps[0] + pad;
+        int width = c4 + largest * closeUps[1] + pad;
+        var rowTops = new int[rows.Length + 1];
+        rowTops[0] = header;
+        for (int r = 0; r < rows.Length; r++) rowTops[r + 1] = rowTops[r] + Math.Max(squares[r] * magnify, 70) + pad;
+        int height = rowTops[rows.Length] + 40;
+
+        // The board, rows top down, RGB.
+        var board = new float[width * height * 3];
+        for (int i = 0; i < width * height; i++)
+        {
+            board[i * 3] = paper.r;
+            board[i * 3 + 1] = paper.g;
+            board[i * 3 + 2] = paper.b;
+        }
+        void Blend(int x, int y, Color32 c, float a)
+        {
+            if (x < 0 || y < 0 || x >= width || y >= height || a <= 0f) return;
+            int o = (y * width + x) * 3;
+            board[o] += (c.r - board[o]) * a;
+            board[o + 1] += (c.g - board[o + 1]) * a;
+            board[o + 2] += (c.b - board[o + 2]) * a;
+        }
+        // A canvas's pins' red ink over the parchment, at (x0, y0) on the board, each canvas
+        // pixel magnified times (the sheet's pixels shown as blocks).
+        void Lay(object canvas, int x0, int y0, int times)
+        {
+            int cw = (int)Get(canvas, "m_width"), ch = (int)Get(canvas, "m_height");
+            var ink = (byte[])Get(canvas, "m_pinInk");
+            for (int y = 0; y < ch * times; y++)
+                for (int x = 0; x < cw * times; x++)
+                    Blend(x0 + x, y0 + y, pinInk, ink[(y / times) * cw + x / times] / 255f);
+        }
+        void Cross(float x, float y, float gap, float reach) =>
+            Crosshair((i, j, a) => Blend(i, j, s_crossColour, a), x, y, gap, reach, 1f);
+
+        var notes = new string[rows.Length][];
+        for (int r = 0; r < rows.Length; r++)
+        {
+            object glyph = Enum.Parse(kind, rows[r][0]);
+            float box = (float)sheetSize.Invoke(null, new object[] { glyph });
+            int d = squares[r], top = rowTops[r];
+            // The place: a sheet pixel's centre, as world metres the way a pin keeps it.
+            float wx = 2000.5f * mpp - half, wz = half - 2000.5f * mpp;
+            float px = (wx + half) / mpp, py = (half - wz) / mpp;
+            float left = Mathf.Floor(px - d * 0.5f), north = Mathf.Floor(py - d * 0.5f);
+
+            // The sheet: a painter at level of detail 1 places and draws it as Paint does.
+            object sheet = canvasNew.Invoke(new object[] { d, d, left, north, 1f });
+            object painter = painterNew.Invoke(new object[] { world, sheet, null, 1f, new RectInt((int)left, (int)north, d, d), CancellationToken.None });
+            Array pins = Array.CreateInstance(pinType, 1);
+            object pin = Activator.CreateInstance(pinType);
+            pinType.GetField("m_x").SetValue(pin, wx);
+            pinType.GetField("m_z").SetValue(pin, wz);
+            pinType.GetField("m_glyph").SetValue(pin, glyph);
+            pins.SetValue(pin, 0);
+            findMarks.Invoke(painter, new object[] { pins });
+            object mark = ((System.Collections.IList)Get(painter, "m_marks"))[0];
+            drawGlyph.Invoke(painter, new[] { mark });
+            var placed = (Vector3)pinBox.Invoke(null, new[] { mark });
+
+            int y0 = top + (rowTops[r + 1] - pad - top - d * magnify) / 2;
+            // 1:1, its arms pointing at the place from outside the glyph.
+            int ox = c1 + (oneCell - d) / 2, oy = y0 + (d * magnify - d) / 2;
+            Lay(sheet, ox, oy, 1);
+            CrossSpan(box, 1, 1, out float gap, out float reach);
+            Cross(ox + px - left, oy + py - north, gap, Math.Max(reach, gap + arms - 4));
+            // The sheet's pixels, 8x.
+            Lay(sheet, c2, y0, magnify);
+            Cross(c2 + (px - left) * magnify, y0 + (py - north) * magnify, 0f, d * magnify * 0.5f);
+            // Close-ups: the recorded box replayed as InkRecord.Replay replays Op.Pin.
+            string extent = "";
+            for (int k = 0; k < closeUps.Length; k++)
+            {
+                int scale = closeUps[k];
+                object canvas = canvasNew.Invoke(new object[] { d * scale, d * scale, left, north, (float)scale });
+                Set(canvas, "m_penScale", 1f / Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f)));
+                pinOn.Invoke(canvas, new object[] { glyph, placed.x, placed.y, placed.z, false });
+                int cx = k == 0 ? c3 : c4, cy = y0 + (d * magnify - d * scale) / 2;
+                Lay(canvas, cx, cy, 1);
+                float qx = (px - left) * scale, qy = (py - north) * scale;
+                Cross(cx + qx, cy + qy, 0f, d * scale * 0.5f);
+                if (k != closeUps.Length - 1) continue;
+                // The ink's extent round the place, in this close-up's pixels: the lowest inked
+                // row (the foot's outline) below it, the box of the ink's columns about it.
+                var ink = (byte[])Get(canvas, "m_pinInk");
+                int n = d * scale, bottom = -1, west = n, east = -1, topRow = n;
+                for (int y = 0; y < n; y++)
+                    for (int x = 0; x < n; x++)
+                    {
+                        if (ink[y * n + x] < 128) continue;
+                        bottom = Math.Max(bottom, y);
+                        topRow = Math.Min(topRow, y);
+                        west = Math.Min(west, x);
+                        east = Math.Max(east, x);
+                    }
+                extent = FormattableString.Invariant($"ink {qy - topRow:0.0} up, {bottom + 1 - qy:0.0} down, {qx - west:0.0} west, {east + 1 - qx:0.0} east");
+            }
+            float lift = (float)liftOf.Invoke(null, new[] { glyph }), sink = (float)sinkOf.Invoke(null, new[] { glyph });
+            string anchor = rows[r][0] == "Point" ? "place: centre (a plan sign)"
+                : rows[r][0] == "StoneCircle" ? "place: the ring's centre (altar)" : "place: the foot (ground line)";
+            notes[r] = new[] { rows[r][1], rows[r][2], anchor, FormattableString.Invariant($"box {box:0} px, lift {lift:0.###}, sink {sink:0.###}") };
+            System.Console.WriteLine($"PINREF {rows[r][0]} {extent} (8x close-up px round the place)");
+        }
+
+        using (var bitmap = new Bitmap(width, height, PixelFormat.Format24bppRgb))
+        {
+            BitmapData data = bitmap.LockBits(new Rectangle(0, 0, width, height), ImageLockMode.WriteOnly, PixelFormat.Format24bppRgb);
+            var line = new byte[data.Stride];
+            for (int y = 0; y < height; y++)
+            {
+                for (int x = 0; x < width; x++)
+                {
+                    int o = (y * width + x) * 3;
+                    line[x * 3] = (byte)(board[o + 2] + 0.5f);
+                    line[x * 3 + 1] = (byte)(board[o + 1] + 0.5f);
+                    line[x * 3 + 2] = (byte)(board[o] + 0.5f);
+                }
+                Marshal.Copy(line, 0, data.Scan0 + y * data.Stride, line.Length);
+            }
+            bitmap.UnlockBits(data);
+            using (var g = System.Drawing.Graphics.FromImage(bitmap))
+            using (var font = new System.Drawing.Font("Palatino Linotype", 15f, GraphicsUnit.Pixel))
+            using (var small = new System.Drawing.Font("Palatino Linotype", 12f, System.Drawing.FontStyle.Italic, GraphicsUnit.Pixel))
+            using (var ink = new SolidBrush(System.Drawing.Color.FromArgb(inkColour.r, inkColour.g, inkColour.b)))
+            {
+                g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
+                g.DrawString("pin (cyan: its place)", font, ink, 8, 8);
+                g.DrawString("sheet 1:1", font, ink, c1 + 4, 8);
+                g.DrawString("sheet pixels, 8x", font, ink, c2 + 4, 8);
+                g.DrawString("close-up 4x", font, ink, c3 + 4, 8);
+                g.DrawString("close-up 8x", font, ink, c4 + 4, 8);
+                for (int r = 0; r < rows.Length; r++)
+                {
+                    int y = (rowTops[r] + rowTops[r + 1] - pad) / 2 - 34;
+                    g.DrawString(notes[r][0], font, ink, 8, y);
+                    for (int k = 1; k < notes[r].Length; k++) g.DrawString(notes[r][k], small, ink, 8, y + 4 + 16 * k);
+                }
+                g.DrawString("Placed by InkPainter.FindMarks and PinBox, drawn by InkCanvas.Pin; close-ups replay the sheet's box. Traced sprites stay markers in game (not shown).",
+                    small, ink, 8, rowTops[rows.Length] + 8);
+            }
+            bitmap.Save(path, ImageFormat.Png);
+        }
+        System.Console.WriteLine(path);
         return 0;
     }
 
@@ -557,25 +839,7 @@ internal static class Program
         MethodInfo sheetSize = T("Atlas.InkPainter").GetMethod("PinSheetSize", All);
         MethodInfo bodyColor = T("Atlas.Paper").GetMethod("PinBodyColor", All);
         int largest = 26, bigCell = largest * bigScale + 16;
-        var rows = new[]
-        {
-            new[] { "Fire", "Fire (Icon0)", "campfire" },
-            new[] { "House", "House (Icon1)", "longhouse" },
-            new[] { "Hammer", "Hammer (Icon2)", "Mjolnir pendant" },
-            new[] { "Point", "Circle (Icon3)", "dot" },
-            new[] { "Portal", "Portal (Icon4)", "stone portal" },
-            new[] { "Death", "Death (tombstone)", "two steles on a plinth" },
-            new[] { "Bed", "Bed (spawn point)", "game's pin: bed" },
-            new[] { "Boss", "Boss (Vegvisir)", "game's pin: horned skull" },
-            new[] { "Tomb", "Hildir 1", "Smouldering Tombs: barrow" },
-            new[] { "Cavern", "Hildir 2", "Howling Caverns: cave mouth" },
-            new[] { "Tower", "Hildir 3", "Sealed Towers: tower" },
-            new[] { "StoneCircle", "Sacrificial Stones", "location: stone circle" },
-            new[] { "Trader", "Haldor", "location: bag" },
-            new[] { "Tent", "Hildir's camp", "location: tent" },
-            new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
-            new[] { "Forge", "Forge of Potential", "location: crowned pillar" },
-        };
+        string[][] rows = s_pinRows;
         string[] lands = { "Meadows", "BlackForest", "Swamp", "Mountain", "Plains", "Mistlands", "Ashlands", "DeepNorth", "Ocean" };
         string[] headers = { "Meadows", "Black F.", "Swamp", "Mountain", "Plains", "Mistlands", "Ashlands", "Deep N.", "Water" };
         // The biome columns start after the two close-ups, plain and checked.

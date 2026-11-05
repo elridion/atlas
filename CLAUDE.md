@@ -31,7 +31,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (dot, stone circle) and traced sprites stay centred.
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, a
   two-tongued flame a line of paper in front of two long low crossed logs with square ends sawn a
-  little off square (the user's design; round caps read as crossed bones), house: longhouse,
+  little off square (the user's design; round caps read as crossed bones), house: longhouse, a
+  dragon hall seen side-on, a low wall under a big gabled roof whose ridge runs out at each end
+  into a carved dragon head looking outward, the eave a line of paper and a paper door on the
+  long side toward the east end (the user's design; a gable end read as a modern home button,
+  hipped side views as a bungalow),
   the "hammer" as Mjolnir, a solid pendant silhouette after the Skane hammer, not a work hammer;
   circle: dot; portal: a ring of six solid stones sunk onto a thin stepped slab, open at the bottom where the
   opening meets the slab, every joint radial, the long top stone without a joint at the crown
@@ -45,14 +49,17 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   pins by `LocationSpriteData.m_name`: `StartTemple` the Sacrificial Stones (below),
   vendor/Haldor a tied bag whose tie is a line of paper through the neck (`TraderTie`, through
   the overlap of the grown tuft and sack, so the tuft stands apart; a pen lower it read as a
-  lidded jar), Hildir a tent with pennant, BogWitch a round-bellied cauldron (rim narrower than
+  lidded jar), Hildir a round bell tent, its cone over a low wall a line of paper apart
+  (`TentHemGap`, the hem line), a swallowtail pennant flying from the apex itself with no pole
+  (the user's design; a triangle tent read as an "A" or a peak), BogWitch a round-bellied cauldron (rim narrower than
   the belly, one line of paper under the rim, stubby feet, two big bubbles; the user's design),
   `AncientUpgradeStation` (the Forge of Potential) a ball on a tapering pillar with a stepped base and a paper V (the user's sketch),
   after the game's own icon, which follows the vanilla ward. These five are all the locations
   vanilla's minimap lists icons for (`Minimap.m_locationIcons` in SoftRef bundle `17245031`,
   names checked against the SoftRef manifest).
-  The campfire, bag, cauldron and bed are drawn in the hand (`PinGlyphs.Hand`, `HandInFront`,
-  `HandGrown`, the user's choice): corners rounded over `HandRound` of the outline pen
+  The campfire, longhouse, bag, tent, cauldron and bed are drawn in the hand (`PinGlyphs.Hand`,
+  `HandInFront`, `HandGrown`, `HandCut` for paper cuts, the user's choice): corners rounded over
+  `HandRound` of the outline pen (the tent's cloth softer, `TentRound`; the user's call)
   (`RoundCorners`, a tip stays a tip) and edges traced in uneven pieces nudged a hair off the
   line (`HandTrace`, salted per part), and no two edges ruled parallel, since exact outlines
   read as machine-made beside a hand-drawn map. Nudges over `HandNudge` read serrated in
@@ -126,9 +133,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   them (`Glimpsed`, `AtlasMap.s_glimpses`). The player's own pins in unexplored land and traced
   icons (other mods') stay markers in `AtlasView`, sized as the sheet's pins in sheet units
   (`InkPainter.PinSheetSize`), scaling with the map, not kept at a screen size.
-  The glimpse (the user's design): `Paper.Fog` lays its torn edge `GlimpseBand` 160 m out from
-  the explored land and round every glimpsed mark (a distance field from the explored pixels and
-  the marks), and writes a second texture, the glimpse, bare parchment whose opacity is the
+  The glimpse (the user's design): `Paper.Fog` lays a band `GlimpseBand` 160 m out from the
+  explored land and round every glimpsed mark (a distance field from the explored pixels and
+  the marks, `BandDepth`), across which the drawing thins out and stops (below, "Where the
+  drawing stops"), and writes a second texture, the glimpse, bare parchment whose opacity is the
   unexplored land softened at the explored edge. `AtlasView` lays it over the paper's wash and
   under the ink, so the band shows the map on untinted parchment; close-ups lay it over their
   wash before the glyphs' bodies (`DetailTile.Render`, `DetailTiles.SetGlimpse`, which drops
@@ -399,26 +407,54 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the `Illustration` layer, one record group each, which close-ups replay whole after their
   floes.
   The fog: a glyph shows or hides whole. Its box is kept in `InkRecord.m_seaMarks` and in the
-  cache's header; `Paper.Fog` lifts the fog over the box and `SeaMarkMargin` 60 m round it when
-  at least `SeaMarkShown` half the box is explored, and lays it there when less is, before the
-  blur, so the fog's torn edge (within about 53 m of the explored edge) never crosses the glyph (left to the fog alone, a
-  pass over a glyph shows half a monster). The fog's edge is torn paper, not a fade (the user's
-  design): the explored cover is blurred over `RipBlur` passes and fBm and fine noise move its
-  middle within that band (ragged bays and tongues with fibres), crisp over half a fog pixel,
-  with a paler rim just inside (the paper's torn core), the parchment's own hue brightened, never
-  white, and no shadow (the user's call: white and an ink-brown shadow read as chalk and pencil).
-  A tree the tear would cut is hidden whole (the user's design): the sheet keeps every tree's
-  footprint (InkRecord.m_trees, also in the disk cache) and Paper.HideCutTrees lays the fog's
-  parchment over each one beyond the explored land that the tear covers in part (CutByFog),
-  judged against the tear alone (judged against the patches too, each patch cut its neighbours
-  and the glimpse's woods were eaten from the tear inwards). Over the glimpse's same parchment it
-  reads as never drawn; about 40 ms for the sheet's 25,000 trees. Close-ups leave such trees of
-  their own out (RunTile, given the fog by DetailTiles.SetGlimpse).
-  The fog is 2048² (10.5 m a pixel), so close in the tear softens; a finer fog would cost a
-  four times bigger upload per recording. Since the box lies far out in open water, only water
-  is shown or hidden; a pass along its edge shows as a rounded bulge or bite in the explored
-  strip. `AtlasMap` opens the atlas only once the fog was laid with the uploaded sheet's marks
+  cache's header; `Paper.Fog` sets the band's depth over the box and `SeaMarkMargin` 60 m round
+  it to the explored land's when at least `SeaMarkShown` half the box is explored, and to far
+  past the band's end when less is (`SeaMarkDepth`, marked forced, so the fog may lie over the
+  explored part of a hidden one), before the depth is blurred, so the edge (its wobble and fade
+  within about 32 m of the band's end) never crosses the glyph (left to the fog alone, a pass
+  over a glyph shows half a monster). Since the box lies far out in open water, only water is
+  shown or hidden; a pass along its edge shows as a rounded bulge or bite in the explored strip.
+  `AtlasMap` opens the atlas only once the fog was laid with the uploaded sheet's marks
   (`s_fogMarks`).
+  **Where the drawing stops** (the user's design, chosen over a torn-paper edge, a plain fade, a
+  crisp line and a pencilled coast): both sides of the edge are the same parchment, so the
+  edge reads as the cartographer drawing less and less where they knew less and then stopping,
+  as on maps of the period where a coast simply ends in blank paper. No tear, rim or shadow (a
+  tear is damage to the sheet; a white rim and an ink-brown shadow read as chalk and pencil, the
+  user's call); a soft fade reads as a game's fog of war. `Paper.Fog` works on the band's depth
+  (`BandDepth`: 0 on explored land, 1 at the band's end), blurred twice and moved in and out by a
+  slow fBm (`EdgeGrain` 16 fog pixels, `EdgeWobble` 3 either way: bays and tongues, no fibres).
+  The lines (coast, rivers, ground marks) fade over the band's last `EdgeFade` 0.12 and half
+  that past it; explored pixels are never covered. From `ThinFrom` 0.3 of the band on, trees,
+  dead trees and wave strokes standing beyond the explored land are left out one by one, more
+  towards the end (`FogEdge.m_thin`, against a hash of the mark's foot, salt `ThinSalt`), and
+  every one the fog would cut is left out whole (`CutByFog`), so woods end in a few outlying
+  trees and the sea's strokes give out. Relief (peaks, hills, crags, spires, volcanoes) is never
+  thinned (holes in a range read as damage) but shown or left out whole (`Decide`, the user's
+  design): one the band's end would cut is drawn whole when its foot stands on the drawn side
+  or it reaches back into explored land (`MostlyBeyond`), the fog lifted over its rough shape
+  (`LiftFog`; a mountain seen from afar is sketched whole, so it may show its own height past the
+  band), else left out. Trees are judged after the lifts, against the fog as laid, or those in
+  front of a lifted peak showed in its opening. The marks are `SheetMarks` (`InkRecord.m_marks`,
+  also in the disk cache): every tree, every other glyph but pins and mist with its record group,
+  every wave stroke, each with its footprint, drawing order and rough shape (`MarkShape`, from
+  `InkPainter.FogShape`: a crown's ellipse, a pine's or peak's triangle, a hill's dome, else the
+  box). `Paper.Fog` returns the decisions as a `FogEdge` (per mark, plus the fog's opacity and
+  the thinning as planes). `InkWithMips` clears the marks left out from the sheet's ink and
+  bodies at the sheet's own resolution (`HiddenInk`), except where a kept mark drawn after one
+  (south of it) lies over it, so the trees in front keep their crowns; the pins' plane is never
+  cleared. A mark behind a hidden one stays without the part the hidden one scraped when the
+  sheet was painted. Laid as fog-resolution parchment patches instead, they nicked neighbouring
+  peaks. Close-ups leave the marks out exactly (`DetailTiles.SetGlimpse` takes the `FogEdge`):
+  their own trees by `CutByFog` on the planes, the sheet's glyph groups and wave strokes by
+  index (`FogEdge.HiddenGroups`, `InkRecord.Wave.m_index`), only for a record drawn with the
+  same pins (`FogEdge.Matches`, `SheetMarks.m_key`). With the `Glimpse` setting off the band
+  ends on the explored land's own edge: the fade starts on the explored pixels and the fog closes
+  about 30 m past them, and the glimpse takes the fog's opacity before the lifts, so no wash
+  shows round a lifted peak. About 0.8 s offline for the fog with Velen's 25,600 trees, 2,800
+  glyphs and 4,400 wave strokes, and about 0.5 s more for the sheet's ink. The fog is 2048²
+  (10.5 m a pixel), so close in its edge softens over a pixel; a finer fog would cost a four
+  times bigger upload per recording.
   Each glyph lies in a slightly darker wash of the sea's blue so it stands out a little:
   `SeaWash` draws the glyph again from its mark (kind, sheet point, mirror and scale, also kept
   in the cache's header) at 2x on a scratch canvas that keeps every erase's coverage

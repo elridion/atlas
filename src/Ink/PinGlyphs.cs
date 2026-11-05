@@ -154,6 +154,11 @@ namespace Atlas
         private const float HandNudge = 0.09f;
         private const float HandPieceMin = 2f;
         private const float HandPieceMax = 3.6f;
+        // A paper cut in the hand (HandCut): its corners rounded over HandCutRound of the paper
+        // pen and its edges nudged HandCutNudge as far as a part's, since a cut is narrower
+        // than a part and a full nudge shows as a wobble in it.
+        private const float HandCutRound = 0.4f;
+        private const float HandCutNudge = 0.6f;
 
         // How far a glyph is lifted off its pin's place, as a share of the pin's size: a pin drawn
         // in elevation stands on its place as a tree or a peak does, its foot (the ground line it
@@ -166,7 +171,7 @@ namespace Atlas
             switch (glyph)
             {
                 case PinGlyph.Fire: return 22.2f;
-                case PinGlyph.House: return 21.6f;
+                case PinGlyph.House: return HouseFoot;
                 case PinGlyph.Hammer: return 22.4f;
                 case PinGlyph.Portal: return PortalGround;
                 case PinGlyph.Death: return DeathFoot;
@@ -176,7 +181,7 @@ namespace Atlas
                 case PinGlyph.Cavern: return 21.6f;
                 case PinGlyph.Tower: return 21.8f;
                 case PinGlyph.Trader: return 22.6f;
-                case PinGlyph.Tent: return 21.6f;
+                case PinGlyph.Tent: return TentFoot;
                 case PinGlyph.Cauldron: return 22.2f;
                 case PinGlyph.Forge: return 22.2f;
                 case PinGlyph.StoneCircle: return StonesFoot;
@@ -286,11 +291,12 @@ namespace Atlas
             return points;
         }
 
-        // A part in the hand: its corners rounded to the pen and its edges traced, scraped from
-        // the body and inked solid out to the outline (the outline is the inked edge).
-        private static void Hand(InkCanvas ink, InkCanvas body, IList<Vector2> outline, int salt)
+        // A part in the hand: its corners rounded to the pen (round of the outline pen) and its
+        // edges traced, scraped from the body and inked solid out to the outline (the outline is
+        // the inked edge).
+        private static void Hand(InkCanvas ink, InkCanvas body, IList<Vector2> outline, int salt, float round = HandRound)
         {
-            List<Vector2> o = HandTrace(RoundCorners(outline, Pen * HandRound), salt);
+            List<Vector2> o = HandTrace(RoundCorners(outline, Pen * round), salt);
             body.EraseOutline(o, 0f);
             FillSolid(ink, o);
         }
@@ -305,12 +311,34 @@ namespace Atlas
         }
 
         // The same, inked in front of what is drawn, a line of paper gap pin units wide apart.
-        private static void HandInFront(InkCanvas ink, InkCanvas body, IList<Vector2> outline, float gap, int salt)
+        private static void HandInFront(InkCanvas ink, InkCanvas body, IList<Vector2> outline, float gap, int salt, float round = HandRound)
         {
-            List<Vector2> o = HandTrace(RoundCorners(outline, Pen * HandRound), salt);
+            List<Vector2> o = HandTrace(RoundCorners(outline, Pen * round), salt);
             body.EraseOutline(o, 0f);
             ink.EraseOutline(o, gap);
             FillSolid(ink, o);
+        }
+
+        // A paper cut through the ink in the hand, such as a door.
+        private static void HandCut(InkCanvas ink, IList<Vector2> outline, int salt)
+        {
+            ink.EraseOutline(HandTrace(RoundCorners(outline, PaperPen * HandCutRound), salt, HandNudge * HandCutNudge), 0f);
+        }
+
+        // A whole outline from its east half (from the top middle down to the bottom middle),
+        // mirrored about the box's middle with the west half squeeze as wide and the top leaning
+        // lean units east, so the two halves are no ruled mirror image. The foot stays put.
+        private static List<Vector2> MirrorHand(IList<Vector2> east, float squeeze, float lean, float top, float foot)
+        {
+            const float Middle = PinUnits * 0.5f;
+            var outline = new List<Vector2>(east);
+            for (int i = east.Count - 2; i >= 1; i--) outline.Add(new Vector2(Middle - (east[i].x - Middle) * squeeze, east[i].y));
+            for (int i = 0; i < outline.Count; i++)
+            {
+                float t = Mathf.Clamp01((foot - outline[i].y) / Mathf.Max(foot - top, 1e-3f));
+                outline[i] = new Vector2(outline[i].x + lean * t, outline[i].y);
+            }
+            return outline;
         }
 
         // Rounds every corner of a closed outline: the corner is replaced by a quadratic curve from
@@ -335,11 +363,10 @@ namespace Atlas
         }
 
         // Cuts each edge of a closed outline into pieces of uneven length and nudges every point
-        // up to HandNudge off the line, as a pen traces it. The salt is per part, so a pin draws
+        // up to amp (HandNudge for a part) off the line, as a pen traces it. The salt is per part, so a pin draws
         // the same everywhere.
-        private static List<Vector2> HandTrace(IList<Vector2> outline, int salt)
+        private static List<Vector2> HandTrace(IList<Vector2> outline, int salt, float amp = HandNudge)
         {
-            const float amp = HandNudge;
             var traced = new List<Vector2>();
             int n = outline.Count, k = 0;
             for (int i = 0; i < n; i++)
@@ -371,19 +398,31 @@ namespace Atlas
             }
         }
 
-        // A longhouse: solid walls under a gable roof with crossed ridge ends and a paper door.
+        // A longhouse (the user's design, the dragon hall): a long gabled hall seen side-on in
+        // the hand, a low wall under a big roof whose ridge runs out at each end into a carved
+        // dragon head looking outward, as on the stave churches and Valheim's own Wood Dragon
+        // Adornment. The roof is inked in front of the wall a line of paper apart (the eave), the
+        // door a paper cut on the long side toward the east end. A gable end facing the viewer
+        // read as a modern home button, and hipped side views as a bungalow.
+        private const float HouseFoot = 21.6f;
+        // The eave's line of paper, narrower than a full line so the low wall keeps its weight.
+        private const float HouseEaveGap = 0.5f;
+
         private static void House(InkCanvas ink, InkCanvas body)
         {
-            var outline = new List<Vector2>
-            {
-                new Vector2(3.6f, 13.2f), new Vector2(13f, 4.4f), new Vector2(22.4f, 13.2f), new Vector2(20.4f, 13.2f),
-                new Vector2(20.4f, 21.6f), new Vector2(5.6f, 21.6f), new Vector2(5.6f, 13.2f),
-            };
-            body.EraseOutline(outline, Pen * 0.5f);
-            Solid(ink, outline);
-            ink.Stroke(13f, 4.4f, 11.2f, 2.2f, FinePen);
-            ink.Stroke(13f, 4.4f, 14.8f, 2.2f, FinePen);
-            ink.Erase(new[] { new Vector2(11.6f, 16.8f), new Vector2(14.4f, 16.8f), new Vector2(14.4f, 23f), new Vector2(11.6f, 23f) });
+            Hand(ink, body, Points(5.4f, 15.6f, 20.8f, 15.4f, 21.6f, HouseFoot, 4.6f, HouseFoot), 1211);
+            List<Vector2> roof = Points(
+                4.2f, 15.7f, 4.5f, 10.8f,
+                // The west head: neck, chin, snout, brow, crest, back of the neck.
+                3.6f, 9.8f, 2.6f, 8.9f, 1.4f, 8.7f, 1.3f, 7.6f, 2.8f, 7.0f, 3.8f, 6.5f, 4.9f, 7.8f, 5.9f, 9.0f, 7.0f, 9.6f,
+                13f, 9.7f, 19.2f, 9.3f,
+                // The east head, a little different, as carved by hand.
+                20.2f, 8.8f, 21.1f, 7.6f, 22.2f, 6.3f, 23.2f, 6.8f, 24.7f, 7.4f, 24.8f, 8.5f, 23.5f, 8.7f, 22.5f, 9.6f, 21.8f, 10.5f,
+                // The eave bowing down a little to the middle, as the long walls bow out.
+                22.0f, 15.5f, 19.0f, 16.4f, 13f, 16.9f, 7.2f, 16.3f);
+            HandInFront(ink, body, roof, PaperPen * HouseEaveGap, 1212);
+            // The door runs on through the ground line, so it opens at the bottom.
+            HandCut(ink, Points(15.9f, 18.0f, 18.2f, 17.9f, 18.4f, 23f, 16.0f, 23f), 1213);
         }
 
         // The game's "hammer" pin is Mjolnir, Thor's hammer as the Norse wore it on pendants, a
@@ -787,16 +826,34 @@ namespace Atlas
             PaperLine(ink, tie, PaperPen * TraderTieWidth);
         }
 
-        // Hildir's camp: a solid tent with a pennant on its pole and a paper door.
+        // Hildir's camp (the user's design): a round bell tent in the hand, a cone bellying out a
+        // little over a low wall, its hem hanging in two broad scallops a side, inked in front of
+        // the wall a line of paper apart (the hem line). A swallowtail pennant flies from the
+        // apex itself, no pole: its hoist runs down into the cone's tip, so flag and tent are one
+        // solid. The cone is no mirror image (west half TentSqueeze as wide, top leaning
+        // TentLean east), the wall's top slopes. A triangle tent read as an "A" or a peak; four
+        // narrow scallops broke the hem line into dots at sheet size.
+        private const float TentFoot = 21.6f;
+        private const float TentApex = 7.8f;
+        // The hem line under the cone's bottom edge where it meets the wall's top.
+        private const float TentHem = 17.9f;
+        private const float TentSqueeze = 0.96f;
+        private const float TentLean = 0.35f;
+        // Softer than the hand's other parts (HandRound): the tent is cloth, and its tips (the
+        // cone's feet, the swallowtail's points) read as cut sheet metal at 0.45.
+        private const float TentRound = 0.7f;
+        // The hem's line of paper (and the gap where the pennant's hoist meets the cone), the
+        // user's three quarters of an earlier 0.75 line, so cone and wall read as one tent.
+        private const float TentHemGap = 0.5625f;
+
         private static void Tent(InkCanvas ink, InkCanvas body)
         {
-            var tent = new List<Vector2> { new Vector2(3.2f, 21.6f), new Vector2(13f, 6.4f), new Vector2(22.8f, 21.6f) };
-            body.EraseOutline(tent, Pen * 0.5f);
-            Solid(ink, tent);
-            ink.Stroke(13f, 6.4f, 13f, 2f, FinePen * 1.3f);
-            FillSolid(ink, new[] { new Vector2(13f, 2f), new Vector2(17.8f, 3.3f), new Vector2(13f, 4.6f) });
-            // The door's sides run on through the ground line, so it opens at the bottom.
-            ink.Erase(new[] { new Vector2(13f, 12.4f), new Vector2(16.55f, 22.6f), new Vector2(9.45f, 22.6f) });
+            Hand(ink, body, Points(4.9f, 16.9f, 21.3f, 16.4f, 21.8f, TentFoot, 4.2f, TentFoot), 1002, TentRound);
+            var east = Curve(Points(13f, TentApex, 15.5f, 10.6f, 18.9f, 13.6f, 23.1f, 16.3f), closed: false);
+            east.AddRange(Points(20.0f, 17.5f, 16.7f, 16.9f, 13f, 17.4f));
+            HandInFront(ink, body, MirrorHand(east, TentSqueeze, TentLean, TentApex, TentHem), PaperPen * TentHemGap, 1003, TentRound);
+            // The pennant's hoist on the apex (13 + TentLean), its foot inside the cone's tip.
+            Hand(ink, body, Points(13.0f, 9.2f, 12.9f, 2.6f, 13.7f, 1.9f, 21.4f, 3.0f, 18.9f, 4.7f, 21.1f, 6.3f, 14.6f, 6.8f, 14.0f, 9.2f), 1004, TentRound);
         }
 
         // The Bog Witch (the user's design): a round-bellied cauldron in the hand, the belly its

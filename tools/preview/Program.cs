@@ -15,6 +15,10 @@ using UnityEngine;
 //   name:wx:wz:widthPx:scale[:sheet] a square of widthPx sheet pixels (5.27 m) around world (wx, wz),
 //                                  as a detail tile at scale, or magnified from the sheet with :sheet
 //   tilesNAME:wx:wz:scale          3x3 separately rendered 256 px tiles at scale, stitched
+//   fogNAME:wx:wz:widthPx:scale:dz:halfWidth[:gx:gz]  the sheet under the fog of an explored strip
+//   edgeNAME:sheet:wx:wz:widthPx:scale[:down], edgeNAME:tiles:wx:wz:scale  the sheet or close-ups
+//                                  under the fog of --explore ex:ez:radius blobs (repeatable),
+//                                  with --glimpse gx:gz glimpses; --noglimpse as the setting off
 // --layers also writes the biome map, land wash and body masks of the whole sheet.
 // --alt NAME:wx:wz:radiusMetres forces an alt biome's effect on the woods there (ForceAltBiomes).
 // --temple wx:wz places the Sacrificial Stones there; --pin GLYPH:wx:wz[:checked] (repeatable)
@@ -208,16 +212,14 @@ internal static class Program
         sw.Restart();
         // The game's own composite: the sheet's ink and its sea illustrations' wash (when this
         // Atlas has it; older builds take the sheet alone, or the marks are left out with --nosea).
-        MethodInfo withGlimpse = Array.Find(paper.GetMethods(All), m => m.Name == "InkWithMips" && m.GetParameters().Length == 3);
-        MethodInfo withMarks = Array.Find(paper.GetMethods(All), m => m.Name == "InkWithMips" && m.GetParameters().Length == 2);
+        MethodInfo inkWithMips = paper.GetMethod("InkWithMips", All);
         object seaMarks = Array.IndexOf(args, "--nosea") >= 0 ? null : Get(record, "m_seaMarks");
-        // The sheet's ink as the game lays it, with the glimpse when this Atlas has one (null: none).
-        Func<byte[], byte[]> inkWith = glimpse => withGlimpse != null
-            ? (byte[])withGlimpse.Invoke(null, new object[] { sheet, seaMarks, glimpse })
-            : withMarks != null
-                ? (byte[])withMarks.Invoke(null, new object[] { sheet, seaMarks })
-                : (byte[])paper.GetMethod("InkWithMips", All, null, new[] { typeof(byte[]) }, null).Invoke(null, new object[] { sheet });
-        byte[] inkMips = inkWith(null);
+        // The sheet's ink as the game lays it, with the glimpse and the fog's edge (Paper.Fog's
+        // FogEdge, which marks are left out) when there is a fog (null: none).
+        Func<byte[], object, byte[]> inkWith = (glimpse, edge) => (byte[])inkWithMips.Invoke(null, new object[] { sheet, seaMarks, glimpse, edge });
+        var plainInk = Stopwatch.StartNew();
+        byte[] inkMips = inkWith(null, null);
+        System.Console.WriteLine($"ink laid in {plainInk.ElapsedMilliseconds} ms");
         object minimap = Activator.CreateInstance(T("Atlas.MinimapSampler"), All, null, new object[] { source }, null);
         object sampler = Activator.CreateInstance(T("Atlas.SampleCache"), All, null, new object[] { minimap }, null);
         const int canvas = 4096;
@@ -249,9 +251,14 @@ internal static class Program
 
         MethodInfo render = T("Atlas.DetailTile").GetMethod("Render", All);
         const float half = 10800f, mpp = 2f * half / canvas;
+        // The edge views' fog, laid once a run, the ink under it and the record groups it leaves out.
+        FogLayer edgeLayer = null;
+        byte[] edgeInk = null;
+        object edgeGroups = null;
         for (int a = 2; a < args.Length; a++)
         {
-            if (args[a].StartsWith("--") || args[a - 1] == "--alt" || args[a - 1] == "--temple" || args[a - 1] == "--pin") continue;
+            if (args[a].StartsWith("--") || args[a - 1] == "--alt" || args[a - 1] == "--temple" || args[a - 1] == "--pin"
+                || args[a - 1] == "--explore" || args[a - 1] == "--glimpse") continue;
             string[] p = args[a].Split(':');
             sw.Restart();
             if (p[0].StartsWith("tiles"))
@@ -263,7 +270,7 @@ internal static class Program
                 for (int ty = 0; ty < 3; ty++)
                     for (int tx = 0; tx < 3; tx++)
                     {
-                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, null, null });
+                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, null, null, null });
                         for (int y = 0; y < 256; y++)
                             Buffer.BlockCopy(tile, y * 1024, all, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
                     }
@@ -300,15 +307,13 @@ internal static class Program
             }
             else if (p[0].StartsWith("fog"))
             {
-                // fogNAME:wx:wz:widthPx:scale:dz:halfWidth lays the game's fog over the sheet square,
-                // for a snapshot that has explored only a level strip halfWidth metres either side
-                // of wz + dz, with the sheet's sea marks shown or hidden whole.
+                // fogNAME:wx:wz:widthPx:scale:dz:halfWidth[:gx:gz] lays the game's fog over the
+                // sheet square, for a snapshot that has explored only a level strip halfWidth
+                // metres either side of wz + dz, with the sheet's sea marks shown or hidden whole
+                // (fogNAMEplain without them) and a glimpse round a game mark at gx, gz.
                 float wx = float.Parse(p[1]), wz = float.Parse(p[2]), dz = float.Parse(p[5]), halfWidth = float.Parse(p[6]);
                 int w = int.Parse(p[3]), scale = int.Parse(p[4]);
                 int left = (int)((wx + half) / mpp) - w / 2, top = (int)((half - wz) / mpp) - w / 2;
-                object snapshot = Activator.CreateInstance(T("Atlas.Snapshot"), true);
-                Set(snapshot, "m_size", size);
-                Set(snapshot, "m_pixelSize", 12f);
                 var bits = new System.Collections.BitArray(size * size);
                 for (int z = 0; z < size; z++)
                 {
@@ -316,57 +321,61 @@ internal static class Program
                     if (Math.Abs(cz - (wz + dz)) > halfWidth) continue;
                     for (int x = 0; x < size; x++) bits[z * size + x] = true;
                 }
-                Set(snapshot, "m_explored", bits);
-                object marks = p[0].EndsWith("plain") ? null : Get(record, "m_seaMarks");
-                var fogRgba = new byte[fog * fog * 4];
-                var glimpseRgba = new byte[fog * fog * 4];
-                // :gx:gz opens a glimpse round a game mark there, out in the unexplored.
                 Vector2[] glimpses = p.Length >= 9 ? new[] { new Vector2(float.Parse(p[7]), float.Parse(p[8])) } : new Vector2[0];
-                MethodInfo fogOf = paper.GetMethod("Fog", All);
-                var fogTime = System.Diagnostics.Stopwatch.StartNew();
-                if (fogOf.GetParameters().Length >= 7)
+                FogLayer layer = LayFog(paper, record, bits, size, parchment, washed, fog, p[0].EndsWith("plain"), glimpses, Array.IndexOf(args, "--noglimpse") < 0);
+                byte[] rgba = Sheet(inkWith(layer.m_glimpse, layer.m_edge), layer.m_glimpsed, fog, left, top, w, scale);
+                OverlayFog(rgba, w * scale, left, top, w, scale, layer.m_fog, fog);
+                Dirt(rgba, w * scale, left, top, w, scale, dirt, fog);
+                Save(Path.Combine(outDir, p[0] + ".png"), rgba, w * scale, w * scale, 1);
+            }
+            else if (p[0].StartsWith("edge"))
+            {
+                // edgeNAME:sheet:wx:wz:widthPx:scale[:down] and edgeNAME:tiles:wx:wz:scale: the
+                // sheet square (shrunk by down) or 3x3 close-up tiles under the fog of a snapshot
+                // that explored ragged blobs (--explore ex:ez:radius, repeatable), with glimpses
+                // round --glimpse gx:gz and --noglimpse for the Glimpse setting off. The fog is
+                // laid once a run.
+                if (edgeLayer == null)
                 {
-                    // The sheet's trees, so those the torn edge would cut are hidden as in game;
-                    // fogNAMEnotrees leaves them, for timing the difference.
-                    object trees = p[0].EndsWith("notrees") ? null : Get(record, "m_trees");
-                    object[] fogArgs = fogOf.GetParameters().Length >= 8
-                        ? new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses, trees, true }
-                        : new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses, trees };
-                    fogOf.Invoke(null, fogArgs);
-                    System.Console.WriteLine($"fog laid in {fogTime.ElapsedMilliseconds} ms over {((System.Collections.ICollection)Get(record, "m_trees")).Count} trees");
+                    edgeLayer = LayFog(paper, record, ExploredBlobs(args, size), size, parchment, washed, fog, false, Glimpses(args), Array.IndexOf(args, "--noglimpse") < 0);
+                    var inkTime = Stopwatch.StartNew();
+                    edgeInk = inkWith(edgeLayer.m_glimpse, edgeLayer.m_edge);
+                    System.Console.WriteLine($"ink laid with the fog's edge in {inkTime.ElapsedMilliseconds} ms");
+                    edgeGroups = edgeLayer.m_edge.GetType().GetMethod("HiddenGroups", All).Invoke(edgeLayer.m_edge, new[] { record });
                 }
-                else fogOf.Invoke(null, new object[] { fogRgba, glimpseRgba, parchment, snapshot, marks, glimpses });
-                // The glimpse's bare parchment over the wash, under the ink, as the game lays it.
-                var glimpsed = (byte[])washed.Clone();
-                for (int i = 0; i < fog * fog; i++)
+                float wx = float.Parse(p[2]), wz = float.Parse(p[3]);
+                byte[] rgba;
+                int left, top, w, scale, down = 1;
+                if (p[1] == "tiles")
                 {
-                    float g = glimpseRgba[i * 4 + 3] / 255f;
-                    for (int c = 0; c < 3; c++) glimpsed[i * 3 + c] = (byte)(washed[i * 3 + c] + (glimpseRgba[i * 4 + c] - washed[i * 3 + c]) * g + 0.5f);
-                }
-                byte[] rgba = Sheet(withGlimpse != null ? inkWith(glimpseRgba) : inkMips, glimpsed, fog, left, top, w, scale);
-                int ow = w * scale;
-                var texel = new float[4];
-                for (int oy = 0; oy < ow; oy++)
-                {
-                    for (int ox = 0; ox < ow; ox++)
-                    {
-                        // Fog rows run from the south, as the output's do; bilinear as the game samples it.
-                        float fx = (left + (ox + 0.5f) / scale) * fog / canvas - 0.5f, fy = (canvas - (top + w - (oy + 0.5f) / scale)) * fog / canvas - 0.5f;
-                        int x0 = Mathf.Clamp((int)Math.Floor(fx), 0, fog - 2), y0 = Mathf.Clamp((int)Math.Floor(fy), 0, fog - 2);
-                        float tx = Mathf.Clamp01(fx - x0), ty = Mathf.Clamp01(fy - y0);
-                        int o = (oy * ow + ox) * 4;
-                        for (int c = 0; c < 4; c++)
+                    scale = int.Parse(p[4]);
+                    int tileSize = 256 / scale;
+                    int tx0 = (int)((wx + half) / mpp) / tileSize - 1, ty0 = (int)((half - wz) / mpp) / tileSize - 1;
+                    rgba = new byte[768 * 768 * 4];
+                    for (int ty = 0; ty < 3; ty++)
+                        for (int tx = 0; tx < 3; tx++)
                         {
-                            float a00 = fogRgba[(y0 * fog + x0) * 4 + c], a10 = fogRgba[(y0 * fog + x0 + 1) * 4 + c];
-                            float a01 = fogRgba[((y0 + 1) * fog + x0) * 4 + c], a11 = fogRgba[((y0 + 1) * fog + x0 + 1) * 4 + c];
-                            texel[c] = Lerp(Lerp(a00, a10, tx), Lerp(a01, a11, tx), ty);
+                            var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, edgeLayer.m_glimpse, edgeLayer.m_edge, edgeGroups });
+                            for (int y = 0; y < 256; y++)
+                                Buffer.BlockCopy(tile, y * 1024, rgba, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
                         }
-                        float alpha = texel[3] / 255f;
-                        for (int c = 0; c < 3; c++) rgba[o + c] = (byte)(rgba[o + c] * (1f - alpha) + texel[c] * alpha + 0.5f);
-                    }
+                    left = tx0 * tileSize;
+                    top = ty0 * tileSize;
+                    w = 3 * tileSize;
                 }
+                else
+                {
+                    w = int.Parse(p[4]);
+                    scale = int.Parse(p[5]);
+                    if (p.Length > 6) down = int.Parse(p[6]);
+                    left = (int)((wx + half) / mpp) - w / 2;
+                    top = (int)((half - wz) / mpp) - w / 2;
+                    rgba = Sheet(edgeInk, edgeLayer.m_glimpsed, fog, left, top, w, scale);
+                }
+                int ow = w * scale;
+                OverlayFog(rgba, ow, left, top, w, scale, edgeLayer.m_fog, fog);
                 Dirt(rgba, ow, left, top, w, scale, dirt, fog);
-                Save(Path.Combine(outDir, p[0] + ".png"), rgba, ow, ow, 1);
+                Save(Path.Combine(outDir, p[0] + ".png"), rgba, ow, ow, down);
             }
             else if (p[0] == "seamarks")
             {
@@ -426,7 +435,7 @@ internal static class Program
                 for (int ty = 0; ty < 3; ty++)
                     for (int tx = 0; tx < 3; tx++)
                     {
-                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, null, null });
+                        var tile = (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt((tx0 + tx) * tileSize, (ty0 + ty) * tileSize, tileSize, tileSize), scale, 3f, 1, CancellationToken.None, null, null, null });
                         for (int y = 0; y < 256; y++)
                             Buffer.BlockCopy(tile, y * 1024, all, (((2 - ty) * 256 + y) * 768 + tx * 256) * 4, 1024);
                     }
@@ -446,7 +455,7 @@ internal static class Program
                 int w = int.Parse(p[3]), scale = int.Parse(p[4]);
                 int left = (int)((wx + half) / mpp) - w / 2, top = (int)((half - wz) / mpp) - w / 2;
                 var rgba = p.Length > 5 && p[5] == "sheet" ? Sheet(inkMips, washed, fog, left, top, w, scale)
-                    : (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt(left, top, w, w), scale, 3f, 4, CancellationToken.None, null, null });
+                    : (byte[])render.Invoke(null, new object[] { record, wash, source, sampler, new RectInt(left, top, w, w), scale, 3f, 4, CancellationToken.None, null, null, null });
                 Dirt(rgba, w * scale, left, top, w, scale, dirt, fog);
                 Save(Path.Combine(outDir, p[0] + ".png"), rgba, w * scale, w * scale, 1);
             }
@@ -811,6 +820,117 @@ internal static class Program
     // The sheet as the game shows it zoomed out: the ink texture's top level (straight alpha,
     // rows from the south) over the washed paper (fog-sized, rows from the south), for the square
     // of w sheet pixels at (left, top), magnified by scale. Output rows run from the south.
+    // The fog the game lays for a snapshot (Paper.Fog), timed, with the glimpse's bare parchment
+    // laid over the wash as the game lays it under the ink.
+    sealed class FogLayer
+    {
+        public byte[] m_fog, m_glimpse, m_glimpsed;
+        public object m_edge;
+    }
+
+    static FogLayer LayFog(Type paper, object record, System.Collections.BitArray explored, int size, byte[] parchment, byte[] washed, int fog,
+        bool plain, Vector2[] glimpses, bool glimpseBand)
+    {
+        object snapshot = Activator.CreateInstance(T("Atlas.Snapshot"), true);
+        Set(snapshot, "m_size", size);
+        Set(snapshot, "m_pixelSize", 12f);
+        Set(snapshot, "m_explored", explored);
+        var layer = new FogLayer { m_fog = new byte[fog * fog * 4], m_glimpse = new byte[fog * fog * 4] };
+        var time = Stopwatch.StartNew();
+        layer.m_edge = paper.GetMethod("Fog", All).Invoke(null, new object[]
+        {
+            layer.m_fog, layer.m_glimpse, parchment, snapshot, plain ? null : Get(record, "m_seaMarks"), glimpses, Get(record, "m_marks"), glimpseBand,
+        });
+        object marks = Get(record, "m_marks");
+        System.Console.WriteLine($"fog laid in {time.ElapsedMilliseconds} ms over {((System.Collections.ICollection)Get(marks, "m_trees")).Count} trees, "
+            + $"{((System.Collections.ICollection)Get(marks, "m_glyphs")).Count} glyphs, {((System.Collections.ICollection)Get(marks, "m_waves")).Count} wave strokes");
+        layer.m_glimpsed = (byte[])washed.Clone();
+        for (int i = 0; i < fog * fog; i++)
+        {
+            float g = layer.m_glimpse[i * 4 + 3] / 255f;
+            for (int c = 0; c < 3; c++) layer.m_glimpsed[i * 3 + c] = (byte)(washed[i * 3 + c] + (layer.m_glimpse[i * 4 + c] - washed[i * 3 + c]) * g + 0.5f);
+        }
+        return layer;
+    }
+
+    // --explore ex:ez:radius (repeatable): the snapshot's explored land as ragged blobs, a few
+    // lobes and a wobble of a quarter of the radius, standing in for the paths a player takes.
+    static System.Collections.BitArray ExploredBlobs(string[] args, int size)
+    {
+        var blobs = new System.Collections.Generic.List<Vector3>();
+        for (int a = 2; a < args.Length - 1; a++)
+        {
+            if (args[a] != "--explore") continue;
+            string[] q = args[a + 1].Split(':');
+            blobs.Add(new Vector3(float.Parse(q[0]), float.Parse(q[1]), float.Parse(q[2])));
+        }
+        MethodInfo value = T("Atlas.Noise").GetMethod("Value", All);
+        var bits = new System.Collections.BitArray(size * size);
+        for (int z = 0; z < size; z++)
+        {
+            float cz = (z - size / 2 + 0.5f) * 12f;
+            for (int x = 0; x < size; x++)
+            {
+                float cx = (x - size / 2 + 0.5f) * 12f;
+                for (int b = 0; b < blobs.Count; b++)
+                {
+                    Vector3 blob = blobs[b];
+                    float dx = cx - blob.x, dz = cz - blob.y, r = blob.z;
+                    if (Math.Abs(dx) > r * 1.6f || Math.Abs(dz) > r * 1.6f) continue;
+                    float th = (float)Math.Atan2(dz, dx);
+                    float reach = r * (1f + 0.16f * (float)Math.Sin(3 * th + b * 1.7f) + 0.09f * (float)Math.Sin(5 * th + b * 2.9f) + 0.05f * (float)Math.Sin(11 * th + b))
+                        + ((float)value.Invoke(null, new object[] { cx / 260f, cz / 260f, 77 + b }) - 0.5f) * 0.25f * r;
+                    if (dx * dx + dz * dz > reach * reach) continue;
+                    bits[z * size + x] = true;
+                    break;
+                }
+            }
+        }
+        return bits;
+    }
+
+    // --glimpse gx:gz (repeatable): game marks out in the unexplored land, glimpsed.
+    static Vector2[] Glimpses(string[] args)
+    {
+        var glimpses = new System.Collections.Generic.List<Vector2>();
+        for (int a = 2; a < args.Length - 1; a++)
+        {
+            if (args[a] != "--glimpse") continue;
+            string[] q = args[a + 1].Split(':');
+            glimpses.Add(new Vector2(float.Parse(q[0]), float.Parse(q[1])));
+        }
+        return glimpses.ToArray();
+    }
+
+    // Lays the fog (fog x fog RGBA, rows from the south) over an output as Dirt lays the dirt.
+    static void OverlayFog(byte[] rgba, int n, float left, float top, int w, int scale, byte[] fogRgba, int fog)
+    {
+        const int canvas = 4096;
+        var texel = new float[4];
+        for (int oy = 0; oy < n; oy++)
+        {
+            float fy = (canvas - (top + w - (oy + 0.5f) / scale)) * fog / canvas - 0.5f;
+            int y0 = Mathf.Clamp((int)Math.Floor(fy), 0, fog - 2);
+            float ty = Mathf.Clamp01(fy - y0);
+            for (int ox = 0; ox < n; ox++)
+            {
+                float fx = (left + (ox + 0.5f) / scale) * fog / canvas - 0.5f;
+                int x0 = Mathf.Clamp((int)Math.Floor(fx), 0, fog - 2);
+                float tx = Mathf.Clamp01(fx - x0);
+                for (int c = 0; c < 4; c++)
+                {
+                    float a00 = fogRgba[(y0 * fog + x0) * 4 + c], a10 = fogRgba[(y0 * fog + x0 + 1) * 4 + c];
+                    float a01 = fogRgba[((y0 + 1) * fog + x0) * 4 + c], a11 = fogRgba[((y0 + 1) * fog + x0 + 1) * 4 + c];
+                    texel[c] = Lerp(Lerp(a00, a10, tx), Lerp(a01, a11, tx), ty);
+                }
+                float alpha = texel[3] / 255f;
+                if (alpha <= 0f) continue;
+                int o = (oy * n + ox) * 4;
+                for (int c = 0; c < 3; c++) rgba[o + c] = (byte)(rgba[o + c] * (1f - alpha) + texel[c] * alpha + 0.5f);
+            }
+        }
+    }
+
     static byte[] Sheet(byte[] ink, byte[] paper, int fog, int left, int top, int w, int scale)
     {
         const int canvas = 4096;

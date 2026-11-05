@@ -11,29 +11,30 @@ namespace Atlas
     /// Keeps each world's inked canvas on disk (BepInEx/cache/elridion.atlas), so a world is only
     /// drawn again when its pins change. Files are named by world id and checked against the world
     /// seed and the drawing version, and carry the key of the pins drawn in; bump Version whenever the drawing changes, so old sheets are drawn again. The sea's
-    /// illustrations (their boxes, for the fog, and the glyph drawn, for its wash) are kept in the
-    /// header, ahead of the sheet.
+    /// illustrations (their boxes, for the fog, and the glyph drawn, for its wash) and the marks
+    /// the fog's edge shows or leaves out whole (SheetMarks) are kept in the header, ahead of the
+    /// sheet.
     /// </summary>
     internal static class InkCache
     {
         private const int Magic = 0x534C5441; // "ATLS"
-        private const int Version = 9;
+        private const int Version = 10;
         // A file never holds more sea illustrations than this; more means it is damaged.
         private const int MostSeaMarks = 256;
-        // Nor more trees than this.
-        private const int MostTrees = 1 << 22;
+        // Nor more marks of a kind (trees, glyphs, wave strokes) than this.
+        private const int MostMarks = 1 << 22;
 
         private static string FilePath(long worldUid) =>
             Path.Combine(Paths.CachePath, AtlasPlugin.PluginGuid, $"{worldUid}.ink");
 
         // Worker thread. Returns null when there is no matching sheet; marks gets the sheet's sea
         // illustrations (InkRecord.m_seaMarks), which the fog needs before the world is painted,
-        // pinsKey the key of the pins it was drawn with (SheetPin.Key), and trees its trees'
-        // footprints (InkRecord.m_trees).
-        public static byte[] Load(long worldUid, int seed, out SeaMark[] marks, out long pinsKey, out Vector4[] trees)
+        // pinsKey the key of the pins it was drawn with (SheetPin.Key), and sheetMarks the marks
+        // its fog's edge decides on (InkRecord.m_marks).
+        public static byte[] Load(long worldUid, int seed, out SeaMark[] marks, out long pinsKey, out SheetMarks sheetMarks)
         {
             marks = null;
-            trees = null;
+            sheetMarks = null;
             pinsKey = 0L;
             string path = FilePath(worldUid);
             if (!File.Exists(path)) return null;
@@ -47,22 +48,19 @@ namespace Atlas
                     long key = reader.ReadInt64();
                     int count = reader.ReadInt32();
                     if (count < 0 || count > MostSeaMarks) return null;
-                    var read = new SeaMark[count];
+                    var seaMarks = new SeaMark[count];
                     for (int i = 0; i < count; i++)
                     {
-                        read[i] = new SeaMark
+                        seaMarks[i] = new SeaMark
                         {
                             m_west = reader.ReadSingle(), m_east = reader.ReadSingle(), m_south = reader.ReadSingle(), m_north = reader.ReadSingle(),
                             m_kind = reader.ReadInt32(), m_x = reader.ReadSingle(), m_y = reader.ReadSingle(), m_scale = reader.ReadSingle(),
                             m_mirror = reader.ReadBoolean(),
                         };
-                        if (read[i].m_kind < 0 || read[i].m_kind >= SeaGlyphs.Names.Length) return null;
+                        if (seaMarks[i].m_kind < 0 || seaMarks[i].m_kind >= SeaGlyphs.Names.Length) return null;
                     }
-                    int treeCount = reader.ReadInt32();
-                    if (treeCount < 0 || treeCount > MostTrees) return null;
-                    var boxes = new Vector4[treeCount];
-                    for (int i = 0; i < treeCount; i++)
-                        boxes[i] = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle());
+                    var read = new SheetMarks { m_key = key };
+                    if (!ReadMarks(reader, read.m_trees) || !ReadMarks(reader, read.m_glyphs) || !ReadMarks(reader, read.m_waves)) return null;
                     // Ink coverage, then the body masks (InkPainter.Paint).
                     var ink = new byte[InkPainter.CanvasSize * InkPainter.CanvasSize * InkPainter.SheetPlanes];
                     using (var zip = new GZipStream(file, CompressionMode.Decompress))
@@ -75,9 +73,9 @@ namespace Atlas
                             done += got;
                         }
                     }
-                    marks = read;
+                    marks = seaMarks;
                     pinsKey = key;
-                    trees = boxes;
+                    sheetMarks = read;
                     return ink;
                 }
             }
@@ -89,7 +87,7 @@ namespace Atlas
         }
 
         // Worker thread.
-        public static void Save(long worldUid, int seed, byte[] ink, IList<SeaMark> marks, long pinsKey, IList<Vector4> trees)
+        public static void Save(long worldUid, int seed, byte[] ink, IList<SeaMark> marks, long pinsKey, SheetMarks sheetMarks)
         {
             string path = FilePath(worldUid);
             try
@@ -118,14 +116,9 @@ namespace Atlas
                             writer.Write(mark.m_scale);
                             writer.Write(mark.m_mirror);
                         }
-                        writer.Write(trees.Count);
-                        foreach (Vector4 tree in trees)
-                        {
-                            writer.Write(tree.x);
-                            writer.Write(tree.y);
-                            writer.Write(tree.z);
-                            writer.Write(tree.w);
-                        }
+                        WriteMarks(writer, sheetMarks.m_trees);
+                        WriteMarks(writer, sheetMarks.m_glyphs);
+                        WriteMarks(writer, sheetMarks.m_waves);
                     }
                     using (var zip = new GZipStream(file, System.IO.Compression.CompressionLevel.Fastest))
                         zip.Write(ink, 0, ink.Length);
@@ -137,6 +130,43 @@ namespace Atlas
             {
                 Jotunn.Logger.LogWarning($"Could not cache the atlas at {path}; it will be drawn again next time: {e.Message}");
             }
+        }
+
+        // A list of marks: its count, then each one's footprint, order, shape and whether it is
+        // thinned. The record group is not kept: close-ups take it from their own record.
+        private static void WriteMarks(BinaryWriter writer, List<FogMark> marks)
+        {
+            writer.Write(marks.Count);
+            foreach (FogMark mark in marks)
+            {
+                writer.Write(mark.m_box.x);
+                writer.Write(mark.m_box.y);
+                writer.Write(mark.m_box.z);
+                writer.Write(mark.m_box.w);
+                writer.Write(mark.m_order);
+                writer.Write((byte)mark.m_shape);
+                writer.Write(mark.m_thinned);
+            }
+        }
+
+        private static bool ReadMarks(BinaryReader reader, List<FogMark> into)
+        {
+            int count = reader.ReadInt32();
+            if (count < 0 || count > MostMarks) return false;
+            for (int i = 0; i < count; i++)
+            {
+                var mark = new FogMark
+                {
+                    m_box = new Vector4(reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle(), reader.ReadSingle()),
+                    m_order = reader.ReadSingle(),
+                    m_shape = (MarkShape)reader.ReadByte(),
+                    m_thinned = reader.ReadBoolean(),
+                    m_group = -1,
+                };
+                if (mark.m_shape > MarkShape.Box) return false;
+                into.Add(mark);
+            }
+            return true;
         }
     }
 }

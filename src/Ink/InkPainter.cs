@@ -907,6 +907,7 @@ namespace Atlas
             {
                 painter.m_canvas.Record(record);
                 if (pins != null) record.m_pins = new List<SheetPin>(pins).ToArray();
+                record.m_marks.m_key = SheetPin.Key(record.m_pins);
             }
             painter.m_record = record;
             painter.Run();
@@ -961,11 +962,23 @@ namespace Atlas
                 bool tree = IsTree(glyph.m_kind);
                 m_canvas.m_layer = tree ? InkLayer.Tree : InkLayer.Glyph;
                 if (!tree) m_canvas.BeginGroup(Order(glyph));
+                // The fog's edge shows or leaves out whole every tree, relief and dead tree
+                // (Paper.Fog), so it needs their footprints, and close-ups the relief's group.
+                if (m_record != null && glyph.m_kind != Kind.Pin && glyph.m_kind != Kind.Mist)
+                {
+                    var mark = new FogMark
+                    {
+                        m_box = GlyphBox(glyph),
+                        m_order = Order(glyph),
+                        m_shape = FogShape(glyph.m_kind),
+                        m_thinned = glyph.m_kind == Kind.DeadTree,
+                        m_group = tree ? -1 : m_record.CurrentGroup,
+                    };
+                    if (tree) m_record.m_marks.m_trees.Add(mark);
+                    else m_record.m_marks.m_glyphs.Add(mark);
+                }
                 DrawGlyph(glyph);
                 if (!tree) m_canvas.EndGroup();
-                // The fog hides a tree its torn edge would cut (Paper.Fog), so it needs every
-                // tree's footprint.
-                else m_record?.m_trees.Add(GlyphBox(glyph));
             }
             DrawGrassOverMarks();
             MarkWideLakes();
@@ -984,6 +997,28 @@ namespace Atlas
             m_cancel.ThrowIfCancellationRequested();
             m_canvas.m_layer = InkLayer.Frame;
             DrawFrame();
+        }
+
+        // The rough shape of a glyph's ink in its footprint (GlyphBox), over which the sheet's ink
+        // is cleared when the fog's edge leaves it out: a crag's second peak, a volcano's flat top
+        // and a dead tree's limbs reach past a triangle or an ellipse.
+        private static MarkShape FogShape(Kind kind)
+        {
+            switch (kind)
+            {
+                case Kind.Broadleaf:
+                case Kind.PlainsTree:
+                case Kind.GiantTree:
+                    return MarkShape.Crown;
+                case Kind.Conifer:
+                case Kind.Peak:
+                case Kind.Spire:
+                    return MarkShape.Spire;
+                case Kind.Hill:
+                    return MarkShape.Dome;
+                default:
+                    return MarkShape.Box;
+            }
         }
 
         // The glyphs a detail tile draws afresh at its own level of detail.

@@ -4,13 +4,15 @@
 
 - In worlds without a map, "Record discoveries" at a cartography table now also updates your map,
   and the map key unrolls it: a hand-inked map in the style of a classic fantasy novel, with
-  unexplored lands left as blank parchment, torn away with a ragged edge a little beyond where
-  you have explored: in that band the map shows on bare, untinted parchment in a paler, greyer
-  ink, with no colour in its woods and peaks, a glimpse past what you know. A tree the torn
-  edge would cut in two is left out whole. The game's own marks out in unexplored land, such as a boss a Vegvisir showed
+  unexplored lands left as blank parchment. A little beyond where you have explored the map
+  shows on bare, untinted parchment in a paler, greyer ink, with no colour in its woods and
+  peaks, a glimpse past what you know, and across that band the drawing thins out and stops, as
+  if the cartographer did not know what came next: woods end in a few outlying trees, the sea's
+  wave strokes give out, coasts and rivers simply end, and every tree and mountain is drawn whole
+  or not at all. The game's own marks out in unexplored land, such as a boss a Vegvisir showed
   you, are drawn into the map with such a glimpse round them. Golden sparkles rise from the table while the map
-  is being updated and burst once it is done. A setting turns the glimpse off, so the torn edge
-  runs along what you have explored and the game's marks out there show as plain markers.
+  is being updated and burst once it is done. A setting turns the glimpse off, so the drawing
+  stops along what you have explored and the game's marks out there show as plain markers.
 - Every biome has a faint colour wash of its own under the ink, so biomes read apart at any zoom,
   and water is one even indigo wash ending crisply at the shore. The colours are thin glazes of pigments a northern illuminator of the
   period could have had.

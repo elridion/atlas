@@ -91,9 +91,13 @@ namespace Atlas
 
         public void EndGroup() => m_group = -1;
 
-        // One glyph of the sheet touching a tile: its foot and its calls, in order.
+        // The group being recorded (BeginGroup), or -1.
+        public int CurrentGroup => m_group;
+
+        // One glyph of the sheet touching a tile: its group, foot and calls, in order.
         public sealed class Group
         {
+            public int m_id;
             public float m_foot;
             public readonly List<int> m_calls = new List<int>();
         }
@@ -140,9 +144,8 @@ namespace Atlas
         public void Pin(InkLayer layer, PinGlyph glyph, float left, float top, float size, bool struck) =>
             m_calls.Add(new Call { m_op = Op.Pin, m_layer = layer, m_group = m_group, m_a = left, m_b = top, m_c = size, m_d = (int)glyph, m_e = struck ? 1f : 0f });
 
-        // Every tree on the sheet as its footprint (left, top, right, bottom, sheet pixels), for
-        // the fog to hide those its torn edge would cut (Paper.Fog); kept in the disk cache.
-        public List<Vector4> m_trees = new List<Vector4>(1 << 16);
+        // The marks the fog's edge shows or leaves out whole (Paper.Fog); kept in the disk cache.
+        public readonly SheetMarks m_marks = new SheetMarks();
 
         // The pins the sheet was drawn with, so close-ups keep the same clearings round them.
         public SheetPin[] m_pins = new SheetPin[0];
@@ -180,16 +183,32 @@ namespace Atlas
         // -2 for the same off an islet's shore (InkPainter.IsletAnchor). Close-ups draw the waves
         // again from these, moving each anchored one to their own finer coast, since a replayed
         // stroke stands off it.
+        // m_index is its place among the sheet's waves, as in m_marks.m_waves, where the fog's
+        // edge decides whether it is drawn (Paper.FogEdge.m_waves).
         public struct Wave
         {
             public float m_x, m_y, m_length, m_phase, m_lift;
             public int m_crests;
             public int m_anchor;
+            public int m_index;
         }
 
         private readonly List<Wave> m_waves = new List<Wave>();
+        // How far a wave stroke's ink reaches round its line: its crests' lift and a pen.
+        private const float WaveReach = 2.5f;
 
-        public void AddWave(Wave wave) => m_waves.Add(wave);
+        public void AddWave(Wave wave)
+        {
+            wave.m_index = m_waves.Count;
+            m_waves.Add(wave);
+            m_marks.m_waves.Add(new FogMark
+            {
+                m_box = new Vector4(wave.m_x - 1f, wave.m_y - wave.m_lift - WaveReach, wave.m_x + wave.m_length + 1f, wave.m_y + WaveReach),
+                m_order = wave.m_y,
+                m_shape = MarkShape.Box,
+                m_group = -1,
+            });
+        }
 
         // The waves overlapping the sheet rectangle, in the order they were drawn.
         public void Waves(float left, float top, float right, float bottom, List<Wave> into)
@@ -310,7 +329,7 @@ namespace Atlas
             {
                 Call c = m_calls[i];
                 if (c.m_layer != layer || c.m_group < 0 || byId.ContainsKey(c.m_group)) continue;
-                var group = new Group { m_foot = m_groupFeet[c.m_group] };
+                var group = new Group { m_id = c.m_group, m_foot = m_groupFeet[c.m_group] };
                 // A glyph's calls are consecutive; gather all of them, also those outside the tile.
                 int first = i;
                 while (first > 0 && m_calls[first - 1].m_group == c.m_group) first--;

@@ -25,9 +25,16 @@ namespace Atlas
 
         // Worker thread. Draws into canvas, which shows region (sheet pixels) at its magnification.
         public static void PaintTile(WorldSource world, InkRecord record, TileGrid grid, InkCanvas canvas, RectInt region, Rect scatter,
-            float lod, int scale, CancellationToken cancel, byte[] glimpse = null, byte[] fog = null)
+            float lod, int scale, CancellationToken cancel, byte[] glimpse = null, FogEdge edge = null, HashSet<int> hiddenGroups = null)
         {
-            var painter = new InkPainter(world, canvas, grid, lod, region, cancel) { m_scatter = scatter, m_glimpse = glimpse, m_fog = fog };
+            var painter = new InkPainter(world, canvas, grid, lod, region, cancel)
+            {
+                m_scatter = scatter,
+                m_glimpse = glimpse,
+                m_edge = edge,
+                m_hiddenGroups = hiddenGroups,
+                m_edgeMatches = edge != null && edge.Matches(record),
+            };
             // The sheet's pins, so the tile's trees and ground marks keep the same clearings.
             painter.FindMarks(record.m_pins);
             painter.TakeMarkOrders(record);
@@ -62,9 +69,10 @@ namespace Atlas
             record.Peaks(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, peaks);
             foreach (Vector3 peak in peaks) AddPeakBase(peak);
             PlaceTrees();
-            // Trees the fog's torn edge would cut are left out, as the sheet's are hidden whole.
-            if (m_fog != null && m_glimpse != null)
-                m_glyphs.RemoveAll(g => IsTree(g.m_kind) && Paper.CutByFog(m_fog, m_glimpse, GlyphBox(g)));
+            // Trees the band leaves out (cut by its end or thinned out) are left out here too, as
+            // the sheet's are, by the same rule on the tile's own trees.
+            if (m_edge != null && m_glimpse != null)
+                m_glyphs.RemoveAll(g => IsTree(g.m_kind) && Paper.CutByFog(m_edge, m_glimpse, GlyphBox(g)));
             // The scarps keep off the tile's own trees and the sheet's other glyphs, as on the
             // sheet, on the background under every glyph.
             foreach (Glyph glyph in m_glyphs) AddFootprint(glyph);
@@ -82,6 +90,8 @@ namespace Atlas
             // would cover it.
             List<InkRecord.Group> groups = record.Groups(InkLayer.Glyph, m_left, m_top, m_right, m_bottom);
             groups.Sort((a, b) => a.m_foot.CompareTo(b.m_foot));
+            // The sheet's glyphs the band leaves out (relief beyond its end, dead trees thinned out).
+            if (m_hiddenGroups != null) groups.RemoveAll(g => m_hiddenGroups.Contains(g.m_id));
             int next = 0;
             foreach (Glyph glyph in m_glyphs)
             {
@@ -100,8 +110,12 @@ namespace Atlas
             record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Frame), null);
         }
 
-        // The glimpse and fog a tile is drawn under (Paper.Fog), or null.
-        private byte[] m_glimpse, m_fog;
+        // The glimpse and the drawing's end a tile is drawn under (Paper.Fog), or null, the
+        // record groups the end leaves out, and whether its indices hold for this record.
+        private byte[] m_glimpse;
+        private FogEdge m_edge;
+        private HashSet<int> m_hiddenGroups;
+        private bool m_edgeMatches;
 
         private static int Layers(params InkLayer[] layers)
         {
@@ -135,6 +149,8 @@ namespace Atlas
             float reach = (WaveLongCrests + 1) * WaveCrest * 1.1f + TileWaveSearch;
             var waves = new List<InkRecord.Wave>();
             record.Waves(m_left - reach, m_top - 2f, m_right + reach, m_bottom + 2f, waves);
+            // The sheet's strokes the band leaves out.
+            if (m_edgeMatches) waves.RemoveAll(w => m_edge.m_waves[w.m_index]);
             if (waves.Count == 0) return;
             TileGrid grid = m_grid;
             float gridRight = grid.m_left + (grid.m_columns - 1) * grid.m_step;

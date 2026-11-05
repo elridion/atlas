@@ -19,6 +19,9 @@ nothing changes.
 The map is a drawing, not a live map: it does not show where you stand, and land you explore or
 pins you place appear only after your next visit to a cartography table. A narrow band round
 what you explored shows on bare parchment in a paler, greyer ink, a glimpse of what lies beyond.
+Across it the drawing thins out and stops, as if the cartographer did not know what came next:
+woods end in a few outlying trees, coasts and rivers simply end, and a mountain is drawn whole or
+not at all.
 
 ## Controls
 

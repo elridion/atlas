@@ -49,31 +49,30 @@ namespace Atlas
         private const float PaperScale = FogSize / 1024f;
         // Fog is lifted inside this band at the world edge, so the frame always shows.
         private const float FrameBand = 120f;
-        // The fog's edge is a torn sheet, not a fade: the explored cover is blurred over RipBlur
-        // 3x3 passes (about 5 fog pixels, 53 m, either side of the edge), and noise moves its
-        // middle within that band: RipTear by a slow fBm every RipGrain pixels for bays and
-        // tongues, RipFibres by fine noise every RipFibre pixels for the fibres. The edge is
-        // crisp over RipEdge of the cover (about half a pixel), with a paler rim RipRim deep
-        // (the torn paper's core), brightening the parchment's own hue by RipRimLight: white read as
-        // a chalk line along the tear. No shadow: it read as a pencil stroke (the user's call).
-        private const int RipBlur = 5;
-        private const float RipGrain = 9f;
-        private const float RipTear = 0.85f;
-        private const float RipFibre = 1.3f;
-        private const float RipFibres = 0.16f;
-        private const float RipEdge = 0.04f;
-        private const float RipRim = 0.12f;
-        private const float RipRimLight = 0.08f;
-        private const int RipSeed = 4127;
+        // Where the drawing stops (the user's design): across the glimpse's band the cartographer
+        // draws less and less, then stops, as on maps of the period where a coast simply ends in
+        // blank paper; no tear, rim or shadow (a tear is damage to the sheet). The band's end is
+        // moved in and out by a slow fBm every EdgeGrain fog pixels, EdgeWobble pixels either way
+        // (bays and tongues, no fibres). From ThinFrom of the band on, trees and wave strokes are
+        // left out one by one, more of them towards its end (EdgeThin, by a hash of their foot,
+        // salt ThinSalt), and the lines (coast, rivers, ground marks) fade over its last
+        // EdgeFade of it and half that past it.
+        private const float EdgeGrain = 16f;
+        private const float EdgeWobble = 3f;
+        private const int EdgeSeed = 4127;
+        private const float ThinFrom = 0.3f;
+        private const float EdgeFade = 0.12f;
+        private const int ThinSalt = 7919;
         // The glimpse past the explored land, in metres, and the distance field's steps a pixel
-        // (its bytes reach 255 / GlimpseSteps pixels, past the band and the tear).
+        // (its bytes reach 255 / GlimpseSteps pixels, well past the band).
         private const float GlimpseBand = 160f;
         private const float GlimpseSteps = 4f;
-        // A sea illustration is shown or hidden whole (SeaMarkFog): the fog is lifted over its box
-        // when at least SeaMarkShown of the box is explored and laid over it when less is, out to
-        // SeaMarkMargin metres round it, past the torn edge (which stays within RipBlur pixels,
-        // about 53 m, of the explored edge), so that edge never crosses the glyph. The box is
-        // sampled every SeaMarkStep metres, finer than vanilla's 12 m exploration grid.
+        // A sea illustration is shown or hidden whole (SeaMarkDepth): the band's depth is set to
+        // the explored land's over its box when at least SeaMarkShown of the box is explored and
+        // far beyond the band's end when less is, out to SeaMarkMargin metres round it, past the
+        // edge's wobble and fade (within about 32 m of the band's end), so the edge never crosses
+        // the glyph. The box is sampled every SeaMarkStep metres, finer than vanilla's 12 m
+        // exploration grid.
         private const float SeaMarkShown = 0.5f;
         private const float SeaMarkMargin = 60f;
         private const float SeaMarkStep = 6f;
@@ -784,11 +783,14 @@ namespace Atlas
         // sea illustrations (marks, or null for none). In the glimpse past the explored land
         // (glimpse, Fog's, or null for none) the bodies and washes give way to the bare parchment
         // the Glimpse layer lays under this one, and the terrain's ink turns GlimpseInkColor; the
-        // pins keep their red. The planes are read in place, not copied out: each is 16 MB.
+        // pins keep their red. The marks the band leaves out (edge, Fog's, or null for none) are
+        // cleared from the ink and bodies at the sheet's own resolution (HiddenInk); the pins'
+        // plane is never cleared. The planes are read in place, not copied out: each is 16 MB.
         // Levels are averaged premultiplied, so ink and body mix rightly.
-        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks, byte[] glimpse)
+        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks, byte[] glimpse, FogEdge edge = null)
         {
             int n = InkPainter.CanvasSize;
+            byte[] hidden = HiddenInk(edge);
             int plane = n * n;
             int total = 0;
             for (int size = n; size >= 1; size /= 2) total += size * size;
@@ -818,10 +820,12 @@ namespace Atlas
                 for (int x = 0; x < n; x++)
                 {
                     int i = from + x;
-                    float a = ink[i] / 255f;
+                    float keep = hidden != null ? 1f - hidden[i] / 255f : 1f;
+                    float a = ink[i] / 255f * keep;
                     float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
-                    // Bodies fade out in the glimpse, leaving the parchment under them.
-                    float open = (1f - a) * (1f - g);
+                    // Bodies fade out in the glimpse, leaving the parchment under them, and go
+                    // with the marks left out.
+                    float open = (1f - a) * (1f - g) * keep;
                     float m = bodyAt >= 0 ? sheet[bodyAt + i] / 255f : 0f;
                     float q = northAt >= 0 ? sheet[northAt + i] / 255f : 0f;
                     float k = mistAt >= 0 ? sheet[mistAt + i] / 255f : 0f;
@@ -857,7 +861,7 @@ namespace Atlas
                         {
                             float su = wash.At(x + 0.5f, sy + 0.5f) * seaAlpha;
                             if (su <= 0f) continue;
-                            float a = ink[from + x] / 255f;
+                            float a = ink[from + x] / 255f * (hidden != null ? 1f - hidden[from + x] / 255f : 1f);
                             float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
                             su *= (1f - a) * (1f - g);
                             float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
@@ -905,19 +909,21 @@ namespace Atlas
         }
 
         // Fills the alpha of an RGBA fog buffer whose colours are the parchment: opaque where the
-        // snapshot shows nothing explored, clear where it does, with a torn edge between. The
-        // edge lies GlimpseBand metres out from the explored land, and round each of glimpses
-        // (world x, z: the game's marks out in the unexplored), and glimpse (RGBA, the
-        // parchment's colours) gets that band, explored land excepted, as opacity: laid over the
-        // paper's wash and under the ink, it shows the map there on bare, untinted parchment, a
-        // glimpse past what was explored. marks are the sheet's sea illustrations, each shown or
-        // hidden whole (null when not known); trees are the sheet's trees' footprints, and those
-        // the torn edge would cut are hidden (HideCutTrees; null for none). With glimpseBand
-        // false (AtlasPlugin.Glimpse off) the torn edge lies on the explored land's own edge,
-        // glimpses are ignored, and the glimpse only lies under the fog, so no bare parchment or
-        // greyer ink shows past it.
-        public static void Fog(byte[] rgba, byte[] glimpse, byte[] parchment, Snapshot snapshot, IList<SeaMark> marks, IList<Vector2> glimpses,
-            IList<Vector4> trees = null, bool glimpseBand = true)
+        // snapshot shows nothing explored, clear where it does, and between them the band where
+        // the drawing thins out and stops. The band ends GlimpseBand metres out from the explored
+        // land and round each of glimpses (world x, z: the game's marks out in the unexplored),
+        // and glimpse (RGBA, the parchment's colours) gets that band, explored land excepted, as
+        // opacity: laid over the paper's wash and under the ink, it shows the map there on bare,
+        // untinted parchment, a glimpse past what was explored. marks are the sheet's sea
+        // illustrations, each shown or hidden whole (null when not known). sheetMarks are the
+        // sheet's trees, glyphs and wave strokes (null for none): the returned FogEdge says
+        // which are left out, which InkWithMips clears from the sheet's ink and close-ups leave
+        // out, and relief the band's end would cut is shown whole by lifting the fog over it.
+        // With glimpseBand false (AtlasPlugin.Glimpse off) the band's end lies on the explored
+        // land's own edge, glimpses are ignored, and the glimpse only lies under the fog, so no
+        // bare parchment or greyer ink shows past it.
+        public static FogEdge Fog(byte[] rgba, byte[] glimpse, byte[] parchment, Snapshot snapshot, IList<SeaMark> marks, IList<Vector2> glimpses,
+            SheetMarks sheetMarks = null, bool glimpseBand = true)
         {
             int n = FogSize;
             float metres = 2f * InkPainter.HalfExtent / n;
@@ -940,52 +946,49 @@ namespace Atlas
                 }
             }
             // The glimpse: the explored land's own edge, softened, is where the bare parchment
-            // starts; the fog's torn edge lies GlimpseBand further out, and round every glimpse.
+            // starts; the band reaches GlimpseBand further out, and round every glimpse.
             var unexplored = (float[])cover.Clone();
             Blur(unexplored, n);
             Blur(unexplored, n);
-            if (glimpseBand) Band(cover, inside, n, metres, glimpses);
+            var forced = new bool[n * n];
+            float[] depth = BandDepth(cover, inside, forced, n, metres, glimpseBand ? glimpses : null, glimpseBand);
+            // Where a sea illustration is shown whole, the glimpse's parchment is lifted too, or
+            // the unexplored part of its box shows the ink on bare paper with the sea gone from
+            // under it (a serpent's head standing on parchment over the explored strip).
+            var shownSea = new float[n * n];
             if (snapshot != null && marks != null)
-                foreach (SeaMark mark in marks) SeaMarkFog(cover, n, metres, snapshot, mark);
-            for (int pass = 0; pass < RipBlur; pass++) Blur(cover, n);
-            // The blurred cover runs from 0 to 1 across about 2 * RipBlur pixels of the edge. Noise
-            // on it moves the 0.5 crossing back and forth inside that band, so the edge tears in
-            // ragged bays and tongues with fine fibres on them; nowhere else changes.
-            for (int i = 0; i < n * n; i++)
             {
-                float c = cover[i];
-                if (c <= 0f || c >= 1f) continue;
-                int x = i % n, y = i / n;
-                float tear = (Fbm(x / RipGrain, y / RipGrain, RipSeed) - 0.5f) * RipTear
-                    + (Noise.Value(x / RipFibre, y / RipFibre, RipSeed + 5) - 0.5f) * RipFibres;
-                cover[i] = c + tear;
+                foreach (SeaMark mark in marks) SeaMarkDepth(depth, forced, shownSea, n, metres, snapshot, mark);
+                Blur(shownSea, n);
+                Blur(shownSea, n);
             }
+            Blur(depth, n);
+            Blur(depth, n);
+            float band = GlimpseBand / metres;
+            var opacity = new byte[n * n];
+            var thin = new byte[n * n];
             for (int i = 0; i < n * n; i++)
             {
                 int o = i * 4, p = i * 3;
-                int x = i % n, y = i / n;
-                float c = cover[i];
-                // The torn sheet, crisp over about half a pixel.
-                float a = Smooth(0.5f - RipEdge, 0.5f + RipEdge, c);
-                if (a > 0f)
+                float a = 0f;
+                if (inside[i])
                 {
-                    // Tearing pulls the paper's paler core out along the edge, as a fuzzy rim.
-                    float rim = a * (1f - Smooth(0.5f, 0.5f + RipRim, c)) * RipRimLight;
-                    rgba[o] = ToByte(parchment[p] * (1f + rim));
-                    rgba[o + 1] = ToByte(parchment[p + 1] * (1f + rim));
-                    rgba[o + 2] = ToByte(parchment[p + 2] * (1f + rim));
-                    rgba[o + 3] = ToByte(a * 255f);
-                    continue;
+                    int x = i % n, y = i / n;
+                    float t = depth[i] + (Fbm(x / EdgeGrain, y / EdgeGrain, EdgeSeed) - 0.5f) * 2f * EdgeWobble / band;
+                    a = Smooth(1f - EdgeFade, 1f + EdgeFade * 0.5f, t);
+                    // Explored land is never covered, wherever the wobble takes the edge, but a
+                    // sea illustration hidden whole may be.
+                    if (cover[i] <= 0f && !forced[i]) a = 0f;
+                    thin[i] = ToByte(Smooth(ThinFrom, 1f, t) * 255f);
                 }
-                // Clear, but still paper-coloured: filtering blends a clear pixel's colour into
-                // the edge beside it.
+                opacity[i] = ToByte(a * 255f);
                 rgba[o] = parchment[p];
                 rgba[o + 1] = parchment[p + 1];
                 rgba[o + 2] = parchment[p + 2];
-                rgba[o + 3] = 0;
+                rgba[o + 3] = opacity[i];
             }
             // The glimpse's bare parchment: wherever the land is not explored (softened at the
-            // explored edge); the fog lies over all of it but the band. The trees need it too.
+            // explored edge); the fog lies over all of it but the band.
             byte[] beyond = glimpse ?? new byte[n * n * 4];
             for (int i = 0; i < n * n; i++)
             {
@@ -993,18 +996,23 @@ namespace Atlas
                 beyond[o] = parchment[p];
                 beyond[o + 1] = parchment[p + 1];
                 beyond[o + 2] = parchment[p + 2];
-                beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
+                beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * (1f - shownSea[i]) * 255f) : (byte)0;
             }
-            if (trees != null) HideCutTrees(rgba, beyond, parchment, trees);
-            // Without the glimpse it takes the fog's own opacity: wherever it would show, the fog
-            // lies over it, and close-ups judge the trees the tear cuts by the fog alone.
+            var result = new FogEdge { m_marks = sheetMarks, m_edge = opacity, m_thin = thin };
+            if (sheetMarks != null) Decide(result, rgba, beyond);
+            // Without the glimpse it takes the band's opacity: wherever it would show, the fog
+            // lies over it. Not the fog's own once relief is lifted out of it: through the lift
+            // the unexplored ground's wash would show round the peak.
             if (!glimpseBand)
-                for (int i = 0; i < n * n; i++) beyond[i * 4 + 3] = rgba[i * 4 + 3];
+                for (int i = 0; i < n * n; i++) beyond[i * 4 + 3] = opacity[i];
+            return result;
         }
 
-        // Moves the fog's edge (cover, 1 where nothing is explored) GlimpseBand metres out from
-        // the explored land, and opens it round each of glimpses (world x, z): the glimpse's band.
-        private static void Band(float[] cover, bool[] inside, int n, float metres, IList<Vector2> glimpses)
+        // How deep each fog pixel lies in the band: 0 on the explored land, 1 at the band's end
+        // (GlimpseBand out from the explored pixels and from glimpses, the game's marks out in the
+        // unexplored). With glimpseBand false the band's end lies on the explored land's own edge:
+        // the fade starts on the explored pixels and the fog closes about 30 m past them.
+        private static float[] BandDepth(float[] cover, bool[] inside, bool[] forced, int n, float metres, IList<Vector2> glimpses, bool glimpseBand)
         {
             var seeds = new bool[n * n];
             for (int i = 0; i < n * n; i++) seeds[i] = inside[i] && cover[i] < 0.5f;
@@ -1020,41 +1028,75 @@ namespace Atlas
             var distance = new byte[n * n];
             new DistanceField(n).Compute(i => seeds[i], distance, GlimpseSteps);
             float band = GlimpseBand / metres;
+            var depth = new float[n * n];
             for (int i = 0; i < n * n; i++)
             {
                 if (!inside[i]) continue;
-                cover[i] = Mathf.Clamp01(distance[i] / GlimpseSteps - band + 0.5f);
+                float d = distance[i] / GlimpseSteps;
+                depth[i] = glimpseBand ? d / band : 1f - EdgeFade + d / band;
             }
+            return depth;
         }
 
-        // A tree the fog's torn edge would cut is hidden whole, as a sea illustration is: the fog's
-        // parchment is laid over its footprint, over the glimpse's same bare parchment, so it reads
-        // as never drawn. Only trees standing beyond the explored land are hidden.
-        // A tree is cut where the fog's opacity over its footprint spans these.
-        private const float TreeCutLeast = 0.1f;
-        private const float TreeCutMost = 0.9f;
-        // The patch laid over a hidden tree, as a share of the ellipse in its footprint.
-        private const float TreeCutGrow = 0.9f;
-
-        private static void HideCutTrees(byte[] fog, byte[] glimpse, byte[] parchment, IList<Vector4> trees)
+        // Which of the sheet's marks the band leaves out (FogEdge), against the glimpse (beyond:
+        // where the land is not explored). Relief the band's end would cut is never thinned
+        // (holes in a range read as damage) but drawn whole when its foot stands on the drawn
+        // side or it reaches back into the explored land, as a mountain seen from afar is
+        // sketched whole, the fog lifted over it; otherwise left out whole. Then trees, dead
+        // trees and wave strokes standing beyond the explored land are left out when the fog as
+        // laid, lifts included, would cut them or the thinning takes them (CutByFog): judged
+        // before the lifts, the trees in front of a lifted peak showed in its opening.
+        private static void Decide(FogEdge edge, byte[] fog, byte[] beyond)
         {
-            // Every tree is judged against the torn edge alone, then the cut ones are covered:
-            // judged against the patches too, each patch cut the trees round it in turn and a wood
-            // in the glimpse was eaten away from the tear inwards.
-            var cut = new List<Vector4>();
-            foreach (Vector4 tree in trees)
-                if (CutByFog(fog, glimpse, tree)) cut.Add(tree);
-            foreach (Vector4 tree in cut) CoverTree(fog, parchment, tree);
+            SheetMarks marks = edge.m_marks;
+            float canvas = InkPainter.CanvasSize;
+            edge.m_trees = new bool[marks.m_trees.Count];
+            edge.m_glyphs = new bool[marks.m_glyphs.Count];
+            edge.m_waves = new bool[marks.m_waves.Count];
+            var lifted = new List<FogMark>();
+            for (int i = 0; i < marks.m_glyphs.Count; i++)
+            {
+                FogMark mark = marks.m_glyphs[i];
+                if (mark.m_thinned || !SpansFog(edge.m_edge, mark.m_box)) continue;
+                bool standsClear = PlaneAt(edge.m_edge, (mark.m_box.x + mark.m_box.z) * 0.5f, canvas - mark.m_box.w) < 0.5f;
+                if (!standsClear && MostlyBeyond(beyond, mark.m_box)) edge.m_glyphs[i] = true;
+                else lifted.Add(mark);
+            }
+            if (lifted.Count > 0)
+            {
+                foreach (FogMark mark in lifted) LiftFog(fog, mark);
+                int n = FogSize;
+                var laid = new byte[n * n];
+                for (int i = 0; i < n * n; i++) laid[i] = fog[i * 4 + 3];
+                edge.m_edge = laid;
+            }
+            for (int i = 0; i < marks.m_trees.Count; i++) edge.m_trees[i] = CutByFog(edge, beyond, marks.m_trees[i].m_box);
+            for (int i = 0; i < marks.m_waves.Count; i++) edge.m_waves[i] = CutByFog(edge, beyond, marks.m_waves[i].m_box);
+            for (int i = 0; i < marks.m_glyphs.Count; i++)
+                if (marks.m_glyphs[i].m_thinned) edge.m_glyphs[i] = CutByFog(edge, beyond, marks.m_glyphs[i].m_box);
         }
 
-        // Whether the fog (Fog's RGBA) would cut a tree's footprint (left, top, right, bottom in
-        // sheet pixels) standing beyond the explored land (glimpse, Fog's): it covers part of it
-        // but not all. Close-ups leave such trees out (InkPainter.RunTile).
-        public static bool CutByFog(byte[] fog, byte[] glimpse, Vector4 box)
+        // Whether a footprint (left, top, right, bottom in sheet pixels) standing beyond the
+        // explored land (glimpse, Fog's) is left out by the band (edge): the thinning takes it
+        // (a hash of its foot against FogEdge.m_thin), or the band's end covers part of it but
+        // not all. Close-ups judge their own trees by it (InkPainter.RunTile).
+        public static bool CutByFog(FogEdge edge, byte[] glimpse, Vector4 box)
         {
             float canvas = InkPainter.CanvasSize;
             float footX = (box.x + box.z) * 0.5f;
             if (GlimpseAt(glimpse, footX, canvas - box.w) < 0.5f) return false;
+            if (Noise.Hash(Mathf.FloorToInt(footX), Mathf.FloorToInt(box.w), ThinSalt) < PlaneAt(edge.m_thin, footX, canvas - box.w)) return true;
+            return SpansFog(edge.m_edge, box);
+        }
+
+        // A mark is cut where the band's opacity over its footprint spans these.
+        private const float CutLeast = 0.1f;
+        private const float CutMost = 0.9f;
+
+        // Whether the band's opacity (a FogSize plane) covers part of a footprint but not all.
+        private static bool SpansFog(byte[] opacity, Vector4 box)
+        {
+            float canvas = InkPainter.CanvasSize;
             float least = 1f, most = 0f;
             const int Samples = 4;
             for (int sy = 0; sy < Samples; sy++)
@@ -1063,39 +1105,199 @@ namespace Atlas
                 for (int sx = 0; sx < Samples; sx++)
                 {
                     float x = box.x + (box.z - box.x) * (sx + 0.5f) / Samples;
-                    float a = GlimpseAt(fog, x, canvas - y);
+                    float a = PlaneAt(opacity, x, canvas - y);
                     least = Math.Min(least, a);
                     most = Math.Max(most, a);
                 }
             }
-            return most > TreeCutLeast && least < TreeCutMost;
+            return most > CutLeast && least < CutMost;
         }
 
-        // Lays the fog's parchment, opaque, over the ellipse in a tree's footprint.
-        private static void CoverTree(byte[] fog, byte[] parchment, Vector4 box)
+        // Whether most of a footprint lies beyond the explored land: relief reaching back into it
+        // is drawn whole, since leaving out only its unexplored part would cut it in two.
+        private static bool MostlyBeyond(byte[] glimpse, Vector4 box)
+        {
+            float canvas = InkPainter.CanvasSize;
+            int beyond = 0;
+            for (int sy = 0; sy < 3; sy++)
+            {
+                for (int sx = 0; sx < 3; sx++)
+                {
+                    float x = box.x + (box.z - box.x) * (sx + 0.5f) / 3f, y = box.y + (box.w - box.y) * (sy + 0.5f) / 3f;
+                    if (GlimpseAt(glimpse, x, canvas - y) >= 0.5f) beyond++;
+                }
+            }
+            return beyond >= 8;
+        }
+
+        // A FogSize plane (rows from the south) at a sheet point, bilinear, 0 to 1.
+        private static float PlaneAt(byte[] plane, float x, float y)
+        {
+            float scale = FogSize / (float)InkPainter.CanvasSize;
+            x = Mathf.Clamp(x * scale - 0.5f, 0f, FogSize - 1.001f);
+            y = Mathf.Clamp(y * scale - 0.5f, 0f, FogSize - 1.001f);
+            int x0 = (int)x, y0 = (int)y;
+            float fx = x - x0, fy = y - y0;
+            int i = y0 * FogSize + x0;
+            float bottom = plane[i] + (plane[i + 1] - plane[i]) * fx;
+            float top = plane[i + FogSize] + (plane[i + FogSize + 1] - plane[i + FogSize]) * fx;
+            return (bottom + (top - bottom) * fy) / 255f;
+        }
+
+        // Opens the fog (RGBA) over a relief mark's shape, so it shows whole across the band's
+        // end. At the fog's 10.5 m pixels the opening is soft by a pixel.
+        private static void LiftFog(byte[] fog, FogMark mark)
         {
             int n = FogSize;
-            float scale = n / (float)InkPainter.CanvasSize;
-            float cx = (box.x + box.z) * 0.5f * scale, cy = (InkPainter.CanvasSize - (box.y + box.w) * 0.5f) * scale;
-            float rx = (box.z - box.x) * 0.5f * scale * TreeCutGrow, ry = (box.w - box.y) * 0.5f * scale * TreeCutGrow;
-            float soft = Math.Max(1f, Math.Min(rx, ry));
-            int x0 = Math.Max(0, (int)(cx - rx - 1f)), x1 = Math.Min(n - 1, (int)(cx + rx + 1f));
-            int y0 = Math.Max(0, (int)(cy - ry - 1f)), y1 = Math.Min(n - 1, (int)(cy + ry + 1f));
+            float scale = n / (float)InkPainter.CanvasSize, canvas = InkPainter.CanvasSize;
+            Vector4 box = mark.m_box;
+            int x0 = Math.Max(0, (int)(box.x * scale) - 1), x1 = Math.Min(n - 1, (int)(box.z * scale) + 1);
+            int y0 = Math.Max(0, (int)((canvas - box.w) * scale) - 1), y1 = Math.Min(n - 1, (int)((canvas - box.y) * scale) + 1);
+            for (int y = y0; y <= y1; y++)
+            {
+                float sy = canvas - (y + 0.5f) / scale;
+                for (int x = x0; x <= x1; x++)
+                {
+                    // The shape's depth in sheet pixels, two to a fog pixel.
+                    float inside = ShapeDepth(mark, (x + 0.5f) / scale, sy, 1f);
+                    float open = Mathf.Clamp01(inside * scale + 0.5f);
+                    if (open <= 0f) continue;
+                    int q = (y * n + x) * 4 + 3;
+                    fog[q] = ToByte(fog[q] * (1f - open));
+                }
+            }
+        }
+
+        // How far a sheet point (x from the west, y from the north) lies inside a mark's shape
+        // (MarkShape) grown by grow, in sheet pixels; negative outside.
+        public static float ShapeDepth(FogMark mark, float x, float y, float grow)
+        {
+            Vector4 b = mark.m_box;
+            float left = b.x - grow, right = b.z + grow, top = b.y - grow, bottom = b.w + grow;
+            float inside = Math.Min(Math.Min(x - left, right - x), Math.Min(y - top, bottom - y));
+            float cx = (left + right) * 0.5f, rx = Math.Max(0.5f, (right - left) * 0.5f), height = Math.Max(0.5f, bottom - top);
+            switch (mark.m_shape)
+            {
+                case MarkShape.Crown:
+                {
+                    float ry = height * 0.5f, ex = (x - cx) / rx, ey = (y - (top + ry)) / ry;
+                    return (1f - Mathf.Sqrt(ex * ex + ey * ey)) * Math.Min(rx, ry);
+                }
+                case MarkShape.Spire:
+                {
+                    // Under both flanks, the apex at the top middle.
+                    float half = rx * (y - top) / height;
+                    return Math.Min(inside, (half - Math.Abs(x - cx)) * height / Mathf.Sqrt(height * height + rx * rx));
+                }
+                case MarkShape.Dome:
+                {
+                    float ex = (x - cx) / rx, ey = (bottom - y) / height;
+                    return Math.Min(inside, (1f - Mathf.Sqrt(ex * ex + ey * ey)) * Math.Min(rx, height));
+                }
+                default:
+                    return inside;
+            }
+        }
+
+        // A hidden mark's shape is grown by HiddenGrow sheet pixels, so its outline's pen goes
+        // too; the kept marks near hidden ones are filed in HiddenCell squares.
+        private const float HiddenGrow = 0.75f;
+        private const int HiddenCell = 32;
+
+        // Clears from the sheet's ink what the band leaves out (FogEdge): each such mark's shape,
+        // at sheet resolution, but not where a mark kept and drawn after it (south of it) lies
+        // over it, so the trees in front of a hidden one keep their crowns. A mark behind it
+        // stays without the part the hidden one scraped away when the sheet was painted, which
+        // only repainting could restore; close-ups leave the mark out exactly. Returns coverage
+        // (canvas order, rows from the north) or null when nothing is left out.
+        private static byte[] HiddenInk(FogEdge edge)
+        {
+            if (edge?.m_marks == null || edge.m_trees == null) return null;
+            SheetMarks marks = edge.m_marks;
+            var hidden = new List<FogMark>();
+            var kept = new List<FogMark>();
+            var waves = new List<FogMark>();
+            for (int i = 0; i < marks.m_trees.Count; i++) (edge.m_trees[i] ? hidden : kept).Add(marks.m_trees[i]);
+            for (int i = 0; i < marks.m_glyphs.Count; i++) (edge.m_glyphs[i] ? hidden : kept).Add(marks.m_glyphs[i]);
+            for (int i = 0; i < marks.m_waves.Count; i++)
+                if (edge.m_waves[i]) waves.Add(marks.m_waves[i]);
+            if (hidden.Count == 0 && waves.Count == 0) return null;
+            int n = InkPainter.CanvasSize, cells = n / HiddenCell;
+            // The kept marks near the hidden ones, filed by the cells their footprints touch.
+            var filed = new Dictionary<int, List<int>>();
+            var near = new HashSet<int>();
+            foreach (FogMark mark in hidden) Touch(mark.m_box, cells, cell => near.Add(cell));
+            for (int k = 0; k < kept.Count; k++)
+            {
+                int index = k;
+                Touch(kept[k].m_box, cells, cell =>
+                {
+                    if (!near.Contains(cell)) return;
+                    if (!filed.TryGetValue(cell, out List<int> list)) filed[cell] = list = new List<int>();
+                    list.Add(index);
+                });
+            }
+            var mask = new byte[n * n];
+            var front = new List<FogMark>();
+            var seen = new HashSet<int>();
+            foreach (FogMark mark in hidden)
+            {
+                Vector4 b = mark.m_box;
+                front.Clear();
+                seen.Clear();
+                Touch(b, cells, cell =>
+                {
+                    if (!filed.TryGetValue(cell, out List<int> list)) return;
+                    foreach (int k in list)
+                    {
+                        FogMark other = kept[k];
+                        if (other.m_order > mark.m_order && seen.Add(k) && Overlaps(other.m_box, b)) front.Add(other);
+                    }
+                });
+                Clear(mask, mark, front);
+            }
+            // A wave stroke lies in open water, drawn after every glyph: nothing kept lies on it.
+            front.Clear();
+            foreach (FogMark mark in waves) Clear(mask, mark, front);
+            return mask;
+        }
+
+        // Clears a hidden mark's shape in the mask (canvas order), less what the marks in front
+        // of it cover.
+        private static void Clear(byte[] mask, FogMark mark, List<FogMark> front)
+        {
+            int n = InkPainter.CanvasSize;
+            Vector4 b = mark.m_box;
+            int x0 = Math.Max(0, (int)(b.x - HiddenGrow) - 1), x1 = Math.Min(n - 1, (int)(b.z + HiddenGrow) + 1);
+            int y0 = Math.Max(0, (int)(b.y - HiddenGrow) - 1), y1 = Math.Min(n - 1, (int)(b.w + HiddenGrow) + 1);
             for (int y = y0; y <= y1; y++)
             {
                 for (int x = x0; x <= x1; x++)
                 {
-                    float dx = (x + 0.5f - cx) / rx, dy = (y + 0.5f - cy) / ry;
-                    float cover = Mathf.Clamp01((1f - Mathf.Sqrt(dx * dx + dy * dy)) * soft + 0.5f);
-                    if (cover <= 0f) continue;
-                    int o = (y * n + x) * 4, p = (y * n + x) * 3;
-                    float a = fog[o + 3] / 255f;
-                    float total = a + cover * (1f - a);
-                    for (int c = 0; c < 3; c++)
-                        fog[o + c] = ToByte((fog[o + c] * a + parchment[p + c] * cover * (1f - a)) / total);
-                    fog[o + 3] = ToByte(total * 255f);
+                    float px = x + 0.5f, py = y + 0.5f;
+                    float clear = Mathf.Clamp01(ShapeDepth(mark, px, py, HiddenGrow) + 0.5f);
+                    if (clear <= 0f) continue;
+                    foreach (FogMark other in front)
+                    {
+                        clear *= 1f - Mathf.Clamp01(ShapeDepth(other, px, py, 0f) + 0.5f);
+                        if (clear <= 0f) break;
+                    }
+                    byte value = ToByte(clear * 255f);
+                    int i = y * n + x;
+                    if (value > mask[i]) mask[i] = value;
                 }
             }
+        }
+
+        private static bool Overlaps(Vector4 a, Vector4 b) => a.x < b.z && b.x < a.z && a.y < b.w && b.y < a.w;
+
+        // Calls visit with every HiddenCell cell a footprint touches.
+        private static void Touch(Vector4 box, int cells, Action<int> visit)
+        {
+            int x0 = Mathf.Clamp((int)(box.x / HiddenCell), 0, cells - 1), x1 = Mathf.Clamp((int)(box.z / HiddenCell), 0, cells - 1);
+            int y0 = Mathf.Clamp((int)(box.y / HiddenCell), 0, cells - 1), y1 = Mathf.Clamp((int)(box.w / HiddenCell), 0, cells - 1);
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++) visit(y * cells + x);
         }
 
         private static float Smooth(float from, float to, float value)
@@ -1104,11 +1306,14 @@ namespace Atlas
             return t * t * (3f - 2f * t);
         }
 
-        // Shows or hides one sea illustration whole, before the fog is blurred: the fog's own soft
-        // edge across a monster reads as half a monster. Its box lies far out in open water, so
-        // lifting the fog off a little unexplored sea, or laying it over a little explored sea,
-        // shows or hides nothing but water.
-        private static void SeaMarkFog(float[] cover, int n, float metres, Snapshot snapshot, SeaMark mark)
+        // A sea illustration shown or hidden whole: before the band's depth is blurred, its box and
+        // SeaMarkMargin round it are set to the explored land's depth or far past the band's end,
+        // and marked forced, so the fog may lie over its explored part when it is hidden. Its box
+        // lies far out in open water, so lifting the fog off a little unexplored sea, or laying it
+        // over a little explored sea, shows or hides nothing but water; left to the fog alone, a
+        // pass over a glyph shows half a monster. A shown one also marks its pixels in shown, where
+        // the glimpse's parchment is lifted.
+        private static void SeaMarkDepth(float[] depth, bool[] forced, float[] shown, int n, float metres, Snapshot snapshot, SeaMark mark)
         {
             int seen = 0, total = 0;
             for (float wz = mark.m_south + SeaMarkStep * 0.5f; wz < mark.m_north; wz += SeaMarkStep)
@@ -1120,7 +1325,7 @@ namespace Atlas
                 }
             }
             if (total == 0) return;
-            float value = seen >= SeaMarkShown * total ? 0f : 1f;
+            float value = seen >= SeaMarkShown * total ? 0f : 3f;
             int x0 = Mathf.Max(0, Mathf.FloorToInt((mark.m_west - SeaMarkMargin + InkPainter.HalfExtent) / metres));
             int x1 = Mathf.Min(n - 1, Mathf.CeilToInt((mark.m_east + SeaMarkMargin + InkPainter.HalfExtent) / metres));
             int y0 = Mathf.Max(0, Mathf.FloorToInt((mark.m_south - SeaMarkMargin + InkPainter.HalfExtent) / metres));
@@ -1133,7 +1338,10 @@ namespace Atlas
                 {
                     float wx = (x + 0.5f) * metres - InkPainter.HalfExtent;
                     float dx = Math.Max(0f, Math.Max(mark.m_west - wx, wx - mark.m_east));
-                    if (dx * dx + dz * dz <= SeaMarkMargin * SeaMarkMargin) cover[y * n + x] = value;
+                    if (dx * dx + dz * dz > SeaMarkMargin * SeaMarkMargin) continue;
+                    depth[y * n + x] = value;
+                    forced[y * n + x] = true;
+                    if (value == 0f) shown[y * n + x] = 1f;
                 }
             }
         }

@@ -88,15 +88,20 @@ namespace Atlas
         }
 
         // The glimpse's bare parchment (Paper.Fog's glimpse, RGBA at FogSize), which tiles lay
-        // over their wash, and the fog (Paper.Fog's RGBA), whose torn edge their trees keep
-        // whole; null for none. A new one drops every tile drawn with the old.
+        // over their wash, and where the drawing stops (Paper.Fog's FogEdge): the trees, glyphs
+        // and wave strokes the band leaves out, which tiles leave out too; null for none. A new
+        // one drops every tile drawn with the old.
         private byte[] m_glimpse;
-        private byte[] m_fog;
+        private FogEdge m_edge;
+        // The record groups of the glyphs m_edge leaves out, for m_record (HiddenGroups).
+        private HashSet<int> m_hiddenGroups;
+        private FogEdge m_groupsEdge;
+        private InkRecord m_groupsRecord;
 
-        public void SetGlimpse(byte[] glimpse, byte[] fog)
+        public void SetGlimpse(byte[] glimpse, FogEdge edge)
         {
             m_glimpse = glimpse;
-            m_fog = fog;
+            m_edge = edge;
             DropTiles();
         }
 
@@ -121,7 +126,10 @@ namespace Atlas
             m_world = null;
             m_samples = null;
             m_glimpse = null;
-            m_fog = null;
+            m_edge = null;
+            m_hiddenGroups = null;
+            m_groupsEdge = null;
+            m_groupsRecord = null;
         }
 
         private void DropTiles()
@@ -257,12 +265,27 @@ namespace Atlas
                 SampleCache samples = m_samples;
                 int scale = s_scales[level];
                 CancellationToken cancel = m_cancel.Token;
-                byte[] glimpse = m_glimpse, fog = m_fog;
-                m_running[key] = Workers.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel, glimpse, fog)), cancel);
+                byte[] glimpse = m_glimpse;
+                FogEdge edge = m_edge;
+                HashSet<int> hiddenGroups = HiddenGroups(record);
+                m_running[key] = Workers.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel, glimpse, edge, hiddenGroups)), cancel);
                 m_runningRegion[key] = region;
             }
             foreach (long key in m_wanted)
                 if (m_tiles.TryGetValue(key, out Tile tile)) tile.m_used = m_frame;
+        }
+
+        // The record groups the edge leaves out, worked out once per edge and record (a few
+        // thousand glyphs); null when the record was drawn with other pins than the edge judged.
+        private HashSet<int> HiddenGroups(InkRecord record)
+        {
+            if (m_groupsEdge != m_edge || m_groupsRecord != record)
+            {
+                m_groupsEdge = m_edge;
+                m_groupsRecord = record;
+                m_hiddenGroups = m_edge?.HiddenGroups(record);
+            }
+            return m_hiddenGroups;
         }
 
         private bool Queued(long key)

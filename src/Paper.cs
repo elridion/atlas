@@ -623,6 +623,7 @@ namespace Atlas
                 for (float t = 0f; t <= length; t += step)
                 {
                     Vector2 w = river.PointAt(t);
+                    if (!world.HasRiverBed(w)) continue;
                     float cx = (w.x + InkPainter.HalfExtent) / metres - 0.5f, cy = (w.y + InkPainter.HalfExtent) / metres - 0.5f;
                     int x0 = Math.Max(0, (int)(cx - radius - 1f)), x1 = Math.Min(n - 1, (int)(cx + radius + 1f));
                     int y0 = Math.Max(0, (int)(cy - radius - 1f)), y1 = Math.Min(n - 1, (int)(cy + radius + 1f));
@@ -772,8 +773,22 @@ namespace Atlas
         // over its biome's open ground wash on clean paper, give the wood wash. Inside a wood the
         // ground already has it, so crowns there come out a shade deeper than the floor; at a
         // wood's edge, where the blurred wash fades, they keep it.
-        private static void WoodInk(Land land, out float alpha, out float r, out float g, out float b) =>
+        // The Ashlands' rock (crags and sea thorns) is laid opaque, as a peak's body is: laid as a
+        // glaze over the open burnt ground or the water, the lava fields' vermilion or the sea's
+        // indigo under it would show through.
+        private static void WoodInk(Land land, out float alpha, out float r, out float g, out float b)
+        {
+            if (land == Land.Ashlands)
+            {
+                Color32 rock = Glazed(WoodTint(land));
+                alpha = 1f;
+                r = rock.r;
+                g = rock.g;
+                b = rock.b;
+                return;
+            }
             InkOver(Glazed(land), Glazed(WoodTint(land)), out alpha, out r, out g, out b);
+        }
 
         // A tree's body in close-ups: its wood wash glazed over a parchment colour.
         public static void WoodGlaze(float r, float g, float b, Land land, out float pr, out float pg, out float pb)
@@ -823,12 +838,16 @@ namespace Atlas
             int woodAt = sheet.Length >= 5 * plane ? 4 * plane : -1;
             int pinInkAt = sheet.Length >= 6 * plane ? 5 * plane : -1;
             // Each wood code's ink (InkCanvas.WoodCode), worked out once.
-            var woodAlpha = new float[8];
-            var woodR = new float[8];
-            var woodG = new float[8];
-            var woodB = new float[8];
-            for (int code = 1; code < 8; code++)
-                WoodInk(InkCanvas.WoodLand((byte)(code << 5)), out woodAlpha[code], out woodR[code], out woodG[code], out woodB[code]);
+            int codes = InkCanvas.WoodCodes;
+            var woodAlpha = new float[codes];
+            var woodR = new float[codes];
+            var woodG = new float[codes];
+            var woodB = new float[codes];
+            for (int code = 1; code < codes; code++)
+            {
+                Land land = InkCanvas.WoodLandOf(code);
+                if (land != Land.Ocean) WoodInk(land, out woodAlpha[code], out woodR[code], out woodG[code], out woodB[code]);
+            }
             byte[] ink = sheet;
             SeaInk(false, out float bodyAlpha, out float bodyR, out float bodyG, out float bodyB);
             SeaInk(true, out float wedgeAlpha, out float wedgeR, out float wedgeG, out float wedgeB);
@@ -850,7 +869,7 @@ namespace Atlas
                     float q = northAt >= 0 ? sheet[northAt + i] / 255f : 0f;
                     float k = mistAt >= 0 ? sheet[mistAt + i] / 255f : 0f;
                     byte wood = woodAt >= 0 ? sheet[woodAt + i] : (byte)0;
-                    int code = wood >> 5;
+                    int code = InkCanvas.WoodCodeOf(wood);
                     float mu = m * open, qu = q * open, ku = k * mistAlpha * open;
                     float wu = InkCanvas.WoodCover(wood) * woodAlpha[code] * open;
                     // A pin's red ink lies under any black ink drawn over it later.

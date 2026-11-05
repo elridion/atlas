@@ -43,9 +43,9 @@ namespace Atlas
         // which one mask and one kind could not keep.
         public readonly byte[] m_bodyMist;
         // The same for tree crowns, which take the wood wash of the biome the tree stands in
-        // (Paper.WoodTint). Each byte packs that biome (WoodCode, top three bits) with the
-        // coverage (bottom five bits), since a cached sheet is shown before the world is read
-        // and so cannot look the biome up.
+        // (Paper.WoodTint), and the Ashlands' crags and sea thorns. Each byte packs that biome
+        // (WoodCode, top four bits) with the coverage (bottom four bits), since a cached sheet is
+        // shown before the world is read and so cannot look the biome up.
         public readonly byte[] m_bodyWood;
         // The pins' own ink, laid in red (Paper.PinInkColor, InkCanvas.Pin): a plane of its own,
         // so pins read apart from the terrain's black ink.
@@ -109,12 +109,19 @@ namespace Atlas
             }
         }
 
-        // The biomes a Wood body can take, by code (0: none).
+        // The biomes a Wood body can take, by code (0: none). The Ashlands have no woods: their
+        // crags and sea thorns take its wood wash as their rock (Glyphs.AshBody).
         private static readonly Land[] s_woodLands =
         {
             Land.Ocean, Land.Meadows, Land.BlackForest, Land.Swamp, Land.Mountain, Land.Plains, Land.Mistlands, Land.DeepNorth,
+            Land.Ashlands,
         };
-        private const int WoodLevels = 31;
+        // A Wood body byte is the code in its top four bits and the coverage in the bottom four:
+        // eight biomes need a fourth code bit, and sixteen levels of a light glaze under the ink
+        // do not show.
+        private const int WoodShift = 4;
+        private const int WoodLevels = 15;
+        public const int WoodCodes = 1 << (8 - WoodShift);
 
         // A biome's code in a Wood body byte, or 0 for a biome whose trees take no wood wash.
         public static int WoodCode(Land land)
@@ -124,14 +131,19 @@ namespace Atlas
             return 0;
         }
 
+        public static int WoodCodeOf(byte packed) => packed >> WoodShift;
+
         public static float WoodCover(byte packed) => (packed & WoodLevels) / (float)WoodLevels;
 
-        public static Land WoodLand(byte packed) => s_woodLands[packed >> 5];
+        public static Land WoodLand(byte packed) => WoodLandOf(WoodCodeOf(packed));
+
+        // The biome of a code, Ocean for none or an unused code.
+        public static Land WoodLandOf(int code) => code < s_woodLands.Length ? s_woodLands[code] : Land.Ocean;
 
         private static byte PackWood(float cover, int code)
         {
             int level = (int)(Mathf.Clamp01(cover) * WoodLevels + 0.5f);
-            return level == 0 ? (byte)0 : (byte)((code << 5) | level);
+            return level == 0 ? (byte)0 : (byte)((code << WoodShift) | level);
         }
 
         public void Record(InkRecord record) => m_record = record;
@@ -286,7 +298,7 @@ namespace Atlas
                         m_bodyNorth[i] = (byte)(m_bodyNorth[i] * keep);
                         m_bodyMist[i] = (byte)(m_bodyMist[i] * keep);
                         byte wood = m_bodyWood[i];
-                        if (wood != 0) m_bodyWood[i] = PackWood(WoodCover(wood) * keep, wood >> 5);
+                        if (wood != 0) m_bodyWood[i] = PackWood(WoodCover(wood) * keep, WoodCodeOf(wood));
                         if (m_scraped != null) m_scraped[i] = Math.Max(m_scraped[i], mark.m_body[j]);
                         m_pinInk[i] = (byte)(m_pinInk[i] * keep);
                     }
@@ -609,7 +621,7 @@ namespace Atlas
             }
             else if (wood != 0)
             {
-                m_bodyWood[index] = PackWood(WoodCover(wood) * behind, wood >> 5);
+                m_bodyWood[index] = PackWood(WoodCover(wood) * behind, WoodCodeOf(wood));
             }
             if (marking != BodyKind.None && marking != BodyKind.Wood)
             {

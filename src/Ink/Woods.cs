@@ -15,8 +15,17 @@ namespace Atlas
         private const int MinWood = 12;
         private const int MinClearing = 16;
         private const int BlurPasses = 2;
-        private const int MinLava = 110;
-        private const int LavaBlurPasses = 4;
+        // Lava patches and the islands of ground between them under this many map pixels are
+        // dropped, as small as the woods' copses: vanilla's lava is veined (a cellular crackle
+        // over large fBm patches, WorldGenerator.GetAshlandsHeight), so at 110 cells and four
+        // blurs the atlas kept only about 5% of the Ashlands as lava where the game has 18%.
+        private const int MinLava = 12;
+        private const int LavaBlurPasses = 2;
+        // The large lava fields alone, which crags keep their bases off (InkPainter.MajorLavaAt):
+        // with every pool counted, the Ashlands' high ground had little room left for a base.
+        // Their bodies cover the pools under them (Glyphs.AshBody).
+        private const int MajorLava = 110;
+        private const int MajorLavaBlurPasses = 4;
 
         // Worker thread, after WorldSource.Decode.
         public static float[] Build(WorldSource world)
@@ -50,7 +59,12 @@ namespace Atlas
 
         // The Ashlands' lava fields as a smooth field like the woods' (edge at 0.5), from vanilla's
         // lava mask (blue on Ashlands land), so they can be outlined and filled as shapes.
-        public static float[] BuildLava(WorldSource world)
+        public static float[] BuildLava(WorldSource world) => BuildLava(world, MinLava, LavaBlurPasses);
+
+        // The large lava fields only, as a field like BuildLava's.
+        public static float[] BuildMajorLava(WorldSource world) => BuildLava(world, MajorLava, MajorLavaBlurPasses);
+
+        private static float[] BuildLava(WorldSource world, int minCells, int blurPasses)
         {
             int size = world.m_size;
             var lava = new bool[size * size];
@@ -60,13 +74,13 @@ namespace Atlas
                 land[i] = world.m_height[i] > world.m_waterLevel;
                 lava[i] = land[i] && world.m_biome[i] == Land.Ashlands && world.m_lava[i] > 127;
             }
-            // Vanilla's lava is patchy, so fields are kept only from MinLava cells and blurred
-            // more than woods, which joins near patches into one flow.
-            Clean(lava, land, size, value: true, MinLava);
-            Clean(lava, land, size, value: false, MinLava);
+            // Only specks and pinholes too small to draw are dropped, then blurred as the woods
+            // are, so the traced edge runs as a curve instead of 12 m stairs.
+            Clean(lava, land, size, value: true, minCells);
+            Clean(lava, land, size, value: false, minCells);
             var field = new float[size * size];
             for (int i = 0; i < field.Length; i++) field[i] = lava[i] ? 1f : 0f;
-            for (int pass = 0; pass < LavaBlurPasses; pass++) Paper.Blur(field, size);
+            for (int pass = 0; pass < blurPasses; pass++) Paper.Blur(field, size);
             return field;
         }
 

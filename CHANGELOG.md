@@ -26,7 +26,7 @@
   round crowns in the Meadows, stones and dark pine woods in the Black Forest, patches of marsh lines with reeds
   and tall ancient dead trees in the Swamp, a dry stipple and copses on the Plains, rolling hills on the real hilltops of the
   Meadows and Plains, each drawn a little differently (low or round, a long ridge, a double crest or a shoulder), veils of mist over gnarled trees
-  and black crags in the Mistlands, with small hatched scarps marking the open steep rock between them (its many tiny pools drawn as ground, so only its real lakes show), a cinder stipple, rocky peaks, hatched vermilion lava fields and volcano cones in the Ashlands, and a
+  and black crags in the Mistlands, with small hatched scarps marking the open steep rock between them (its many tiny pools drawn as ground, so only its real lakes show), a cinder stipple, rocky peaks, hatched vermilion lava fields wherever the game lays its lava, down to small pools, rocky crags, and spikes of rock standing out of its boiling sea in the Ashlands, and a
   near-blank snowfield with ice ridges in the Deep North, kept clear of the shore, the peaks and each other.
 - The Deep North's snowy forests are drawn as woods of dense dark pines, as in the Black Forest,
   wherever the game grows its firs and pines there; its ice ridges keep to the open snow.
@@ -48,7 +48,7 @@
   lines instead, stacked on consecutive rows from one shore, each touching the shore and running
   into the lake, at the lake's bends and along its straight shores, never across it, so still
   water reads apart from the sea; ponds stay bare. Ice floes in the northern sea are white as the northern snow; rivers and
-  streams are drawn as ink lines.
+  streams are drawn as ink lines, except across the Ashlands, where the game carves none.
 - A few sea monsters are inked out in wide stretches of open water, spread over the seas rather
   than crowded along the map's rim, as on old maps:
   sea serpents and serpent coils where the game's Serpents swim, the odd leviathan, and the

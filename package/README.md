@@ -58,9 +58,9 @@ Mistlands have denser woods, and bog Swamps more dead trees.
 | Mountain | Real summits as large jagged peaks, some with shoulders or twin summits, their eastern faces hatched, smaller peaks massed between them, foothills on the real hilltops below, woods of dense dark pines on the gentler ground below 280 m where the game grows its firs, kept clear of the peaks' bases |
 | Plains | A stipple of dry ground, copses of small round shaded trees, rolling hills on the real hilltops, each drawn a little differently: low or round, a long ridge, a double crest or a shoulder, with or without smaller hills behind |
 | Mistlands | Veils of mist lying in the valleys over woods of gnarled, broad-crowned trees, black crags on the summits and the broken ground, and small scarps with hachures falling downhill on the open steep rock between them; its many small pools read as ground, only its lakes and the sea stay water |
-| Ashlands | Burnt, ash-clouded ground stippled with cinders, thickest by the lava; red lava fields toned with fine engraved hatching; small rocky peaks and volcano cones with open craters; its warmed sea gets the bonemaw and, here and there, simmering spots (see Ocean) |
+| Ashlands | Burnt, ash-clouded ground stippled with cinders, thickest by the lava; red lava fields toned with fine engraved hatching; small rocky peaks; tall spikes of rock standing out of its shallow sea, each on its waterline; its warmed sea gets the bonemaw and, here and there, simmering spots (see Ocean) |
 | Deep North | A near-blank snowfield crossed by thin bands of ice ridges, woods of dense dark pines where the game grows its snowy forests, high peaks and snow-white ice floes in the northern sea |
-| Rivers | Wide rivers show as water between two banks; narrow rivers and streams as ink lines that taper toward their source |
+| Rivers | Wide rivers show as water between two banks; narrow rivers and streams as ink lines that taper toward their source; none cross the Ashlands, where the game carves no river beds |
 | Sacrificial Stones | A ring of standing stones round a low altar, where you first arrived |
 
 ## Settings

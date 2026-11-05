@@ -129,7 +129,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   decide alike. Any other glyph drawn after a pin whose footprint reaches its
   core (`MarkCore` 0.3 of its box in from each side) is left out (`ClearOfMarks` in `Add`, the
   rest removed after placement; cores filed in `PeakCell` squares). A broad clearing round
-  every pin was too aggressive. Relief (peaks, hills, crags, volcanoes, `IsRelief`) is never
+  every pin was too aggressive. Relief (peaks, hills, crags, sea thorns, `IsRelief`) is never
   left out, as a range must still read as one (the user's requirement); a pin drawn in front of
   a peak scrapes only what lies under its body.
   Close-ups take the list from `InkRecord.m_pins` and decide the same. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
@@ -501,7 +501,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   dead trees and wave strokes standing beyond the explored land are left out one by one, more
   towards the end (`FogEdge.m_thin`, against a hash of the mark's foot, salt `ThinSalt`), and
   every one the fog would cut is left out whole (`CutByFog`), so woods end in a few outlying
-  trees and the sea's strokes give out. Relief (peaks, hills, crags, spires, volcanoes) is never
+  trees and the sea's strokes give out. Relief (peaks, hills, crags, spires, sea thorns) is never
   thinned (holes in a range read as damage) but shown or left out whole (`Decide`, the user's
   design): one the band's end would cut is drawn whole when its foot stands on the drawn side
   or it reaches back into explored land (`MostlyBeyond`), the fog lifted over its rough shape
@@ -637,25 +637,73 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   lean and shade span; perfect ellipses read as stamped. Pines vary the same way: height and
   width, a leaning tip, a bowed west flank, an uneven base, trunk and shade split by seed.
 - The Ashlands are sober, as on a serious survey: lava fields are toned with an even engraved
-  hatch of diagonal lines (`LavaHatch`, `Lava.cs`); volcanoes have no smoke curl or lava stream;
-  crags are one or two small peaks in the mountains' hand (`Peak` with `body: false`, keeping
-  the burnt ground's wash), since thin notched spires read as grass tufts; the ground is one
+  hatch of diagonal lines (`LavaHatch`, `Lava.cs`). They are vanilla's own lava: the minimap
+  mask's blue on Ashlands land is the lava weight of `GetAshlandsHeight` (cheap: 2 octaves of
+  the fine cellular crackle instead of 3), large fBm patches at 0.01/m past `LerpStep(0.7, 1)`,
+  squared, overlay-blended with the crackle, gated to ground over about 4 m above the water and
+  sunk 2-11 m. `Woods.BuildLava` takes blue over 127 and drops only patches and holes under
+  `MinLava` 12 cells, blurred twice as the woods are; at 110 cells and four blurs the veined
+  lava came out at about 5% of Ashlands land where vanilla has 18% (the demoo world). Downloaded
+  seed maps (valheim-map.world) glow over far more of the Ashlands than the mask; they are no
+  measure of lava.
+  **What the game stands in the Ashlands** (read from the `d59cfac` SoftRef bundle's
+  ZoneVegetation entries, altitude relative to the water, counts per 64 m zone; none on lava,
+  vegetation mask = lava weight under 0.5, except `UnstableLavaRock`): `cliff_ashlands8` 1 a
+  zone in groups of 1-3 within 30 m at -25 to -11 m and -10 to 0 m (sunk 1-2 m: the rock thorns
+  standing in the sea), `cliff_ashlands5` 3-5 at -2 to +1 m (the shoreline) and 1-3 at 0-100 m,
+  `cliff_ashlands6` 3-6 at -5 to +10 m, tilt 10-40, `cliff_ashlands3` 2-3 at 0-40 m, tilt
+  10-40; `cliff_ashlands1`, 4, 7, 9 disabled; `rock_ashlands2`, `UnstableLavaRock`, trees
+  `tree_ashlands1-4` at 1-12 m. There are no volcanoes, as vegetation or as locations
+  (`CharredFortress`, `CharredRuins1-4`, `CharredTowerRuins1-3`, `FortressRuins`,
+  `AshlandRuins`, `MorgenHole1-3`, `VoltureNest`, `SulfurArch`, `PlaceofMystery1-3`,
+  `FaderLocation`): the high ground (land tops out about 60 m) is the ridge `GetAshlandsHeight`
+  raises across the middle, where the lava gathers. So the atlas draws no volcanoes (they were
+  placed on ground over 22 m, i.e. the lava plateau). These rocks are not in the minimap's
+  heights and the game places them per zone at random as zones load, so glyphs for them are
+  representative, as trees are.
+  **Sea thorns** (`Kind.Thorn`, `Glyphs.Thorns`, the user's call): one to three slightly hooked
+  spikes of the Ashlands' rock, the smaller behind, scattered (`ThornStep` 16 G, `ThornOdds`
+  0.5, salt 37) in Ashlands sea water 0.5 to `ThornDepth` 25 m deep, foot `ThornWater` 5 px from
+  land, inside the frame; drawn with the glyphs, before the waves, which keep off them (their
+  boxes join `m_floeSet`). Each stands on a strictly level waterline across its foot (the boil
+  marks' water language), the front one longer with a shorter line `ThornLowDrop` below set
+  east, so they read as rising out of the water. Relief for pins and the fog (whole or not at
+  all, `MarkShape.Spire`). The game's own density is about one group a zone, far denser; the
+  Ashlands' shallow sea runs well out from the land, so the thorns fill the whole band up to
+  the neighbouring biomes. Untested in game. Replaying the game's own placement
+  (`ZoneSystem.PlaceVegetation`: `UnityEngine.Random` seeded per zone and prefab name, then
+  height, tilt and block checks on the zone's mesh) was looked into and dropped (the user's
+  call): about one group a 64 m zone is far too dense to draw, so the drawn set would be thinned
+  anyway, `UnityEngine.Random` runs on the main thread only, and neither the preview nor this
+  session can check the result.
+  Crags are one or two small peaks in the mountains' hand (`Peak` with `ash: true`), since thin
+  notched spires read as grass tufts; the ground is one
   even cinder stipple, denser by the lava, with no ticks or fissures. Streamlines or flow strokes
   in lava fields, smoke curls, spire ridges, fissure pairs and ash-cloud mottling read as
-  doodles. Crags and volcanoes keep their whole base off lava (`ClearOfLava`); the peak above
-  may rise in front of a lake behind it. A crag or volcano whose foot is clear but whose base
-  would reach into lava is moved instead of left out: after every glyph that fits where it was
+  doodles. Crags and sea thorns are filled with the Ashlands' rock (`Glyphs.AshBody`, the
+  user's call, as peaks take the mountains' wash and Mistlands spires theirs): the Ashlands'
+  wood wash, a shade deeper than the open burnt ground, marked on the Wood plane under the
+  Ashlands' code (the Ashlands grow no woods; the code took a fourth bit, coverage now four
+  bits) and laid opaque on the sheet (`Paper.WoodInk`), so lava or water under a body does not
+  show through. Ash bodies have no base fade or skirt: they are cut at the foot line.
+  Crags keep their whole base off the large lava fields only (`ClearOfLava`,
+  `MajorLavaAt`: `Woods.BuildMajorLava`, the drawn lava cleaned of patches under 110 cells and
+  blurred four times, built once per painting): the drawn pools are so many that counting them
+  left the high ground almost no room; a body covers the pools under it. The
+  peak above may rise in front of a lake behind it. A crag whose foot is clear but whose base
+  would reach into lava is moved instead of left out: after every crag that fits where it was
   scattered is placed, `ShiftOffLava` tries feet in rings a tenth of its width apart out to one
   width (`LavaShiftStep`, `LavaShiftReach`), straight away from the lava (the field's slope along
   the base) first, then 30, 60 and 90 degrees either side, and takes the first that passes every
-  test (`VolcanoRoom`, `CragRoom`: land, biome, shore, column, `PeakOnLand`, frame) and keeps off
-  the volcanoes and crags already placed (`AshCrowded`). Whether the ground calls for the glyph
-  (`VolcanoChosen`, `CragChosen`: heights, slope, the cell's roll) is decided where it was
-  scattered only. A moved glyph also keeps its base `LavaShiftMargin` off lava north and south
-  and its whole body off lava: feet land at a lake's edge, and a crag a pixel clear of a lake, or
-  a cone rising over a U-shaped lake with the lava's wash showing through its body, reads as
-  standing in it. Glyphs scattered on lava itself stay out (pushed to the rim they sit in its
-  bays). No summit or filler peak touches lava, so none moves.
+  test (`CragRoom`: land, biome, shore, column, frame) and keeps off the crags already placed
+  (`AshCrowded`). Whether the ground calls for a crag (`CragChosen`: slope, the cell's roll) is
+  decided where it was scattered only. A moved crag also keeps its base `LavaShiftMargin` off
+  lava north and south and its whole body off lava: feet land at a lake's edge, and a crag a
+  pixel clear of a lake reads as standing in it. Crags scattered on lava itself stay out
+  (pushed to the rim they sit in its bays). No summit or filler peak touches lava, so none moves.
+  The crags' placement (any steep Ashlands ground) does not yet follow the game's rock, which
+  stands mostly on the shore (`cliff_ashlands5`, 6) and less on inland slopes
+  (`cliff_ashlands3`); the user held that change back to discuss first.
 - Biome washes follow the ground exactly, but every peak's body is filled strictly with the
   mountains' wash, or the Deep North's for peaks standing there: `Peak` erases its outline
   itself, since a convex hull lets the fill spill past sags and notches, in one pass
@@ -776,7 +824,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (`BodyKind.Wood`, `Paper.WoodTint`: the biome's tint plus `WoodWash`, none extra in the
   Mountains and the Deep North), so crowns at a wood's or a biome's edge keep their colour
   where the blurred wash fades. The biome is the one at the tree's foot (`BeginWood`), packed
-  into the Wood plane's byte (`InkCanvas.WoodCode`, top 3 bits; coverage in the bottom 5),
+  into the Wood plane's byte (`InkCanvas.WoodCode`, top 4 bits; coverage in the bottom 4),
   since a cached sheet is shown before the world is read. A round crown is marked inside its
   traced outline grown `BodyGrow` (`EraseCrown`), not over its wider scraped ellipse, which
   rings it with a halo; a pine over its scraped triangle. The sheet lays it as a glaze
@@ -960,7 +1008,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   per-level 12 G grids they were a fresh set at each zoom and nearly absent on the sheet and at 2x.
 - Rivers and streams come from `WorldGenerator.GetRivers()`/`GetStreams()`, copied in
   `WorldSource.Capture` and inked along vanilla's own sine curve (`RiverPath.PointAt`, from
-  `WorldGenerator.RenderRivers`) over land only, on a scraped band. Streams run from their low
+  `WorldGenerator.RenderRivers`) over land only, on a scraped band. None is drawn over the
+  Ashlands (`WorldSource.HasRiverBed`, sheet ink and the paper's stream band): every biome's
+  height function calls `AddRivers` but `GetAshlandsHeight`, so courses crossing it have no bed. Streams run from their low
   mouth (`p0`, 26-31 m) to the source and taper. Deep North streams are not kept by vanilla and so
   are not drawn. The offline harness cannot run the generator; its previews use streams laid out
   with the same rule on the cached heights, so in-game courses differ from the previews.

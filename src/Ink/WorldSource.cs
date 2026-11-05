@@ -621,6 +621,11 @@ namespace Atlas
 
         public Land LandAt(float wx, float wz) => m_biome[Index(wx, wz)];
 
+        // Vanilla carves rivers and streams into every biome's heights but the Ashlands'
+        // (WorldGenerator.GetAshlandsHeight never calls AddRivers), so a course that crosses the
+        // Ashlands has no bed there and is not drawn. Takes world metres, y the world z axis.
+        public bool HasRiverBed(Vector2 world) => LandAt(world.x, world.y) != Land.Ashlands;
+
         // Water as the sheet washes it: swamp pools away from the sea read as ground.
         public bool IsWaterAt(float wx, float wz)
         {

@@ -34,6 +34,11 @@ namespace Atlas
         // its foot (ScrapeBase): past the widest round cap of a glyph behind (a peak's 1.5 pen
         // flank, 0.75) and a giant tree's roots, with the edge's anti-aliasing below that.
         private const float BaseScrape = 1.25f;
+        // A sea thorn's height (in its size), how far down its east face the solid wedge reaches,
+        // and how far (pens) below the waterline the shorter line under the front thorn lies.
+        private const float ThornHeight = 7.5f;
+        private const float ThornWedge = 0.4f;
+        private const float ThornLowDrop = 2.6f;
         private readonly List<Vector2> m_west = new List<Vector2>(8);
         private readonly List<Vector2> m_east = new List<Vector2>(8);
 
@@ -53,7 +58,7 @@ namespace Atlas
                     Spire(g.m_x, g.m_y, g.m_size, g.m_seed);
                     break;
                 case Kind.GiantTree: GiantTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
-                case Kind.Volcano: Volcano(g.m_x, g.m_y, g.m_size, g.m_seed); break;
+                case Kind.Thorn: Thorns(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Crag: Crag(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Mist: MistBank(g.m_x, g.m_y - MistFoot(g.m_seed), g.m_seed); break;
                 case Kind.IceFloe: IceFloe(g.m_x, g.m_y, g.m_size, g.m_seed); break;
@@ -81,8 +86,9 @@ namespace Atlas
         // top, which keeps ranges dark at the opening zoom. Proportions, a blunt top, a snow line
         // and the hatching hand vary by seed too. The apex is x + 0.12 width at most and
         // PeakHeightOf above the foot.
-        // Without body, the peak's fill keeps the ground's own wash (the Ashlands' crags).
-        private void Peak(float x, float y, float width, int seed, bool body = true)
+        // An ash peak (the Ashlands' crags) is filled with the Ashlands' rock (AshBody) instead of
+        // the mountains' wash, cut at its foot line without the cone's base fade.
+        private void Peak(float x, float y, float width, int seed, bool ash = false)
         {
             float height = PeakHeightOf(width, seed);
             var apex = new Vector2(x + width * Unit(seed, 11) * 0.12f, y - height);
@@ -132,15 +138,19 @@ namespace Atlas
             // The body is scraped to the outline itself, not its convex hull, so the fill matches
             // the drawn contour (a hull spills past every sag and notch), in one pass
             // (ScrapeBody). Deep North peaks take its wash.
-            BodyKind kind = !body ? BodyKind.None : IsNorthAt(x, y) ? BodyKind.North : BodyKind.Mountain;
-            if (kind != BodyKind.None) BaseFade(left, right);
-            m_canvas.m_markBody = kind;
+            BodyKind kind = IsNorthAt(x, y) ? BodyKind.North : BodyKind.Mountain;
+            if (ash) AshBody();
+            else
+            {
+                BaseFade(left, right);
+                m_canvas.m_markBody = kind;
+            }
             ScrapeBody(m_points);
             m_canvas.m_markBody = BodyKind.None;
             // The base is not cut hard: the body meets the ground along a cone's base arc, with the
             // ground's wash below it (Skirt). A wash run out below the foot instead shows
             // its own edges on open ground.
-            if (kind != BodyKind.None) Skirt(left, right, kind);
+            if (!ash) Skirt(left, right, kind);
 
             // The shadow: a solid wedge from the apex, then hatching down the eastern face.
             var foot = new Vector2(apex.x + width * 0.06f, y);
@@ -934,64 +944,98 @@ namespace Atlas
             HandCrown(cx, cy, rx, ry, crown.m_seed, crown.m_wobble);
         }
 
-        // A volcano in the mountains' hand, at a mountain's scale: a broad cone with gently
-        // concave flanks, its top cut off by a notched crater with a thin rim, the eastern face a
-        // small solid wedge under the rim and slanting hatch below. A cone several times a peak's
-        // height with a solid black face reads as an obelisk.
-        private void Volcano(float x, float y, float s, int seed)
+        // The Ashlands' sea thorns: one to three tall, slightly hooked spikes of rock standing out
+        // of the boiling sea, as the game's cliff_ashlands8 stand in groups in its shallows and
+        // cliff_ashlands5 and 6 along its shore. The smaller ones stand behind, north of the
+        // front one. Each sits on a level waterline drawn across its foot, the water's own
+        // language (the boil marks'), with a shorter line below the front one, so the rock reads
+        // as rising out of the water rather than standing on it.
+        private void Thorns(float x, float y, float s, int seed)
         {
-            float width = 14f * s * Vary(seed, 10, 0.12f);
-            float height = width * Mathf.Lerp(0.42f, 0.55f, Unit(seed, 11));
-            float rim = width * 0.25f;
-            float top = y - height;
+            float height = ThornHeight * s * Vary(seed, 10, 0.15f);
+            float roll = Unit(seed, 11);
+            int count = roll < 0.45f ? 1 : roll < 0.85f ? 2 : 3;
+            float side = Unit(seed, 12) < 0.5f ? -1f : 1f;
+            if (count == 3)
+                Thorn(x - side * height * 0.3f, y - 1.6f * s, height * 0.5f, seed + 2, false);
+            if (count >= 2)
+                Thorn(x + side * height * 0.32f, y - 0.9f * s, height * Mathf.Lerp(0.6f, 0.75f, Unit(seed, 13)), seed + 1, false);
+            Thorn(x, y, height, seed, true);
+        }
+
+        // One thorn, foot at (x, y): a narrow spike leaning and hooking a little by seed, its
+        // body the Ashlands' rock (AshBody), the east face solid near the tip and hatched below,
+        // then its waterline. The front thorn's waterline is longer and has a shorter line under it.
+        private void Thorn(float x, float y, float height, int seed, bool front)
+        {
+            float width = height * Mathf.Lerp(0.3f, 0.42f, Unit(seed, 20));
             var left = new Vector2(x - width * 0.5f, y);
             var right = new Vector2(x + width * 0.5f, y);
-            var rimLeft = new Vector2(x - rim * 0.5f, top);
-            var rimRight = new Vector2(x + rim * 0.5f, top + height * 0.03f);
-            // Concave flanks: a midpoint pulled in towards the body.
-            Vector2 westMid = Vector2.Lerp(left, rimLeft, 0.5f) + new Vector2(width * 0.06f, height * 0.04f);
-            Vector2 eastMid = Vector2.Lerp(rimRight, right, 0.5f) + new Vector2(-width * 0.06f, height * 0.04f);
-            Poly(left, rimLeft, rimRight, right);
-            m_canvas.Erase(m_points);
-            // The shadow: a wedge under the rim, then hatch strokes down the eastern face.
-            var foot = new Vector2(x + rim * 0.2f, y);
-            Poly(rimRight, Vector2.Lerp(rimRight, eastMid, 0.35f), Vector2.Lerp(rimRight, foot, 0.18f));
-            m_canvas.Fill(m_points);
+            var tip = new Vector2(x + (Unit(seed, 21) - 0.5f) * 0.6f * width, y - height);
+            // The flanks swell near the foot and draw in under the tip, so the spike hooks.
+            m_west.Clear();
+            m_west.Add(left);
+            m_west.Add(Flank(left, tip, 0.3f, width * Mathf.Lerp(0.04f, 0.1f, Unit(seed, 22))));
+            m_west.Add(Flank(left, tip, 0.68f, -width * Mathf.Lerp(0.02f, 0.08f, Unit(seed, 23))));
+            m_west.Add(tip);
             m_east.Clear();
-            m_east.Add(rimRight);
-            m_east.Add(eastMid);
+            m_east.Add(tip);
+            m_east.Add(Flank(tip, right, 0.35f, -width * Mathf.Lerp(0.02f, 0.07f, Unit(seed, 24))));
+            m_east.Add(Flank(tip, right, 0.72f, width * Mathf.Lerp(0.04f, 0.1f, Unit(seed, 25))));
             m_east.Add(right);
-            int strokes = Mathf.Clamp(Mathf.RoundToInt(height / (2.4f * m_pen)), 5, 9);
+            m_points.Clear();
+            m_points.AddRange(m_west);
+            for (int i = 1; i < m_east.Count; i++) m_points.Add(m_east[i]);
+            AshBody();
+            m_canvas.EraseOutline(m_points, BodyGrow * m_pen);
+            m_canvas.m_markBody = BodyKind.None;
+            // The shadow: a solid wedge down the east face from the tip, then a few hatch strokes.
+            var shade = new Vector2(x + width * 0.08f, y);
+            Vector2 wedgeEast = Along(m_east, ThornWedge);
+            Poly(tip, wedgeEast, Vector2.Lerp(tip, shade, ThornWedge));
+            m_canvas.Fill(m_points);
+            int strokes = Mathf.Clamp(Mathf.RoundToInt(height * (1f - ThornWedge) / (2.4f * m_pen)), 1, 4);
             for (int k = 0; k < strokes; k++)
             {
-                float t = Mathf.Lerp(0.2f, 0.92f, (k + 0.5f) / strokes);
+                float t = Mathf.Lerp(ThornWedge, 0.92f, (k + 0.5f) / strokes);
                 Vector2 from = Along(m_east, t);
-                float shadowX = Mathf.Lerp(rimRight.x, foot.x, (from.y - top) / height);
-                var to = new Vector2(Mathf.Lerp(from.x, shadowX, Mathf.Lerp(0.55f, 0.85f, Unit(seed, 30 + k))), from.y + height * 0.08f);
+                float shadowX = Mathf.Lerp(tip.x, shade.x, (from.y - tip.y) / height);
+                var to = new Vector2(Mathf.Lerp(from.x, shadowX, Mathf.Lerp(0.55f, 0.9f, Unit(seed, 30 + k))), from.y + height * 0.06f);
                 m_canvas.Stroke(from.x, from.y, to.x, to.y, Pen);
             }
-            // Flanks.
-            Poly(left, westMid, rimLeft);
-            m_canvas.Polyline(m_points, 1.5f);
-            Poly(rimRight, eastMid, right);
-            m_canvas.Polyline(m_points, 1.5f);
-            // The crater: a notched rim line and a thin ellipse.
-            Poly(rimLeft, new Vector2(x - rim * 0.15f, top + height * 0.06f), new Vector2(x + rim * 0.1f, top + height * 0.02f), rimRight);
-            m_canvas.Polyline(m_points, 1.2f);
-            m_canvas.Ring(x, top + height * 0.01f, rim * 0.5f, rim * 0.16f, Pen);
-            // No smoke curl or lava stream: with them the cone reads as a cartoon, and the map is
-            // meant to be a sober survey. The crater alone says volcano.
+            m_canvas.Polyline(m_west, 1.2f);
+            m_canvas.Polyline(m_east, 1.2f);
+            // The waterline, strictly level across the foot, reaching out further on one side.
+            float reach = width * (front ? Mathf.Lerp(0.55f, 0.85f, Unit(seed, 26)) : Mathf.Lerp(0.25f, 0.45f, Unit(seed, 26)));
+            float lean = (Unit(seed, 27) - 0.5f) * reach;
+            m_canvas.Stroke(left.x - reach + lean, y, right.x + reach + lean, y, Pen);
+            if (!front) return;
+            // A shorter line below, set east (the map's shade side), as on the boil marks.
+            float below = y + ThornLowDrop * m_pen;
+            float from0 = x - width * Mathf.Lerp(0.1f, 0.3f, Unit(seed, 28));
+            m_canvas.Stroke(from0, below, from0 + width * Mathf.Lerp(0.8f, 1.2f, Unit(seed, 29)), below, Pen);
         }
 
         // The Ashlands' broken rock: one or two small peaks in the mountains' own hand, the
-        // smaller behind to the west, keeping the burnt ground's wash. Ridges of thin notched
+        // smaller behind to the west, filled with the Ashlands' rock (AshBody). Ridges of thin notched
         // spires read as grass tufts and look doodled.
         private void Crag(float x, float y, float s, int seed)
         {
             float width = 6f * s * Vary(seed, 10, 0.15f);
             if (Unit(seed, 12) < 0.6f)
-                Peak(x - width * 0.45f, y - width * 0.12f, width * Mathf.Lerp(0.65f, 0.85f, Unit(seed, 13)), seed + 1, body: false);
-            Peak(x, y, width, seed, body: false);
+                Peak(x - width * 0.45f, y - width * 0.12f, width * Mathf.Lerp(0.65f, 0.85f, Unit(seed, 13)), seed + 1, ash: true);
+            Peak(x, y, width, seed, ash: true);
+        }
+
+        // Marks the erases from here as the Ashlands' rock: the Ashlands' wood wash (a shade
+        // deeper than the open burnt ground, as a Mistlands spire takes its land's), laid strictly
+        // and on the sheet opaque (Paper.WoodInk), so a lava field under a crag does not
+        // show its vermilion through the body. The Ashlands grow no woods, so the Wood plane
+        // carries it under the Ashlands' code.
+        private void AshBody()
+        {
+            m_canvas.m_woodLand = Land.Ashlands;
+            m_canvas.m_markBody = BodyKind.Wood;
         }
 
 

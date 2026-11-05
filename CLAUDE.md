@@ -604,8 +604,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   more than the summit's lower `SummitShown` half from in front or rise above its apex from
   behind (`NearSummit`). A fixed clearance round every summit (0.55 of the two widths) dropped
   about 80% of the fillers and left large mountain areas bare, reading as low ground.
-  Hills sit on real hilltops found the same way (in the Meadows, which roll more gently and are
-  mostly wood, on a finer scale: `MeadowHilltopCells` 2, `MeadowHillProminence` 4 m), their foot at least half their
+  Hills sit on real hilltops found the same way (`HilltopCells` 4, `HillProminence` 6 m, one rule
+  for all hill country, the user's choice: the game builds Meadows and Plains heights with the same
+  code and their open land has the same relief, so the Meadows' finer search, radius 2 and 4 m,
+  was dropped and they show fewer, larger rises), their foot at least half their
   width from woods (water is tested on the whole shape instead). Every drawn part of a hill
   (both domes' outlines and insides, the hatch dashes) keeps `HillWaterGap` off water and river
   courses (`ProbeHill`, `HillDryAt`; the probe shares `DomeOutline`/`DomeDash` with the
@@ -925,8 +927,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Stumps are drawn once every glyph is placed (`DrawStumps`, after `DrawScarps` on the sheet and
   in tiles) and keep `StumpClear` off every glyph's footprint (`ClearOfGlyphs`), so none stands
   on a hill. Between them a light stipple, `ClearCutStipple`, and hills on its hilltops
-  by the normal hill rule, so the felled wood is not a blank; the Meadows' finer hilltop search
-  crowds it); Rock Black Forest `Rocky`, open land as the clear-cut is (`IsOpen`; hills on its
+  by the hill rule, so the felled wood is not a blank); Rock Black Forest `Rocky`, open land as the clear-cut is (`IsOpen`; hills on its
   hilltops; `ReadGroves` keeps the lowest value, so felling outranks it and it outranks
   thinning): the game blocks `firtree_many_blackforest` (40 a zone), `Pinetree_01_blackforest`
   (60) and `firtree_blackforest` (5), leaving only `firtree_blackforest2` (1-2) of the big

@@ -300,11 +300,10 @@ namespace Atlas
         private const int SummitCells = 6;
         private const float SummitProminence = 20f;
         private const int HilltopCells = 4;
+        // One rule for every hill country: the game builds the Meadows' and the Plains' heights with
+        // the same code (GetMeadowsHeight, GetPlainsHeight), and their open land has the same relief
+        // (mean 25-27 m over 10 cells on Velen and demoo), so the Meadows get no finer search.
         private const float HillProminence = 6f;
-        // The Meadows roll more gently than the Plains and are mostly wood, so its few open
-        // hilltops are looked for on a finer scale; with the Plains' numbers it got barely a hill.
-        private const int MeadowHilltopCells = 2;
-        private const float MeadowHillProminence = 4f;
         private const int ProminenceCells = 10;
         // Every part of a hill keeps this far (canvas pixels) off water and river courses: its
         // pen's half width, the coast's, and a pixel of parchment between.
@@ -1991,7 +1990,7 @@ namespace Atlas
                         continue;
                     }
                     if (!high && !hillCountry) continue;
-                    int radius = high ? SummitCells : land == Land.Meadows ? MeadowHilltopCells : HilltopCells;
+                    int radius = high ? SummitCells : HilltopCells;
                     bool highest = IsHighest(h, size, x, z, radius);
                     float prominence = highest || upland ? h[i] - Lowest(h, size, x, z, ProminenceCells) : 0f;
                     // An upland top that is no summit may still be a hilltop.
@@ -2018,7 +2017,7 @@ namespace Atlas
                     }
                     else
                     {
-                        if (prominence < (land == Land.Meadows ? MeadowHillProminence : HillProminence)) continue;
+                        if (prominence < HillProminence) continue;
                         float width = Mathf.Lerp(9f, 15f, Mathf.Clamp01((prominence - HillProminence) / 25f)) * G;
                         // Water is FitHill's test, on the hill's whole drawn shape: keeping the foot
                         // half a width off water would shut out hilltops whose shrunk hill fits.

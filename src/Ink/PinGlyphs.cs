@@ -595,6 +595,11 @@ namespace Atlas
         // The Forge of Potential, after the user's sketch of the game's icon: a solid ball on a
         // tapering pillar that steps out to a broad base, a V of paper cut from the ball's
         // lower edge down into the pillar.
+        // How far below the capstone's point the cut's outer edges meet, and how much wider they
+        // spread than its inner edges (radians), so the cut widens toward the top.
+        private const float ForgeCutPoint = 1f;
+        private const float ForgeCutSpread = 0.12f;
+
         private static void Forge(InkCanvas ink, InkCanvas body)
         {
             var stone = new List<Vector2>
@@ -608,9 +613,34 @@ namespace Atlas
             body.EraseOutline(ball, Pen * 0.5f);
             Solid(ink, stone);
             Solid(ink, ball);
-            // The V's arms run out past the pillar's shoulders, so its top stays open.
-            ink.Scrape(7.9f, 7.9f, 12.8f, 16.7f, PaperPen);
-            ink.Scrape(12.8f, 16.7f, 18f, 7.9f, PaperPen);
+            // The V widens upward: its inner edges run from the point tangent to the ball, so ball
+            // and wedge read as one smooth capstone, its outer edges spread wider into the
+            // pillar's shoulders, and both run out past the shoulders, so its top stays open.
+            var centre = new Vector2(13f, 7.2f);
+            var point = new Vector2(13f, 17.2f);
+            var bottom = new Vector2(13f, 17.2f + ForgeCutPoint);
+            float radius = 4.4f + Pen * 0.5f;
+            float inner = Mathf.Asin(Mathf.Min(1f, radius / Vector2.Distance(point, centre)));
+            float outer = inner + ForgeCutSpread;
+            const float Top = 5.5f;
+            var cut = new List<Vector2> { bottom };
+            foreach (float side in new[] { -1f, 1f })
+            {
+                // Up and out from the point at the angle from upright, to the row Top.
+                Vector2 Along(Vector2 from, float angle) => from + new Vector2(side * Mathf.Tan(angle), -1f) * (from.y - Top);
+                if (side < 0f)
+                {
+                    cut.Add(Along(bottom, outer));
+                    cut.Add(Along(point, inner));
+                    cut.Add(point);
+                }
+                else
+                {
+                    cut.Add(Along(point, inner));
+                    cut.Add(Along(bottom, outer));
+                }
+            }
+            ink.EraseOutline(cut, 0f);
         }
         // A checked pin is struck through with two pen strokes, scraped through its solid glyph
         // as paper (InkCanvas.Pin).

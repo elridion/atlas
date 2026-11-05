@@ -1265,7 +1265,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   catalogue, 29 the pin reference, 30 the sea mark catalogue
   (`Preview --seacat`). Pin places: `Preview --pinref <png>` draws every pen-drawn glyph (all
   `PinGlyphs` kinds but `Traced`) on plain parchment with a 1 px cyan crosshair on its place:
-  the sheet 1:1, its pixels 8x, a 4x and an 8x close-up. Each is placed by the painter's own
+  the sheet 1:1, its pixels 8x, a 4x and an 8x close-up, whose cross carries a ruler in the
+  glyph's own pin units (box / `PinUnits`, as `InkCanvas.Pin` draws it there). Each is placed by the painter's own
   `FindMarks`, `DrawGlyph` and `PinBox` (`Lift`, `Sink`) at level of detail 1, and the close-ups
   replay that box through `InkCanvas.Pin` as `InkRecord.Replay` does, so the cross shows the
   drawing's truth: the foot of elevation glyphs, the dot's centre, the Stones' altar. It prints

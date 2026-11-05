@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
@@ -601,6 +602,20 @@ internal static class Program
     // The pin location mark (--pinref, --pincross): a cyan that no ink or wash of the map uses.
     static readonly Color32 s_crossColour = new Color32(0, 190, 255, 255);
 
+    // The pin-unit ruler on --pinref's 8x close-up crosshair: a slate grey, half strength, so
+    // the red glyph and the cyan cross stay readable under it.
+    static readonly Color32 s_tickColour = new Color32(50, 70, 90, 255);
+    const float TickAlpha = 0.55f;
+
+    // A number on the pin-unit ruler, at (x, y) on the board: side 0 centred under, 1 centred
+    // over, 2 left-aligned beside, 3 right-aligned beside the point.
+    struct TickLabel
+    {
+        public float m_x, m_y;
+        public string m_text;
+        public int m_side;
+    }
+
     // A crosshair on (x, y) in continuous output pixels (pixel i spans i to i + 1, y down): two
     // lines width pixels wide, each pixel covered by its overlap with the line, from gap to
     // reach either side of the point. plot(column, row, coverage) blends one pixel.
@@ -713,6 +728,31 @@ internal static class Program
         }
         void Cross(float x, float y, float gap, float reach) =>
             Crosshair((i, j, a) => Blend(i, j, s_crossColour, a), x, y, gap, reach, 1f);
+        // A 1 px tick across a crosshair line, at continuous x (a vertical tick, from y0 to y1)
+        // or continuous y (a horizontal one), split over the two pixels it straddles.
+        void Tick(bool vertical, float at, float from, float to)
+        {
+            float l = at - 0.5f;
+            int i = (int)Math.Floor(l);
+            float f = l - i;
+            for (int j = (int)Math.Round(from); j < (int)Math.Round(to); j++)
+            {
+                if (vertical)
+                {
+                    Blend(i, j, s_tickColour, TickAlpha * (1f - f));
+                    Blend(i + 1, j, s_tickColour, TickAlpha * f);
+                }
+                else
+                {
+                    Blend(j, i, s_tickColour, TickAlpha * (1f - f));
+                    Blend(j, i + 1, s_tickColour, TickAlpha * f);
+                }
+            }
+        }
+        float pinUnits = Convert.ToSingle(glyphs.GetField("PinUnits", All).GetValue(null));
+        var labels = new List<TickLabel>();
+        var rulers = new string[rows.Length];
+        var rulerTops = new int[rows.Length];
 
         var notes = new string[rows.Length][];
         for (int r = 0; r < rows.Length; r++)
@@ -754,13 +794,77 @@ internal static class Program
             {
                 int scale = closeUps[k];
                 object canvas = canvasNew.Invoke(new object[] { d * scale, d * scale, left, north, (float)scale });
-                Set(canvas, "m_penScale", 1f / Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f)));
+                float penScale = 1f / Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f));
+                Set(canvas, "m_penScale", penScale);
                 pinOn.Invoke(canvas, new object[] { glyph, placed.x, placed.y, placed.z, false });
                 int cx = k == 0 ? c3 : c4, cy = y0 + (d * magnify - d * scale) / 2;
                 Lay(canvas, cx, cy, 1);
                 float qx = (px - left) * scale, qy = (py - north) * scale;
                 Cross(cx + qx, cy + qy, 0f, d * scale * 0.5f);
                 if (k != closeUps.Length - 1) continue;
+                // The pin-unit ruler: InkCanvas.Pin draws the glyph's PinUnits square into
+                // round(size * pen scale * scale) pixels, so that over PinUnits is one unit here.
+                // Ticks every unit (every quarter where those stay 3 px apart), a long tick and a
+                // number every label step, the smallest of 1, 2, 5, 10 at least 6.5 px apart
+                // (numbers alternate sides of the line, so a side's stay apart twice that).
+                int pixels = Math.Max(4, Mathf.RoundToInt(placed.z * penScale * scale));
+                float unit = pixels / pinUnits;
+                int step = 10;
+                foreach (int s in new[] { 1, 2, 5, 10 })
+                    if (s * unit >= 6.5f)
+                    {
+                        step = s;
+                        break;
+                    }
+                float ox0 = cx + qx, oy0 = cy + qy, span = d * scale * 0.5f;
+                int quarters = unit * 0.25f >= 3f ? 4 : 1;
+                var rowLabels = new List<Rect>();
+                for (int q = -(int)(span / unit * quarters); q <= (int)(span / unit * quarters); q++)
+                {
+                    if (q == 0) continue;
+                    float off = q * unit / quarters;
+                    bool whole = q % quarters == 0;
+                    int at = q / quarters;
+                    bool labelled = whole && at % step == 0;
+                    float len = labelled ? 6f : whole ? 3f : 1.5f;
+                    // Across the level line (x right) and the upright one (y down, so up is +at).
+                    Tick(true, ox0 + off, oy0 - 0.5f - len, oy0 - 0.5f);
+                    Tick(true, ox0 + off, oy0 + 0.5f, oy0 + 0.5f + len);
+                    Tick(false, oy0 - off, ox0 - 0.5f - len, ox0 - 0.5f);
+                    Tick(false, oy0 - off, ox0 + 0.5f, ox0 + 0.5f + len);
+                    if (!labelled || Math.Abs(off) > span - 8f) continue;
+                    bool flip = (at / step) % 2 != 0;
+                    string text = at.ToString("+0;-0", System.Globalization.CultureInfo.InvariantCulture);
+                    float wide = 5f * text.Length;
+                    float lx = ox0 + off, ly = flip ? oy0 - 7f : oy0 + 7f;
+                    TryLabel(new Rect(lx - wide * 0.5f, flip ? ly - 10f : ly, wide, 10f), lx, ly, text, flip ? 1 : 0);
+                    lx = flip ? ox0 - 8f : ox0 + 8f;
+                    ly = oy0 - off;
+                    TryLabel(new Rect(flip ? lx - wide : lx, ly - 5f, wide, 10f), lx, ly, text, flip ? 3 : 2);
+                }
+                // A number over the glyph's ink would hide what it measures, one across the other
+                // line or another number would read as one: each is left out there.
+                void TryLabel(Rect box, float x, float y, string text, int side)
+                {
+                    if (box.xMin < ox0 + 2f && box.xMax > ox0 - 2f) return;
+                    if (box.yMin < oy0 + 2f && box.yMax > oy0 - 2f) return;
+                    foreach (Rect other in rowLabels)
+                        if (other.Overlaps(new Rect(box.x - 2f, box.y - 1f, box.width + 4f, box.height + 2f))) return;
+                    if (!ClearOfInk(box.xMin, box.yMin, box.xMax, box.yMax)) return;
+                    rowLabels.Add(box);
+                    labels.Add(new TickLabel { m_x = x, m_y = y, m_text = text, m_side = side });
+                }
+                bool ClearOfInk(float x0, float y0, float x1, float y1)
+                {
+                    var plane = (byte[])Get(canvas, "m_pinInk");
+                    int side = d * scale;
+                    for (int y = (int)Math.Floor(y0 - cy) - 1; y <= (int)Math.Ceiling(y1 - cy) + 1; y++)
+                        for (int x = (int)Math.Floor(x0 - cx) - 1; x <= (int)Math.Ceiling(x1 - cx) + 1; x++)
+                            if (x >= 0 && y >= 0 && x < side && y < side && plane[y * side + x] > 24) return false;
+                    return true;
+                }
+                rulerTops[r] = cy + d * scale;
+                rulers[r] = FormattableString.Invariant($"1 unit = {box / pinUnits:0.##} sheet px, {unit:0.##} px here; numbered every {step}");
                 // The ink's extent round the place, in this close-up's pixels: the lowest inked
                 // row (the foot's outline) below it, the box of the ink's columns about it.
                 var ink = (byte[])Get(canvas, "m_pinInk");
@@ -809,7 +913,26 @@ internal static class Program
                 g.DrawString("sheet 1:1", font, ink, c1 + 4, 8);
                 g.DrawString("sheet pixels, 8x", font, ink, c2 + 4, 8);
                 g.DrawString("close-up 4x", font, ink, c3 + 4, 8);
-                g.DrawString("close-up 8x", font, ink, c4 + 4, 8);
+                g.DrawString("close-up 8x", font, ink, c4 + 4, 2);
+                g.DrawString("ticks: pin units of each glyph (box / 26), up and east +", small, ink, c4 + 4, 18);
+                using (var digits = new System.Drawing.Font("Segoe UI", 9f, GraphicsUnit.Pixel))
+                using (var tick = new SolidBrush(System.Drawing.Color.FromArgb(220, s_tickColour.r, s_tickColour.g, s_tickColour.b)))
+                using (var under = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Near })
+                using (var over = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Far })
+                using (var east = new StringFormat { Alignment = StringAlignment.Near, LineAlignment = StringAlignment.Center })
+                using (var west = new StringFormat { Alignment = StringAlignment.Far, LineAlignment = StringAlignment.Center })
+                {
+                    var formats = new[] { under, over, east, west };
+                    foreach (TickLabel l in labels) g.DrawString(l.m_text, digits, tick, l.m_x, l.m_y, formats[l.m_side]);
+                    // On a patch of parchment: the next row's crosshair reaches a little above its cell.
+                    using (var plain = new SolidBrush(System.Drawing.Color.FromArgb(paper.r, paper.g, paper.b)))
+                        for (int r = 0; r < rows.Length; r++)
+                        {
+                            SizeF size = g.MeasureString(rulers[r], digits);
+                            g.FillRectangle(plain, c4 + 2, rulerTops[r] + 1, size.Width, size.Height);
+                            g.DrawString(rulers[r], digits, tick, c4 + 2, rulerTops[r] + 1);
+                        }
+                }
                 for (int r = 0; r < rows.Length; r++)
                 {
                     int y = (rowTops[r] + rowTops[r + 1] - pad) / 2 - 34;

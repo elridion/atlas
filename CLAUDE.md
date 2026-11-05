@@ -878,6 +878,23 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   bare (the user kept that: the game's finer mesh is steeper still).
   The Mountains' (whose field already weighs the slope), the Deep North's and the Mistlands'
   woods do not apply it.
+  **Wood ground with no trees** (the user's request, sample 14): the wash darkens the whole wood
+  field (`Paper.Washed`, `WoodWash` where the field is over 0.5), but the trees keep off steep
+  ground, the shore, rivers and the land column's water, so steep Black Forest slopes (between
+  the Mountains' peaks and the coast at -3370, -700 on Velen, 34 of 35 wood cells mostly steep;
+  in all about 7% of Velen's Black Forest wood and 6% of its Meadows') lay as an empty dark green.
+  The wash is kept (the ground is forest in vanilla's mask, the slope only stops the trees) and
+  `DrawWoodlessGround` gives it its biome's open fill, once every glyph is placed (after
+  `DrawBoulders`, sheet and tiles): in the Black Forest and the Plains the Plains' dot
+  (`WoodlessStep` 4 G grid, `WoodlessStipple` 0.45, salt `WoodlessSalt` 43, 2 px off the shore),
+  in the Meadows the open meadows' own tufts and sheet grid (8 G, salt 14, 0.3, 3 sheet px off
+  the shore, `m_markGrass` over pins), each only where no Meadows, Black Forest or Plains tree's
+  footprint lies within `WoodlessGap` 6 T (the biome at the tree's foot from the world's map
+  pixels, so Mountain firs hidden behind peaks do not block it), so a wood's own gaps and its
+  margins stay bare. Each level of detail tests its own trees, as the boulder field's stipple
+  does. It does not test glyph boxes (`ClearOfGlyphs`): a peak's box takes in the open ground
+  beside its flanks and blocked nearly every dot on the coast strip; glyph bodies scrape what
+  lies under them, as for the open ground's fills. Off rivers.
   Every tree's body takes its biome's wood wash strictly, as a peak's takes the mountains'
   (`BodyKind.Wood`, `Paper.WoodTint`: the biome's tint plus `WoodWash`, none extra in the
   Mountains and the Deep North), so crowns at a wood's or a biome's edge keep their colour

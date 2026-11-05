@@ -286,9 +286,10 @@ internal static class Program
                 var heights = (float[])Get(source, "m_height");
                 var woods = (float[])Get(source, "m_wood");
                 var counts = new System.Collections.Generic.SortedDictionary<string, string>();
+                MethodInfo mostlySteep = source.GetType().GetMethod("MostlySteep");
                 foreach (object landValue in Enum.GetValues(land))
                 {
-                    int count = 0, wooded = 0;
+                    int count = 0, wooded = 0, steepWood = 0;
                     float lo = float.MaxValue, hi = float.MinValue;
                     for (int z = 0; z < size; z++)
                         for (int x = 0; x < size; x++)
@@ -298,11 +299,16 @@ internal static class Program
                             int i = z * size + x;
                             if (Convert.ToInt32(biomes.GetValue(i)) != Convert.ToInt32(landValue) || heights[i] <= 30f) continue;
                             count++;
-                            if (woods[i] > 0.5f) wooded++;
+                            if (woods[i] > 0.5f)
+                            {
+                                wooded++;
+                                // The trees' steep-ground rule (InkPainter.SteepGround: window 2, tan 30).
+                                if ((bool)mostlySteep.Invoke(source, new object[] { cx, cz, 2, 0.577f })) steepWood++;
+                            }
                             lo = Math.Min(lo, heights[i] - 30f);
                             hi = Math.Max(hi, heights[i] - 30f);
                         }
-                    if (count > 0) System.Console.WriteLine($"BIOME {landValue} {count} cells ({wooded} wood), {lo:F0}-{hi:F0} m above water");
+                    if (count > 0) System.Console.WriteLine($"BIOME {landValue} {count} cells ({wooded} wood, {steepWood} of it steep), {lo:F0}-{hi:F0} m above water");
                 }
                 // The Meadows' copse trees' map pixels (Woods.Build) in the circle.
                 int copseTrees = 0;
@@ -312,6 +318,35 @@ internal static class Program
                     if ((cx - wx) * (cx - wx) + (cz - wz) * (cz - wz) <= radius * radius) copseTrees++;
                 }
                 System.Console.WriteLine($"COPSES {copseTrees} tree pixels");            }
+            else if (p[0] == "steepwood")
+            {
+                // steepwood prints the 300 m blocks with the most wood cells the trees' steep-ground
+                // rule leaves bare (InkPainter.SteepGround), Meadows and Black Forest together.
+                var biomes = (Array)Get(source, "m_biome");
+                var heights = (float[])Get(source, "m_height");
+                var woods = (float[])Get(source, "m_wood");
+                MethodInfo mostlySteep = source.GetType().GetMethod("MostlySteep");
+                var blocks = new System.Collections.Generic.Dictionary<long, int>();
+                for (int z = 0; z < size; z++)
+                    for (int x = 0; x < size; x++)
+                    {
+                        int i = z * size + x;
+                        string b = biomes.GetValue(i).ToString();
+                        if ((b != "Meadows" && b != "BlackForest") || heights[i] <= 30f || woods[i] <= 0.5f) continue;
+                        float cx = (x - size / 2 + 0.5f) * 12f, cz = (z - size / 2 + 0.5f) * 12f;
+                        if (!(bool)mostlySteep.Invoke(source, new object[] { cx, cz, 2, 0.577f })) continue;
+                        long key = (long)Math.Floor(cx / 300f) * 100000 + (long)Math.Floor(cz / 300f);
+                        blocks.TryGetValue(key, out int c);
+                        blocks[key] = c + 1;
+                    }
+                var list = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<long, int>>(blocks);
+                list.Sort((a, b) => b.Value.CompareTo(a.Value));
+                for (int k = 0; k < Math.Min(12, list.Count); k++)
+                {
+                    long key = list[k].Key, bx = (long)Math.Round(key / 100000.0), bz = key - bx * 100000;
+                    System.Console.WriteLine($"STEEPWOOD {bx * 300 + 150}:{bz * 300 + 150} {list[k].Value} cells");
+                }
+            }
             else if (p[0].StartsWith("fog"))
             {
                 // fogNAME:wx:wz:widthPx:scale:dz:halfWidth[:gx:gz] lays the game's fog over the

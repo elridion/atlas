@@ -276,6 +276,16 @@ namespace Atlas
         private const float RockStipple = 0.45f;
         private const float RockStippleClear = 0.6f;
         private const int RockStippleSalt = 41;
+        // Wood ground the wash darkens but no tree stands on (DrawWoodlessGround; mostly the
+        // steep slopes SteepGround keeps the Black Forest's and the Meadows' trees off): a spot
+        // WoodlessGap tree units from every tree's footprint takes its biome's open fill, the
+        // Plains' stipple with WoodlessStipple odds (lighter than the Plains' own) in the Black
+        // Forest and the Plains, the Meadows' grass tufts there, kept RockStippleClear glyph
+        // units off every glyph's footprint.
+        private const float WoodlessGap = 6f;
+        private const float WoodlessStep = 4f;
+        private const float WoodlessStipple = 0.45f;
+        private const int WoodlessSalt = 43;
         // A copse's tree (PlaceCopses): its foot this share of its height (8 T) south of the map
         // pixel's centre, so the pixel lies midway between the foot and the crown's centre
         // (0.6 of the height up), and moved at most half this share of a map pixel either way.
@@ -1051,6 +1061,7 @@ namespace Atlas
             DrawScarps();
             DrawStumps();
             DrawBoulders();
+            DrawWoodlessGround();
             m_glyphs.Sort((a, b) => Order(a).CompareTo(Order(b)));
             foreach (Glyph glyph in m_glyphs)
             {
@@ -1710,6 +1721,46 @@ namespace Atlas
             });
         }
 
+        // Wood ground that ended up with no tree on it. The wash darkens all of the wood field
+        // (Paper.Washed), but the trees keep off steep ground (SteepGround), the shore, rivers and
+        // the land column's water, so whole steep slopes, mostly between the Black Forest's peaks
+        // and hills and the coast, lay as an empty dark green. They take their biome's open fill
+        // instead, a little lighter: the Plains' stipple in the Black Forest (as its boulder
+        // fields have) and the Plains, the Meadows' grass tufts on the Meadows' own sheet grid.
+        // Only where no tree of these woods has its footprint within WoodlessGap, so a wood's own
+        // gaps and its margins along the shore stay as they are; the Mountains' firs hidden
+        // behind the peaks do not count. Drawn once every glyph is placed, at each level of detail
+        // against that level's own trees, as the boulder field's stipple is. Like the open ground's
+        // fills it does not test the glyphs' boxes: a peak's box takes in the open ground beside its
+        // flanks, and every glyph scrapes what lies under its body when it is inked.
+        private void DrawWoodlessGround()
+        {
+            var trees = new Dictionary<int, List<Vector4>>();
+            foreach (Glyph glyph in m_glyphs)
+            {
+                if (!IsTree(glyph.m_kind)) continue;
+                Land foot = m_world.m_biome[m_world.Index(glyph.m_x * MetresPerPixel - HalfExtent, HalfExtent - glyph.m_y * MetresPerPixel)];
+                if (foot == Land.Meadows || foot == Land.BlackForest || foot == Land.Plains) FileBox(trees, GlyphBox(glyph));
+            }
+            float gap = WoodlessGap * m_t;
+            Scatter(WoodlessStep * m_g, WoodlessSalt, s =>
+            {
+                if (!s.m_isLand || !s.m_wood || s.m_shore < 2f || !(s.m_roll < WoodlessStipple)) return;
+                if (s.m_land != Land.BlackForest && s.m_land != Land.Plains) return;
+                if (!ClearOf(trees, s.m_x, s.m_y, gap, gap) || OnRiver(s.m_x, s.m_y)) return;
+                m_canvas.Dot(s.m_x, s.m_y, StippleRadius * m_pen);
+            });
+            // The open meadows' own tufts and grid (DrawBackground), so they carry on from the open
+            // grass, inked again over a pin in front as those are.
+            Scatter(8f * G, 8f * G, 0.9f, 0f, 14, s =>
+            {
+                if (!s.m_isLand || !s.m_wood || s.m_land != Land.Meadows || s.m_shore / m_lod < 3f || !(s.m_roll < 0.3f)) return;
+                if (!ClearOf(trees, s.m_x, s.m_y, gap, gap) || OnRiver(s.m_x, s.m_y)) return;
+                Grass(s.m_x, s.m_y, m_g);
+                if (OnAMark(new Vector4(s.m_x - 1.6f * m_g, s.m_y - 2.8f * m_g, s.m_x + 1.2f * m_g, s.m_y))) m_markGrass.Add(new Vector2(s.m_x, s.m_y));
+            }, sheetGrid: true);
+        }
+
         // Whether a tree glyph would keep clear of every non-tree glyph placed before it (the
         // hills, peaks and pins): on the sheet those placed so far, in a close-up the sheet's
         // footprints from the record.
@@ -1731,7 +1782,10 @@ namespace Atlas
         // its glyphs, in a close-up its own trees and the sheet's other glyphs from the record.
         private readonly Dictionary<int, List<Vector4>> m_glyphBoxes = new Dictionary<int, List<Vector4>>();
 
-        private void AddGlyphBox(Vector4 box)
+        private void AddGlyphBox(Vector4 box) => FileBox(m_glyphBoxes, box);
+
+        // Files a box in every PeakCell square it reaches.
+        private static void FileBox(Dictionary<int, List<Vector4>> boxes, Vector4 box)
         {
             int x0 = (int)Math.Floor(box.x / PeakCell), x1 = (int)Math.Floor(box.z / PeakCell);
             int y0 = (int)Math.Floor(box.y / PeakCell), y1 = (int)Math.Floor(box.w / PeakCell);
@@ -1740,7 +1794,7 @@ namespace Atlas
                 for (int cx = x0; cx <= x1; cx++)
                 {
                     int key = PeakCellKey(cx, cy);
-                    if (!m_glyphBoxes.TryGetValue(key, out List<Vector4> cell)) m_glyphBoxes[key] = cell = new List<Vector4>(8);
+                    if (!boxes.TryGetValue(key, out List<Vector4> cell)) boxes[key] = cell = new List<Vector4>(8);
                     cell.Add(box);
                 }
             }
@@ -1748,7 +1802,11 @@ namespace Atlas
 
         // Whether the rectangle of the given half width and height round (x, y) misses every
         // glyph's footprint.
-        private bool ClearOfGlyphs(float x, float y, float halfWidth, float halfHeight)
+        private bool ClearOfGlyphs(float x, float y, float halfWidth, float halfHeight) =>
+            ClearOf(m_glyphBoxes, x, y, halfWidth, halfHeight);
+
+        // The same against the boxes filed in the given PeakCell squares.
+        private static bool ClearOf(Dictionary<int, List<Vector4>> boxes, float x, float y, float halfWidth, float halfHeight)
         {
             float left = x - halfWidth, right = x + halfWidth, top = y - halfHeight, bottom = y + halfHeight;
             int x0 = (int)Math.Floor(left / PeakCell), x1 = (int)Math.Floor(right / PeakCell);
@@ -1757,7 +1815,7 @@ namespace Atlas
             {
                 for (int cx = x0; cx <= x1; cx++)
                 {
-                    if (!m_glyphBoxes.TryGetValue(PeakCellKey(cx, cy), out List<Vector4> cell)) continue;
+                    if (!boxes.TryGetValue(PeakCellKey(cx, cy), out List<Vector4> cell)) continue;
                     foreach (Vector4 box in cell)
                         if (box.x < right && left < box.z && box.y < bottom && top < box.w) return false;
                 }

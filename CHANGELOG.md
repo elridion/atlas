@@ -22,7 +22,9 @@
 - Woods are drawn where the game grows its forests, each one a dense mass of trees bounded by its
   outer crowns, with the open land around it kept clear. A clump of Meadows trees too small to
   draw as a wood stands as one or two lone trees on its spot. As in the game, no Meadows or Black
-  Forest tree stands on ground steeper than 30 degrees. Every tree carries its biome's wood
+  Forest tree stands on ground steeper than 30 degrees; such bare slopes inside a wood take
+  the open ground's marks (a light stipple in the Black Forest, grass in the Meadows) instead of
+  lying as empty dark green. Every tree carries its biome's wood
   colour, as the peaks carry the mountains' grey, right out to the edge of its wood.
 - Every biome has its own pen marks: ranges of jagged, hatched peaks washed in the mountains' grey, ringed by foothills, grass and woods of
   round crowns in the Meadows, dark pine woods in the Black Forest, patches of marsh lines with reeds

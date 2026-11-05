@@ -276,6 +276,12 @@ namespace Atlas
         private const float RockStipple = 0.45f;
         private const float RockStippleClear = 0.6f;
         private const int RockStippleSalt = 41;
+        // A copse's tree (PlaceCopses): its foot this share of its height (8 T) south of the map
+        // pixel's centre, so the pixel lies midway between the foot and the crown's centre
+        // (0.6 of the height up), and moved at most half this share of a map pixel either way.
+        private const float CopseLift = 0.3f;
+        private const float CopseJitter = 0.6f;
+        private const int CopseSalt = 42;
         // Mountain trees keep off the peaks' bases (ClearOfPeakBases): the base reaches this share
         // of the peak's width either side of its foot (its corners lie at most 0.56 out), and
         // PeakBaseGap sheet pixels below it (the body's skirt is 2); a pine's crown is about
@@ -2470,6 +2476,7 @@ namespace Atlas
             int first = m_glyphs.Count;
             // Meadows: egg-shaped broadleaf crowns (and a small-tree grove's), off steep ground.
             ScatterTrees(5.2f * m_t, 23, 0.95f, Kind.Broadleaf, s => InWood(s, Land.Meadows, 8f * m_t) && !SteepGround(s));
+            PlaceCopses();
             // Black Forest, the Deep North and the Mountains: dense pines. Vanilla's Deep North
             // woods are snowy firs and pines and its Mountain woods firs, the same dark conifer
             // mass on the map. Mountain firs keep off the peaks' bases (ClearOfPeakBases), the
@@ -2506,6 +2513,42 @@ namespace Atlas
             {
                 LimitMarkCover(first);
                 DropHiddenBehindMarks(first);
+            }
+        }
+
+        // The Meadows' copses too small for the wood field (Woods.Build, WorldSource.m_copses): a
+        // broadleaf on each of their map pixels kept, so the clumps of trees the game grows there
+        // are not lost. Placed from the world's map pixels, not the tile's ground, so the sheet and
+        // every close-up draw the same trees, each at its level's size, the middle between its
+        // foot and its crown's centre on the pixel (CopseLift) with a hashed jitter inside it
+        // (CopseJitter), so it is true to the 12 m pixel. Kept off the shore, rivers, steep ground
+        // (as the Meadows' woods), the hills and peaks (ClearOfPlaced) and the pins (Add).
+        private void PlaceCopses()
+        {
+            int[] copses = m_world.m_copses;
+            if (copses == null || copses.Length == 0) return;
+            float reach = m_grid != null ? GlyphReach / m_lod : 0f;
+            float left = Math.Min(m_left, m_scatter.xMin) - reach, right = Math.Max(m_right, m_scatter.xMax) + reach;
+            float top = Math.Min(m_top, m_scatter.yMin) - reach, bottom = Math.Max(m_bottom, m_scatter.yMax) + reach;
+            int size = m_world.m_size, half = size / 2;
+            float ps = m_world.m_pixelSize, height = 8f * m_t;
+            int salt = unchecked(m_world.m_seed + CopseSalt * 7919);
+            foreach (int i in copses)
+            {
+                int px = i % size, pz = i / size;
+                int seed = HashInt(px, pz, salt);
+                float wx = (px - half + 0.5f + (Unit(seed, 1) - 0.5f) * CopseJitter) * ps;
+                float wz = (pz - half + 0.5f + (Unit(seed, 2) - 0.5f) * CopseJitter) * ps;
+                float x = (wx + HalfExtent) / MetresPerPixel, y = (HalfExtent - wz) / MetresPerPixel + CopseLift * height;
+                if (x < left || x > right || y < top || y > bottom) continue;
+                Spot s = Look(x, y);
+                s.m_seed = seed;
+                if (!s.m_isLand || s.m_shore < 3f || SteepGround(s)) continue;
+                if (OnRiver(x, y) || OnRiver(x, y - height * 0.6f) || !IsLandColumn(x, y, height)) continue;
+                // A small-tree grove's copse is its small trees, as its woods are mostly.
+                Kind kind = s.m_grove == Grove.Smalltree ? Kind.SmallTree : Kind.Broadleaf;
+                if (!ClearOfPlaced(new Glyph { m_x = x, m_y = y, m_size = m_t, m_kind = kind, m_seed = seed })) continue;
+                Add(s, kind, m_t);
             }
         }
 

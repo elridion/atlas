@@ -20,7 +20,8 @@
 - The parchment's edge is trimmed by hand: a slightly wandering cut with worn, rounded corners and
   a darker, handled rim.
 - Woods are drawn where the game grows its forests, each one a dense mass of trees bounded by its
-  outer crowns, with the open land around it kept clear. As in the game, no Meadows or Black
+  outer crowns, with the open land around it kept clear. A clump of Meadows trees too small to
+  draw as a wood stands as one or two lone trees on its spot. As in the game, no Meadows or Black
   Forest tree stands on ground steeper than 30 degrees. Every tree carries its biome's wood
   colour, as the peaks carry the mountains' grey, right out to the edge of its wood.
 - Every biome has its own pen marks: ranges of jagged, hatched peaks washed in the mountains' grey, ringed by foothills, grass and woods of

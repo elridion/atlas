@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+
 namespace Atlas
 {
     /// <summary>
@@ -28,8 +31,18 @@ namespace Atlas
         // crust and veins; at 0.5 and two blurs the atlas drew about 15% of demoo's Ashlands as
         // lava, where the game's lava ground is about a quarter.
         private const int LavaWeight = 51;
+        // Copses: a Meadows patch dropped by MinWood is still real trees. The Meadows' red is
+        // WorldGenerator.InForest (forest factor under 1.15) at the pixel's centre, where the
+        // game's beeches and birches grow (about ten small beeches and a big tree or two on a
+        // 12 m pixel), so each keeps one tree, or two from CopsePair pixels, on its own pixels
+        // (WorldSource.m_copses, drawn by InkPainter.PlaceCopses), on its pixels inland (Inland).
+        // Most of these patches are beach, so few trees come of them. Two trees stand on the pair of
+        // its pixels nearest CopseGap pixels apart (about a crown's width, so they read as one
+        // clump) with their middle nearest the patch's centre.
+        private const int CopsePair = 3;
+        private const float CopseGap = 2f;
 
-        // Worker thread, after WorldSource.Decode.
+        // Worker thread, after WorldSource.Decode. Also fills world.m_copses.
         public static float[] Build(WorldSource world)
         {
             int size = world.m_size;
@@ -50,13 +63,99 @@ namespace Atlas
                 // The Deep North's forest (WorldSource.MarkNorthForest), up its gentle uplands too.
                 else if (biome == Land.DeepNorth) wood[i] = world.m_forest[i] > 127;
             }
-            Clean(wood, land, size, value: true, MinWood);
+            var copses = new List<int[]>();
+            Clean(wood, land, size, value: true, MinWood, (patch, count) =>
+            {
+                int meadows = 0;
+                for (int k = 0; k < count; k++)
+                    if (world.m_biome[patch[k]] == Land.Meadows) meadows++;
+                if (meadows * 2 <= count) return;
+                var cells = new int[count];
+                Array.Copy(patch, cells, count);
+                copses.Add(cells);
+            });
             Clean(wood, land, size, value: false, MinClearing);
 
             var field = new float[size * size];
             for (int i = 0; i < field.Length; i++) field[i] = wood[i] ? 1f : 0f;
             for (int pass = 0; pass < BlurPasses; pass++) Paper.Blur(field, size);
+            world.m_copses = CopseTrees(world, copses, field);
             return field;
+        }
+
+        // The map pixels the copses' trees stand on: their Meadows pixels not under the woods'
+        // field (a copse in a clearing the cleanup filled, or touching a wood's softened edge, is
+        // drawn by that wood's own trees), one per copse, two from CopsePair pixels.
+        private static int[] CopseTrees(WorldSource world, List<int[]> copses, float[] field)
+        {
+            int size = world.m_size;
+            var trees = new List<int>();
+            var open = new List<int>();
+            foreach (int[] patch in copses)
+            {
+                float cx = 0f, cz = 0f;
+                foreach (int i in patch)
+                {
+                    cx += i % size;
+                    cz += i / size;
+                }
+                cx /= patch.Length;
+                cz /= patch.Length;
+                open.Clear();
+                foreach (int i in patch)
+                    if (world.m_biome[i] == Land.Meadows && field[i] <= 0.5f && Inland(world, i)) open.Add(i);
+                if (open.Count == 0) continue;
+                if (patch.Length < CopsePair || open.Count < 2)
+                {
+                    int best = open[0];
+                    float nearest = float.MaxValue;
+                    foreach (int i in open)
+                    {
+                        float dx = i % size - cx, dz = i / size - cz, d = dx * dx + dz * dz;
+                        if (d < nearest)
+                        {
+                            nearest = d;
+                            best = i;
+                        }
+                    }
+                    trees.Add(best);
+                    continue;
+                }
+                int first = open[0], second = open[1];
+                float cost = float.MaxValue;
+                for (int a = 0; a < open.Count; a++)
+                {
+                    for (int b = a + 1; b < open.Count; b++)
+                    {
+                        int ax = open[a] % size, az = open[a] / size, bx = open[b] % size, bz = open[b] / size;
+                        float gap = (float)Math.Sqrt((ax - bx) * (ax - bx) + (az - bz) * (az - bz));
+                        float mx = 0.5f * (ax + bx) - cx, mz = 0.5f * (az + bz) - cz;
+                        float c = Math.Abs(gap - CopseGap) + 0.5f * (float)Math.Sqrt(mx * mx + mz * mz);
+                        if (c < cost)
+                        {
+                            cost = c;
+                            first = open[a];
+                            second = open[b];
+                        }
+                    }
+                }
+                trees.Add(first);
+                trees.Add(second);
+            }
+            return trees.ToArray();
+        }
+
+        // Whether a map pixel's eight neighbours are all land. Most dropped patches are a pixel or
+        // two of beach (0-2 m above the water), where a tree would stand on the coast's line; the
+        // woods' own trees keep three sheet pixels off it too.
+        private static bool Inland(WorldSource world, int i)
+        {
+            int size = world.m_size, x = i % size, z = i / size;
+            if (x == 0 || z == 0 || x == size - 1 || z == size - 1) return false;
+            for (int dz = -1; dz <= 1; dz++)
+                for (int dx = -1; dx <= 1; dx++)
+                    if (!(world.m_height[i + dz * size + dx] > world.m_waterLevel)) return false;
+            return true;
         }
 
         // The Ashlands' lava fields as a smooth field like the woods' (edge at 0.5), from vanilla's
@@ -86,7 +185,8 @@ namespace Atlas
 
         // Flips connected patches of cells equal to value smaller than minCells. A clearing is only
         // filled on land, so a pond in a wood stays water; patches touching the map's edge stay.
-        private static void Clean(bool[] wood, bool[] land, int size, bool value, int minCells)
+        // Each patch flipped is passed to dropped (its cells, then how many) before it flips.
+        private static void Clean(bool[] wood, bool[] land, int size, bool value, int minCells, Action<int[], int> dropped = null)
         {
             var seen = new bool[size * size];
             var queue = new int[size * size];
@@ -108,6 +208,7 @@ namespace Atlas
                     if (z < size - 1) Visit(i + size);
                 }
                 if (tail >= minCells || edge) continue;
+                dropped?.Invoke(queue, tail);
                 for (int k = 0; k < tail; k++)
                     if (value || land[queue[k]]) wood[queue[k]] = !value;
 

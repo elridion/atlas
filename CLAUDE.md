@@ -848,6 +848,26 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the outer crowns alone form the edge. Do not draw edge lines: a scalloped edge after the trees
   looks fuzzy with a gap inside it, and a plain line under the trees reads as height contours.
   Ground fills and hills keep `WoodClearance` from every wood.
+  **Copses** (finding #14, the user's call): the Meadows' red is `WorldGenerator.InForest`
+  (forest factor under 1.15) at the pixel's centre, where the game's beeches and birches grow
+  (about ten small beeches and a big tree or two a 12 m pixel), so a dropped Meadows patch (most
+  of its pixels Meadows) keeps its trees: `Woods.Build` lists them (`WorldSource.m_copses`, map
+  pixels) and `InkPainter.PlaceCopses` draws a broadleaf (a small tree in a small-tree grove) on
+  each, the sheet and every close-up from those pixels at their level's size, never from the
+  generator's finer factor. One tree a patch, two from `CopsePair` 3 pixels, on the pair nearest
+  `CopseGap` 2 pixels apart (a crown's width, so they read as one clump) with their middle
+  nearest the patch's centre. Only pixels whose eight neighbours are land (`Inland`) and not
+  under the softened field (over 0.5: that wood's own trees cover them) count. The pixel lies
+  midway between foot and crown centre (`CopseLift` 0.3 of the 8 T height), moved up to
+  `CopseJitter` 0.3 of a pixel either way. The trees take the woods' tests (shore 3, rivers, the
+  land column, `SteepGround`), keep off hills and peaks (`ClearOfPlaced`) and pins (`Add`),
+  count in pin cover and thin at the fog's band as every tree. Of the patches only a few
+  count: on Velen 136 dropped Meadows patches give 22 tree pixels and 1 tree drawn, on demoo
+  104, 18 and 8; most are beach a pixel or two wide 0-2 m above the water (the mask ignores
+  altitude), the rest steep ground or under hills. In game close-ups take the Meadows'
+  generator factor only where the sheet's field is above 0 (within two pixels of its woods,
+  `GeneratorSampler`), so the copses it would find elsewhere do not double them. The Plains'
+  dropped patches (factor under 0.8) are not drawn: unchecked against its trees' thresholds.
   **Steep ground**: no Meadows or Black Forest tree grows on ground steeper than 30 degrees in
   game (`maxTilt` 30, the oaks 20), so the Meadows' broadleaves (a small-tree grove's small trees
   too), the Black Forest's conifers and a boulder field's lone pines keep off broken ground:

@@ -60,7 +60,10 @@ namespace Atlas
                 // A felled Black Forest or a boulder field is open land, as on the sheet
                 // (InkPainter.BuildFields).
                 case Land.BlackForest: wood = WorldSource.IsOpen(m_world.GroveAt(wx, wz, land)) ? -1f : 1f; break;
-                case Land.Meadows: wood = MeadowsForest - Factor(wx, wz); break;
+                // Only near the sheet's woods (its field reaches two map pixels past them): the
+                // patches the sheet dropped are drawn as its copses' trees (InkPainter.PlaceCopses),
+                // and the generator's finer factor would add copses of its own beside them.
+                case Land.Meadows: wood = m_world.Sample(m_world.m_wood, wx, wz) > 0f ? MeadowsForest - Factor(wx, wz) : -1f; break;
                 case Land.Plains: wood = PlainsForest - Factor(wx, wz); break;
                 // All Mistlands land is wood, as on the sheet (Woods.Build).
                 case Land.Mistlands: wood = 1f; break;

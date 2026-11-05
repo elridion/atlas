@@ -128,6 +128,8 @@ namespace Atlas
         public byte[] m_lava;
         // The woods as a smooth field, edge at 0.5 (Woods.Build).
         public float[] m_wood;
+        // The map pixels the Meadows' copses too small for the field stand a tree on (Woods.Build).
+        public int[] m_copses;
         // The Ashlands' lava fields as a smooth field, edge at 0.5 (Woods.BuildLava).
         public float[] m_lavaField;
         // How hot the Ashlands' boiling sea is (0 to 1): vanilla's own ocean gradient, which its

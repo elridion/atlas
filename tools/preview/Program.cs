@@ -304,7 +304,14 @@ internal static class Program
                         }
                     if (count > 0) System.Console.WriteLine($"BIOME {landValue} {count} cells ({wooded} wood), {lo:F0}-{hi:F0} m above water");
                 }
-            }
+                // The Meadows' copse trees' map pixels (Woods.Build) in the circle.
+                int copseTrees = 0;
+                foreach (int i in (int[])Get(source, "m_copses"))
+                {
+                    float cx = (i % size - size / 2 + 0.5f) * 12f, cz = (i / size - size / 2 + 0.5f) * 12f;
+                    if ((cx - wx) * (cx - wx) + (cz - wz) * (cz - wz) <= radius * radius) copseTrees++;
+                }
+                System.Console.WriteLine($"COPSES {copseTrees} tree pixels");            }
             else if (p[0].StartsWith("fog"))
             {
                 // fogNAME:wx:wz:widthPx:scale:dz:halfWidth[:gx:gz] lays the game's fog over the

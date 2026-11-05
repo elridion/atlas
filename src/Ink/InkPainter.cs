@@ -609,7 +609,8 @@ namespace Atlas
             {
                 float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
                 // A close-up's pins are smaller by its level of detail, as its trees (InkCanvas.Pin).
-                // The glyph's place is its foot, below the pin's place for the Stones (PinGlyphs.Sink).
+                // The glyph's place is its foot, below the pin's place for the Stones and the
+                // raised glyphs (PinGlyphs.Sink).
                 float size = PinSheetSize(pin.m_glyph) / m_lod;
                 var g = new Glyph { m_x = x, m_y = y + PinGlyphs.Sink(pin.m_glyph) * size, m_size = size, m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
                 g.m_order = g.m_y;

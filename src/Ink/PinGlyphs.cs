@@ -176,13 +176,32 @@ namespace Atlas
         public static float Lift(PinGlyph glyph) => (StandOf(glyph) - PinUnits * 0.5f) / PinUnits;
 
         // How far a glyph's foot lies below its place, as a share of the pin's size: it is sorted
-        // in with the trees and glyphs by its foot (InkPainter.FindMarks). 0 but for the Stones,
-        // whose front stones stand south of the altar: sorted by the altar, a tree there would be
-        // drawn over the front of the ring.
+        // in with the trees and glyphs by its foot (InkPainter.FindMarks), not by its place: the
+        // Stones' front stones and every raised glyph's foot (StandRaise) lie south of the place,
+        // and sorted by the place a tree there would be drawn over the glyph's foot.
         public static float Sink(PinGlyph glyph) => (FootOf(glyph) - StandOf(glyph)) / PinUnits;
 
-        // The point of the glyph on its pin's place, in pin units.
-        private static float StandOf(PinGlyph glyph) => glyph == PinGlyph.StoneCircle ? StonesPlaceY : FootOf(glyph);
+        // The point of the glyph on its pin's place, in pin units: its foot, raised by StandRaise.
+        private static float StandOf(PinGlyph glyph) =>
+            glyph == PinGlyph.StoneCircle ? StonesPlaceY : FootOf(glyph) - StandRaise(glyph);
+
+        // How far over its foot a glyph's place lies, in pin units (the user's calls, read off the
+        // pin reference's rulers): a glyph's mass sits well over its foot line, so standing on the
+        // foot alone read as standing north of the place. The glyph and its sort foot are unchanged.
+        private static float StandRaise(PinGlyph glyph)
+        {
+            switch (glyph)
+            {
+                case PinGlyph.Fire: return 5f;
+                case PinGlyph.House: return 3f;
+                case PinGlyph.Hammer: return 2f;
+                case PinGlyph.Tomb: return 1f;
+                case PinGlyph.Cavern: return 2f;
+                case PinGlyph.Tower: return 1f;
+                case PinGlyph.Tent: return 1f;
+                default: return 0f;
+            }
+        }
 
         private static float FootOf(PinGlyph glyph)
         {
@@ -786,11 +805,11 @@ namespace Atlas
         // altar in the map's oblique view, as its peaks and trees are drawn. Each stone is a solid
         // block, drawn from the back of the ring to the front, a line of paper apart from what
         // lies behind it. Its centre is on its place, since the ring stands round the spot (the
-        // user's call): StonesPlaceY, a quarter unit over the altar (StonesCentreY), 2 px in the
-        // pin reference's 8x sheet view (the user's call); it is sorted by the front of the ring
+        // user's call): StonesPlaceY, one and a quarter units over the altar (StonesCentreY; the
+        // user's calls, read off the pin reference); it is sorted by the front of the ring
         // (StonesFoot, Sink), where its nearest stones stand.
         private const float StonesCentreY = 15f;
-        private const float StonesPlaceY = StonesCentreY - 0.25f;
+        private const float StonesPlaceY = StonesCentreY - 1.25f;
         private const float StonesFoot = 19f;
         private const float StonesRadius = 9f;
         private const float StonesTilt = 0.42f;

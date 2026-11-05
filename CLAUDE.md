@@ -29,7 +29,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   tree or peak does, its foot on the spot (`PinGlyphs.Lift`, from each glyph's ground line in pin
   units; the images and the name layout are lifted, the holder stays on the place); the dot and
   traced sprites stay centred, and the Sacrificial Stones put their ring's centre on the spot
-  (below).
+  (below). Some glyphs stand with their place raised over the foot (`PinGlyphs.StandRaise`, pin
+  units, the user's calls read off the pin reference's rulers: campfire 5, longhouse 3, Mjolnir
+  2, cave 2, barrow 1, tower 1, Hildir's tent 1), since their mass sits well over the foot line;
+  they still sort by their foot (`Sink`).
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, a
   two-tongued flame a line of paper in front of two long low crossed logs with square ends sawn a
   little off square (the user's design; round caps read as crossed bones), house: longhouse, a
@@ -182,9 +185,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   blocks): they read as a different, parchment-filled pin at low zoom. `PinGlyphs.StoneCircle`
   in a 26 px box: a ring of solid standing stones round a low altar in the map's oblique view,
   drawn back to front a line of paper apart. The ring's centre is on the location (the user's
-  call: standing on the front of the ring put the ring north of it): `StonesPlaceY`, a quarter pin
-  unit over the altar (`StonesCentreY`; 2 px in the pin reference's 8x sheet view, the user's
-  call), but the glyph is sorted by the front of the ring (`StonesFoot`, `PinGlyphs.Sink`: the
+  call: standing on the front of the ring put the ring north of it): `StonesPlaceY`, one and a
+  quarter pin units over the altar (`StonesCentreY`; the user's calls, read off the pin
+  reference), but the glyph is sorted by the front of the ring (`StonesFoot`, `PinGlyphs.Sink`: the
   `Glyph`'s `m_y` lies that far below the place, `PinBox` adds it back), so a tree between the
   altar and the front stones is drawn behind the ring, not over its front.
   The ground inside the ring is not cleared: only the stones scrape what lies behind them.

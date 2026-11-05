@@ -26,7 +26,7 @@
   round crowns in the Meadows, stones and dark pine woods in the Black Forest, patches of marsh lines with reeds
   and tall ancient dead trees in the Swamp, a dry stipple and copses on the Plains, rolling hills on the real hilltops of the
   Meadows and Plains, each drawn a little differently (low or round, a long ridge, a double crest or a shoulder), gnarled trees over the whole of the
-  Mistlands, thinner where the mist lies and sparse on the steep rock, veils of mist filling the hollows of its misty ground, black crags, and small hatched scarps marking the steep rock between them (its many small pools kept as water), a cinder stipple, rocky peaks, hatched vermilion lava fields wherever the game lays its lava, down to small pools, rocky crags, and spikes of rock standing out of its boiling sea in the Ashlands, and a
+  Mistlands, thinner where the mist lies and sparse on the steep rock, veils of mist filling the hollows of its misty ground, black crags, and small hatched scarps marking the steep rock between them (its many small pools kept as water), a cinder stipple, hatched vermilion lava fields wherever the game lays its lava, down to small pools, and spikes of rock standing out of its boiling sea in the Ashlands (no rock is drawn on its land, where the game scatters it at random and it would only mislead), and a
   near-blank snowfield with ice ridges in the Deep North, kept clear of the shore, the peaks and each other.
 - The Deep North's snowy forests are drawn as woods of dense dark pines, as in the Black Forest,
   wherever the game grows its firs and pines there, up its high ground too; its ice ridges keep

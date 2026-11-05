@@ -28,13 +28,6 @@ namespace Atlas
         // crust and veins; at 0.5 and two blurs the atlas drew about 15% of demoo's Ashlands as
         // lava, where the game's lava ground is about a quarter.
         private const int LavaWeight = 51;
-        // The large fields keep the old reading (over 0.5), so the crags stand where they did.
-        private const int MajorLavaWeight = 127;
-        // The large lava fields alone, which crags keep their bases off (InkPainter.MajorLavaAt):
-        // with every pool counted, the Ashlands' high ground had little room left for a base.
-        // Their bodies cover the pools under them (Glyphs.AshBody).
-        private const int MajorLava = 110;
-        private const int MajorLavaBlurPasses = 4;
 
         // Worker thread, after WorldSource.Decode.
         public static float[] Build(WorldSource world)
@@ -69,9 +62,6 @@ namespace Atlas
         // The Ashlands' lava fields as a smooth field like the woods' (edge at 0.5), from vanilla's
         // lava mask (blue on Ashlands land), so they can be outlined and filled as shapes.
         public static float[] BuildLava(WorldSource world) => BuildLava(world, LavaWeight, MinLava, LavaBlurPasses);
-
-        // The large lava fields only, as a field like BuildLava's.
-        public static float[] BuildMajorLava(WorldSource world) => BuildLava(world, MajorLavaWeight, MajorLava, MajorLavaBlurPasses);
 
         private static float[] BuildLava(WorldSource world, int weight, int minCells, int blurPasses)
         {

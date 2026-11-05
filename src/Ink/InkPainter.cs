@@ -375,25 +375,8 @@ namespace Atlas
         private const float ThornStep = 16f;
         private const float ThornOdds = 0.5f;
         private const float ThornWater = 5f;
-        // Ashlands ground this steep (height per metre) is broken into crags.
-        private const float CragSlope = 0.25f;
-        // Crags are small peaks, about half a filler peak's width.
-        private const float CragScale = 1.8f;
-        // The widest crag front peak (canvas pixels), and how far apart a moved crag keeps from
-        // its neighbours' feet (with the other's half: one front peak's width).
-        private const float CragWidth = 6.9f * CragScale * G;
-        private const float CragRadius = 0.45f * CragWidth;
-        // A crag whose base would reach into lava is moved off it instead of left
-        // out: tried in rings this fraction of its width apart, out to LavaShiftReach of it (one
-        // width at most), at these angles (degrees) from straight away from the lava (ShiftFoot,
-        // which moves hills off water the same way).
-        private const float LavaShiftStep = 0.1f;
-        private const float LavaShiftReach = 1f;
+        // A hill moved off water (ShiftFoot) tries these angles (degrees) from straight away from it.
         private static readonly float[] ShiftAngles = { 0f, 30f, -30f, 60f, -60f, 90f, -90f };
-        // A moved glyph also keeps its base this far (canvas pixels) off lava to the north and
-        // south: moved feet land at the nearest clear spot, and a base just clear of a lake's
-        // edge read as standing in it (a crag's smaller peak behind stands a little north).
-        private const float LavaShiftMargin = 4f;
         // Lava fields: the spacing of their engraved hatch (canvas pixels, across the lines).
         private const float LavaHatch = 2.6f;
 
@@ -419,10 +402,6 @@ namespace Atlas
         private readonly List<Vector4> m_summits = new List<Vector4>(1024);
         // Sea thorns placed so far, which the waves keep off (DrawWaves).
         private readonly List<Glyph> m_thorns = new List<Glyph>(1024);
-        // The large lava fields, built on first use (MajorLavaLevel).
-        private float[] m_majorLava;
-        // Crag feet placed so far, which moved Ashlands glyphs keep away from.
-        private readonly List<Vector2> m_crags = new List<Vector2>(1024);
         // Ice floes sit on the water, so they are drawn after the coast's wave accents, over them.
         private readonly List<Glyph> m_floes = new List<Glyph>(4096);
         // Floes: a grid of FloeStep G with FloeOdds of its cells taken (fine enough to hit the
@@ -470,7 +449,6 @@ namespace Atlas
             Spire,
             GiantTree,
             Thorn,
-            Crag,
             Mist,
             IceFloe,
             // A pin (PinGlyphs), its glyph in the seed's low byte and PinStruck set when checked.
@@ -807,10 +785,10 @@ namespace Atlas
         private static float Overlap(Vector4 a, Vector4 b) =>
             Math.Max(0f, Math.Min(a.z, b.z) - Math.Max(a.x, b.x)) * Math.Max(0f, Math.Min(a.w, b.w) - Math.Max(a.y, b.y));
 
-        // The land's own shape: peaks, hills, crags and sea thorns are never left out for a pin, as
+        // The land's own shape: peaks, hills, spires and sea thorns are never left out for a pin, as
         // a range must still read as one; a pin among them is drawn in front instead (OrderMarks).
         private static bool IsRelief(Kind kind) =>
-            kind == Kind.Peak || kind == Kind.Hill || kind == Kind.Spire || kind == Kind.Crag || kind == Kind.Thorn;
+            kind == Kind.Peak || kind == Kind.Hill || kind == Kind.Spire || kind == Kind.Thorn;
 
         // The order glyphs are drawn in, north to south: a glyph's foot, a mark's m_order.
         private static float Order(Glyph g) => IsMark(g.m_kind) ? g.m_order : g.m_y;
@@ -1424,125 +1402,10 @@ namespace Atlas
                 && IsLandAt(x - half * (1f - flank), y - height * flank) && IsLandAt(x + half * (1f - flank), y - height * flank);
         }
 
-        // Whether a peak-like glyph of the given width standing at (x, y) keeps its base off every
-        // large lava field, along its whole width with a margin. Testing the foot alone lets crags
-        // stand with their bases in lava lakes; the peak above may still rise in front of a lake
-        // behind it. Only the large fields count (MajorLavaAt): the pools between them would leave
-        // the Ashlands' high ground no room, and a crag's body covers those under it.
-        private bool ClearOfLava(float x, float y, float width)
-        {
-            float half = width * 0.6f;
-            for (int k = 0; k <= 6; k++)
-            {
-                float px = x - half + 2f * half * k / 6f;
-                if (MajorLavaAt(px, y + 1.5f) || MajorLavaAt(px, y - 1.5f)) return false;
-            }
-            return true;
-        }
-
         private bool LavaAt(float x, float y) => LavaLevel(x, y) > 0.5f;
 
         private float LavaLevel(float x, float y) =>
             m_world.Sample(m_world.m_lavaField, x * MetresPerPixel - HalfExtent, HalfExtent - y * MetresPerPixel);
-
-        // The large lava fields (Woods.BuildMajorLava), which crags keep off. Built
-        // on first use: only the sheet places them, close-ups replay them.
-        private bool MajorLavaAt(float x, float y) => MajorLavaLevel(x, y) > 0.5f;
-
-        private float MajorLavaLevel(float x, float y)
-        {
-            if (m_majorLava == null) m_majorLava = Woods.BuildMajorLava(m_world);
-            return m_world.Sample(m_majorLava, x * MetresPerPixel - HalfExtent, HalfExtent - y * MetresPerPixel);
-        }
-
-        // The crag rule has two halves. Chosen says whether the ground where a cell's candidate
-        // was scattered calls for a crag (broken ground and the cell's roll); it is decided there
-        // only, so a crag moved off lava is not rolled again. Room says whether it fits standing
-        // at the spot: land and biome under it, shore margins, its column and base on land, and,
-        // unless lava is false, its foot and whole base off lava. Room without lava finds the
-        // crags only lava keeps out, which ShiftOffLava then tries to move.
-        private static bool CragChosen(Spot s) =>
-            s.m_isLand && s.m_land == Land.Ashlands && s.m_roll < (s.m_slope >= CragSlope ? 0.7f : 0.1f);
-
-        // The crag group (Glyphs.Crag) is up to about 1.7 of its front peak's width across,
-        // reaching west of the foot, so its base is tested as one wide peak centred a little west.
-        private bool CragRoom(Spot s, bool lava)
-        {
-            if (!s.m_isLand || s.m_land != Land.Ashlands || s.m_shore < 6f * G) return false;
-            if (lava && (MajorLavaAt(s.m_x, s.m_y) || !ClearOfLava(s.m_x - CragWidth * 0.3f, s.m_y, CragWidth * 1.7f))) return false;
-            float reach = 9f * G;
-            return IsLandColumn(s.m_x, s.m_y, 10f * G) && IsLandAt(s.m_x - reach, s.m_y) && IsLandAt(s.m_x + reach, s.m_y);
-        }
-
-        // Whether a moved crag with this footprint radius would crowd a crag already placed.
-        // Crags where they were scattered need no such test (their grid spaces them), but a
-        // moved one may slide onto a neighbour.
-        private bool AshCrowded(float x, float y, float radius)
-        {
-            foreach (Vector2 crag in m_crags)
-            {
-                float reach = radius + CragRadius;
-                if ((crag - new Vector2(x, y)).sqrMagnitude < reach * reach) return true;
-            }
-            return false;
-        }
-
-        // Looks for a foot near the spot from which a glyph kept out by lava under its base fits
-        // (every test it had to pass, lava included, in fits). The base, baseWidth wide round
-        // baseX, says which way is away from the lava: the lava field's slope summed along it.
-        // Feet are tried in rings LavaShiftStep of the glyph's width apart out to LavaShiftReach
-        // of it, at angles straight away from the lava first and at most square to it, so the
-        // nearest fitting foot wins and the order is fixed. Unlike a glyph left where it was
-        // scattered, a moved one also keeps its body, height high, off lava: moved feet land at
-        // a lake's edge, and a cone rising over the lake there showed the lava's wash through
-        // its body and read as standing in it. False when nothing fits: the glyph stays out.
-        private bool ShiftOffLava(Spot s, float baseX, float baseWidth, float width, float height, Func<Spot, bool> fits, out Spot moved)
-        {
-            moved = s;
-            var away = Vector2.zero;
-            float half = baseWidth * 0.6f;
-            const float d = 2f;
-            for (int k = 0; k <= 6; k++)
-            {
-                float px = baseX - half + 2f * half * k / 6f;
-                away -= new Vector2(MajorLavaLevel(px + d, s.m_y) - MajorLavaLevel(px - d, s.m_y), MajorLavaLevel(px, s.m_y + d) - MajorLavaLevel(px, s.m_y - d));
-            }
-            if (away.sqrMagnitude < 1e-8f) return false;
-            away.Normalize();
-            Spot found = s;
-            bool shifted = ShiftFoot(new Vector2(s.m_x, s.m_y), away, width, LavaShiftStep, LavaShiftReach, (x, y) =>
-            {
-                float bx = x + baseX - s.m_x;
-                if (!ClearOfLava(bx, y - LavaShiftMargin, baseWidth) || !ClearOfLava(bx, y + LavaShiftMargin, baseWidth)) return false;
-                if (!BodyClearOfLava(bx, y, baseWidth, height)) return false;
-                Spot spot = Look(x, y);
-                spot.m_roll = s.m_roll;
-                spot.m_seed = s.m_seed;
-                spot.m_gx = s.m_gx;
-                spot.m_gy = s.m_gy;
-                spot.m_gridSeed = s.m_gridSeed;
-                if (!fits(spot)) return false;
-                found = spot;
-                return true;
-            });
-            if (shifted) moved = found;
-            return shifted;
-        }
-
-        // Whether a peak-like body over a base of the given width, rising to height, is clear of
-        // lava: points across it at a quarter, half and three quarters of its height, narrowing
-        // towards the top.
-        private bool BodyClearOfLava(float x, float y, float width, float height)
-        {
-            for (int level = 1; level <= 3; level++)
-            {
-                float t = level / 4f;
-                float half = width * 0.5f * (1f - t);
-                for (int k = -2; k <= 2; k++)
-                    if (MajorLavaAt(x + half * k / 2f, y - height * t)) return false;
-            }
-            return true;
-        }
 
         private static Vector2 Rotate(Vector2 v, float degrees)
         {
@@ -1794,10 +1657,6 @@ namespace Atlas
                     // The tallest thorn, its companions and waterline either side, and the
                     // shorter line under its foot.
                     return new Vector4(g.m_x - 6f * s, g.m_y - 9f * s, g.m_x + 6f * s, g.m_y + 2.5f);
-                case Kind.Crag:
-                    half = 6.5f * s;
-                    height = 7f * s;
-                    break;
                 case Kind.GiantTree:
                     half = 5.8f * s;
                     height = 12f * s;
@@ -2632,32 +2491,10 @@ namespace Atlas
                 Add(s, Kind.Spire, G);
             });
             DropSpiresOnPeaks();
-            // Ashlands: clusters of jagged crags on the broken ground between the lava fields. The
-            // game has no volcanoes: its high ground is the lava plateau.
-            // A crag whose foot is clear but whose base would reach into lava is moved a little
-            // off it afterwards (ShiftOffLava), once every crag that fits where it was scattered
-            // has its place. One scattered on the lava itself stays out: pushed to the nearest
-            // clear ground it would stand in a bay of the lake, reading as standing in it.
-            if (m_majorLava == null) m_majorLava = Woods.BuildMajorLava(m_world);
-            var cragMisses = new List<Spot>();
-            // Crag ridges, never standing on lava: both ends of the ridge are tested as well.
-            Scatter(18f * G, 31, s =>
-            {
-                if (!CragChosen(s)) return;
-                if (!CragRoom(s, lava: true))
-                {
-                    if (!MajorLavaAt(s.m_x, s.m_y) && CragRoom(s, lava: false)) cragMisses.Add(s);
-                    return;
-                }
-                m_crags.Add(new Vector2(s.m_x, s.m_y));
-                Add(s, Kind.Crag, CragScale * G);
-            });
-            foreach (Spot miss in cragMisses)
-            {
-                if (!ShiftOffLava(miss, miss.m_x - CragWidth * 0.3f, CragWidth * 1.7f, CragWidth, CragWidth, t => CragRoom(t, lava: true) && !AshCrowded(t.m_x, t.m_y, CragRadius), out Spot moved)) continue;
-                m_crags.Add(new Vector2(moved.m_x, moved.m_y));
-                Add(moved, Kind.Crag, CragScale * G);
-            }
+            // The Ashlands' land carries no rock glyphs (the user's call): the game's rock there is
+            // vegetation placed at random per zone, mostly on the shoreline, so crags on land could
+            // only be a representative scatter, and players would take them for landmarks to steer
+            // by. Its rock stands only in the sea, as the thorns below, where it reads as decoration.
             // Sea thorns in the Ashlands' shallows: the game stands cliff_ashlands8 in groups in
             // water down to 25 m deep and cliff_ashlands5 and 6 along the shore, the rock the
             // Ashlands' coast bristles with. Representative, as the trees are: the game places

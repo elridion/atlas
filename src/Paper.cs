@@ -781,7 +781,7 @@ namespace Atlas
         // over its biome's open ground wash on clean paper, give the wood wash. Inside a wood the
         // ground already has it, so crowns there come out a shade deeper than the floor; at a
         // wood's edge, where the blurred wash fades, they keep it.
-        // The Ashlands' rock (crags and sea thorns) is laid opaque, as a peak's body is: laid as a
+        // The Ashlands' rock (the sea thorns) is laid opaque, as a peak's body is: laid as a
         // glaze over the open burnt ground or the water, the lava fields' vermilion or the sea's
         // indigo under it would show through.
         private static void WoodInk(Land land, out float alpha, out float r, out float g, out float b)

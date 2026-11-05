@@ -43,7 +43,7 @@ namespace Atlas
         // which one mask and one kind could not keep.
         public readonly byte[] m_bodyMist;
         // The same for tree crowns, which take the wood wash of the biome the tree stands in
-        // (Paper.WoodTint), and the Ashlands' crags and sea thorns. Each byte packs that biome
+        // (Paper.WoodTint), and the Ashlands' sea thorns. Each byte packs that biome
         // (WoodCode, top four bits) with the coverage (bottom four bits), since a cached sheet is
         // shown before the world is read and so cannot look the biome up.
         public readonly byte[] m_bodyWood;
@@ -110,7 +110,7 @@ namespace Atlas
         }
 
         // The biomes a Wood body can take, by code (0: none). The Ashlands have no woods: their
-        // crags and sea thorns take its wood wash as their rock (Glyphs.AshBody).
+        // sea thorns take its wood wash as their rock (Glyphs.AshBody).
         private static readonly Land[] s_woodLands =
         {
             Land.Ocean, Land.Meadows, Land.BlackForest, Land.Swamp, Land.Mountain, Land.Plains, Land.Mistlands, Land.DeepNorth,

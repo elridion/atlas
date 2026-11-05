@@ -59,7 +59,6 @@ namespace Atlas
                     break;
                 case Kind.GiantTree: GiantTree(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Thorn: Thorns(g.m_x, g.m_y, g.m_size, g.m_seed); break;
-                case Kind.Crag: Crag(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Mist: MistBank(g.m_x, g.m_y - MistFoot(g.m_seed), g.m_seed); break;
                 case Kind.IceFloe: IceFloe(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Pin:
@@ -86,9 +85,7 @@ namespace Atlas
         // top, which keeps ranges dark at the opening zoom. Proportions, a blunt top, a snow line
         // and the hatching hand vary by seed too. The apex is x + 0.12 width at most and
         // PeakHeightOf above the foot.
-        // An ash peak (the Ashlands' crags) is filled with the Ashlands' rock (AshBody) instead of
-        // the mountains' wash, cut at its foot line without the cone's base fade.
-        private void Peak(float x, float y, float width, int seed, bool ash = false)
+        private void Peak(float x, float y, float width, int seed)
         {
             float height = PeakHeightOf(width, seed);
             var apex = new Vector2(x + width * Unit(seed, 11) * 0.12f, y - height);
@@ -139,18 +136,14 @@ namespace Atlas
             // the drawn contour (a hull spills past every sag and notch), in one pass
             // (ScrapeBody). Deep North peaks take its wash.
             BodyKind kind = IsNorthAt(x, y) ? BodyKind.North : BodyKind.Mountain;
-            if (ash) AshBody();
-            else
-            {
-                BaseFade(left, right);
-                m_canvas.m_markBody = kind;
-            }
+            BaseFade(left, right);
+            m_canvas.m_markBody = kind;
             ScrapeBody(m_points);
             m_canvas.m_markBody = BodyKind.None;
             // The base is not cut hard: the body meets the ground along a cone's base arc, with the
             // ground's wash below it (Skirt). A wash run out below the foot instead shows
             // its own edges on open ground.
-            if (!ash) Skirt(left, right, kind);
+            Skirt(left, right, kind);
 
             // The shadow: a solid wedge from the apex, then hatching down the eastern face.
             var foot = new Vector2(apex.x + width * 0.06f, y);
@@ -1016,21 +1009,10 @@ namespace Atlas
             m_canvas.Stroke(from0, below, from0 + width * Mathf.Lerp(0.8f, 1.2f, Unit(seed, 29)), below, Pen);
         }
 
-        // The Ashlands' broken rock: one or two small peaks in the mountains' own hand, the
-        // smaller behind to the west, filled with the Ashlands' rock (AshBody). Ridges of thin notched
-        // spires read as grass tufts and look doodled.
-        private void Crag(float x, float y, float s, int seed)
-        {
-            float width = 6f * s * Vary(seed, 10, 0.15f);
-            if (Unit(seed, 12) < 0.6f)
-                Peak(x - width * 0.45f, y - width * 0.12f, width * Mathf.Lerp(0.65f, 0.85f, Unit(seed, 13)), seed + 1, ash: true);
-            Peak(x, y, width, seed, ash: true);
-        }
-
         // Marks the erases from here as the Ashlands' rock: the Ashlands' wood wash (a shade
         // deeper than the open burnt ground, as a Mistlands spire takes its land's), laid strictly
-        // and on the sheet opaque (Paper.WoodInk), so a lava field under a crag does not
-        // show its vermilion through the body. The Ashlands grow no woods, so the Wood plane
+        // and on the sheet opaque (Paper.WoodInk), so the water under a sea thorn does not
+        // show through the body. The Ashlands grow no woods, so the Wood plane
         // carries it under the Ashlands' code.
         private void AshBody()
         {

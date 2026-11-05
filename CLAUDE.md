@@ -1051,9 +1051,14 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `WorldGenerator.RenderRivers`) over land only, on a scraped band. None is drawn over the
   Ashlands (`WorldSource.HasRiverBed`, sheet ink and the paper's stream band): every biome's
   height function calls `AddRivers` but `GetAshlandsHeight`, so courses crossing it have no bed. Streams run from their low
-  mouth (`p0`, 26-31 m) to the source and taper. Deep North streams are not kept by vanilla and so
-  are not drawn. The offline harness cannot run the generator; its previews use streams laid out
-  with the same rule on the cached heights, so in-game courses differ from the previews.
+  mouth (`p0`, 26-31 m) to the source and taper. A stream whose mouth is in the Deep North is
+  dropped at capture (`WorldSource.AddRivers`): vanilla carves streams with
+  `RenderRivers(..., SkipDeepNorth)`, which skips those, yet `GetStreams` still returns them, and
+  the Deep North's carved streams come from a second pass (`PlaceStreams` with `isDN` true) whose
+  list is thrown away, so the atlas draws no Deep North streams. Replaying that pass would need
+  `UnityEngine.Random` on the main thread and an exact copy of vanilla's search; not done.
+  The offline harness cannot run the generator and draws no rivers or streams at all (the river
+  channels in its previews are the heights' own water), so none of this shows offline.
 - Tall glyphs test their whole column with `IsLandColumn` as well as the shore margin at their
   foot, or peaks and trees on south-facing coasts or thin spits reach into the sea.
 - Thresholds are set from the Velen world's height percentiles (Ashlands land p90 22 m above

@@ -48,7 +48,8 @@
   lines instead, stacked on consecutive rows from one shore, each touching the shore and running
   into the lake, at the lake's bends and along its straight shores, never across it, so still
   water reads apart from the sea; ponds stay bare. Ice floes in the northern sea are white as the northern snow; rivers and
-  streams are drawn as ink lines, except across the Ashlands, where the game carves none.
+  streams are drawn as ink lines, except across the Ashlands, where the game carves none, and
+  streams that run down into the Deep North, which the game never carves.
 - A few sea monsters are inked out in wide stretches of open water, spread over the seas rather
   than crowded along the map's rim, as on old maps:
   sea serpents and serpent coils where the game's Serpents swim, the odd leviathan, and the

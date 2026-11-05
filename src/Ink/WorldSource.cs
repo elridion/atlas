@@ -235,6 +235,11 @@ namespace Atlas
             foreach (WorldGenerator.River river in rivers)
             {
                 if (river == null || river.curveWavelength <= 0f) continue;
+                // Vanilla carves its streams with RenderRivers(..., SkipDeepNorth), which skips every
+                // stream whose mouth (p0) lies in the Deep North, yet GetStreams still returns them;
+                // the Deep North's carved streams come from a second pass whose list is not kept.
+                // So a stream with a Deep North mouth has no bed. Rivers are carved everywhere.
+                if (stream && WorldGenerator.IsDeepnorth(river.p0.x, river.p0.y)) continue;
                 source.m_rivers.Add(new RiverPath
                 {
                     m_start = river.p0,

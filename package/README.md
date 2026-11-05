@@ -23,6 +23,9 @@ Across it the drawing thins out and stops, as if the cartographer did not know w
 woods end in a few outlying trees, coasts and rivers simply end, and a mountain is drawn whole or
 not at all.
 
+The one exception is for checking the drawing: with the game's dev commands on (`devcommands` in
+the console), the map shows the game's own map arrow where you stand, turned the way you face.
+
 ## Controls
 
 | Input | Action |

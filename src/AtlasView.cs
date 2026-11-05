@@ -10,7 +10,8 @@ namespace Atlas
     /// The unrolled atlas: a window over the HUD with three stacked sheets (parchment, ink, fog)
     /// and the recorded pins, panned by dragging and zoomed with the wheel. It hangs beside the HUD
     /// root rather than under it, so hiding the HUD does not hide an open atlas. There is no
-    /// player marker on purpose: the atlas is a drawing, it does not know where you stand.
+    /// player marker on purpose: the atlas is a drawing, it does not know where you stand. The
+    /// one exception is a debugging aid shown only with dev commands on (UpdatePlayerMarker).
     /// </summary>
     internal sealed class AtlasView
     {
@@ -83,6 +84,17 @@ namespace Atlas
             public string m_name;
         }
 
+        // With dev commands on (Terminal.m_cheat) only: where the player stands and looks, in
+        // vanilla's own large map arrow, for checking the drawing against the world. A modern
+        // overlay, not part of the map: over every layer of the sheet, the dirt and trimmed edge
+        // included, at vanilla's size on screen whatever the zoom. PlayerMarkerSize is the size
+        // when vanilla's marker has none (canvas units).
+        private const float PlayerMarkerSize = 32f;
+        private RectTransform m_playerMarker;
+        private bool m_playerMarkerTried;
+        private float m_playerMarkerYaw = float.NaN;
+        private static bool s_playerMarkerFailed;
+
         private static readonly AccessTools.FieldRef<Minimap, GameObject> s_pinNamePrefab =
             AccessTools.FieldRefAccess<Minimap, GameObject>("m_pinNamePrefab");
 
@@ -143,6 +155,7 @@ namespace Atlas
             Canvas.ForceUpdateCanvases();
             if (!m_hasView) ResetView();
             Apply();
+            UpdatePlayerMarker();
         }
 
         public void Hide()
@@ -258,6 +271,78 @@ namespace Atlas
             }
             Apply();
             UpdateHover(pointer, camera);
+            UpdatePlayerMarker();
+        }
+
+        // Places the dev commands marker on the player, at the place a pin marker there would
+        // take (SetPins), turned to where vanilla's map arrow points (the camera's heading). The
+        // flag is read every frame, since devcommands can be toggled with the atlas open. A
+        // failure logs once and turns the marker off for the session, not the atlas.
+        private void UpdatePlayerMarker()
+        {
+            if (s_playerMarkerFailed) return;
+            try
+            {
+                Player player = Terminal.m_cheat ? Player.m_localPlayer : null;
+                if (!player)
+                {
+                    if (m_playerMarker && m_playerMarker.gameObject.activeSelf) m_playerMarker.gameObject.SetActive(false);
+                    return;
+                }
+                if (!m_playerMarker && !m_playerMarkerTried) m_playerMarker = NewPlayerMarker();
+                if (!m_playerMarker) return;
+
+                Vector3 position = player.transform.position;
+                float half = InkPainter.HalfExtent;
+                float size = InkPainter.CanvasSize;
+                var place = new Vector2(position.x / (2f * half) * size, position.z / (2f * half) * size);
+                // The marker hangs in the viewport, not on the sheet, so it keeps its screen size;
+                // the sheet's centre sits at m_position and scales by m_scale, as hover finds pins.
+                Vector2 at = m_position + place * m_scale;
+                if (m_playerMarker.anchoredPosition != at) m_playerMarker.anchoredPosition = at;
+                Camera camera = Utils.GetMainCamera();
+                float yaw = (camera ? camera.transform : player.transform).eulerAngles.y;
+                if (yaw != m_playerMarkerYaw)
+                {
+                    m_playerMarkerYaw = yaw;
+                    m_playerMarker.localRotation = Quaternion.Euler(0f, 0f, -yaw);
+                }
+                if (!m_playerMarker.gameObject.activeSelf) m_playerMarker.gameObject.SetActive(true);
+            }
+            catch (System.Exception e)
+            {
+                s_playerMarkerFailed = true;
+                Jotunn.Logger.LogWarning($"The atlas's dev commands player marker failed and is off for this session: {e}");
+                if (m_playerMarker) m_playerMarker.gameObject.SetActive(false);
+            }
+        }
+
+        // The dev commands marker: a copy of vanilla's large map arrow (Minimap.m_largeMarker),
+        // under the hovered name so a name stays readable. Null, with a warning, when vanilla's
+        // marker has no sprite.
+        private RectTransform NewPlayerMarker()
+        {
+            m_playerMarkerTried = true;
+            Minimap minimap = Minimap.instance;
+            Image source = minimap && minimap.m_largeMarker ? minimap.m_largeMarker.GetComponentInChildren<Image>(true) : null;
+            if (!source || !source.sprite)
+            {
+                Jotunn.Logger.LogWarning("The atlas found no player arrow on vanilla's map; the dev commands player marker is off.");
+                return null;
+            }
+            var rect = NewRect("PlayerMarker", m_viewport, typeof(Image));
+            rect.anchorMin = rect.anchorMax = rect.pivot = new Vector2(0.5f, 0.5f);
+            Vector2 vanillaSize = source.rectTransform.rect.size;
+            rect.sizeDelta = vanillaSize.x >= 1f && vanillaSize.y >= 1f ? vanillaSize : new Vector2(PlayerMarkerSize, PlayerMarkerSize);
+            var image = rect.GetComponent<Image>();
+            image.sprite = source.sprite;
+            image.color = source.color;
+            image.preserveAspect = true;
+            image.raycastTarget = false;
+            if (m_hoverRect) rect.SetSiblingIndex(m_hoverRect.GetSiblingIndex());
+            m_playerMarkerYaw = float.NaN;
+            rect.gameObject.SetActive(false);
+            return rect;
         }
 
         // Shows the name of the pin under the mouse, if it has one; with a gamepad there is no
@@ -533,6 +618,9 @@ namespace Atlas
             m_hoverText = null;
             m_hovered = -1;
             m_hoverPins.Clear();
+            // The dev commands marker is made the first time it is needed (UpdatePlayerMarker).
+            m_playerMarker = null;
+            m_playerMarkerTried = false;
 
             Canvas canvas = m_root.GetComponentInParent<Canvas>();
             m_canvas = canvas ? canvas.rootCanvas : null;

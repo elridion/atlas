@@ -97,3 +97,6 @@
   over a little sooner as you zoom in, are ready shortly after you join rather than after you
   first open the map, and fill in faster. Close-ups are drawn
   ahead of time in small tiles around the pointer, so zooming in rarely waits.
+- With the game's dev commands on (`devcommands` in the console), the map shows where you stand
+  and which way you face, with the game's own map arrow, so the drawing can be checked against
+  the world. It never shows in normal play.

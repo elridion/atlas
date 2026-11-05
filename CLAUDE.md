@@ -140,6 +140,20 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   them (`Glimpsed`, `AtlasMap.s_glimpses`). The player's own pins in unexplored land and traced
   icons (other mods') stay markers in `AtlasView`, sized as the sheet's pins in sheet units
   (`InkPainter.PinSheetSize`), scaling with the map, not kept at a screen size.
+  **Dev commands player marker** (a debugging aid, the user's request): the atlas otherwise
+  never shows where the player stands. With `Terminal.m_cheat` set (vanilla's `devcommands`
+  toggle, a public static bool; read live every frame, never cached, as it can be toggled with
+  the atlas open) `AtlasView.UpdatePlayerMarker` shows a copy of vanilla's large map arrow
+  (`Minimap.m_largeMarker`'s `Image`: sprite, colour and size) on the player, turned
+  `-yaw` of the main camera as vanilla's `UpdatePlayerMarker` turns it (the player's own
+  transform without a camera). It is a modern overlay, not part of the map: a child of the
+  viewport over the whole sheet (dirt and trimmed edge included), under the hover name,
+  placed at `m_position + place * m_scale` with `place` the marker mapping `SetPins` uses,
+  so it keeps its screen size at every zoom. Made the first time it is needed after `Build`
+  (`NewPlayerMarker`; no sprite logs a warning and leaves it off); per frame it only
+  compares and sets position, rotation and active state, no allocation. A failure logs once
+  and turns the marker off for the session (`s_playerMarkerFailed`), not the atlas.
+  Untested in game.
   The glimpse (the user's design): `Paper.Fog` lays a band `GlimpseBand` 160 m out from the
   explored land and round every glimpsed mark (a distance field from the explored pixels and
   the marks, `BandDepth`), across which the drawing thins out and stops (below, "Where the

@@ -67,13 +67,12 @@ namespace Atlas
         // (its bytes reach 255 / GlimpseSteps pixels, well past the band).
         private const float GlimpseBand = 160f;
         private const float GlimpseSteps = 4f;
-        // A sea illustration is shown or hidden whole (SeaMarkDepth): the band's depth is set to
-        // the explored land's over its box when at least SeaMarkShown of the box is explored and
-        // far beyond the band's end when less is, out to SeaMarkMargin metres round it, past the
-        // edge's wobble and fade (within about 32 m of the band's end), so the edge never crosses
-        // the glyph. The box is sampled every SeaMarkStep metres, finer than vanilla's 12 m
-        // exploration grid.
-        private const float SeaMarkShown = 0.5f;
+        // A sea illustration is drawn only when it lies wholly in the explored land's colour
+        // (SeaMarkSeen): its box and SeaMarkMargin metres round it all explored, past the glimpse's
+        // softening of the explored edge (about 21 m) and its wash's reach (3 sheet px, 16 m), so
+        // neither the glimpse's parchment nor the fog ever lies over part of it; otherwise it is
+        // left out (FogEdge.m_hiddenSea) and its water stays as the fog lays it. The box is sampled
+        // every SeaMarkStep metres, finer than vanilla's 12 m exploration grid.
         private const float SeaMarkMargin = 60f;
         private const float SeaMarkStep = 6f;
 
@@ -790,7 +789,7 @@ namespace Atlas
         public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks, byte[] glimpse, FogEdge edge = null)
         {
             int n = InkPainter.CanvasSize;
-            byte[] hidden = HiddenInk(edge);
+            byte[] hidden = HiddenSeaInk(HiddenInk(edge), edge);
             int plane = n * n;
             int total = 0;
             for (int size = n; size >= 1; size /= 2) total += size * size;
@@ -851,6 +850,7 @@ namespace Atlas
             {
                 foreach (SeaMark mark in marks)
                 {
+                    if (edge != null && edge.HidesSea(mark)) continue;
                     SeaWash wash = SeaWash.Build(mark);
                     int x0 = Math.Max(0, (int)wash.Left), x1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Right));
                     int y0 = Math.Max(0, (int)wash.Top), y1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Bottom));
@@ -915,7 +915,8 @@ namespace Atlas
         // and glimpse (RGBA, the parchment's colours) gets that band, explored land excepted, as
         // opacity: laid over the paper's wash and under the ink, it shows the map there on bare,
         // untinted parchment, a glimpse past what was explored. marks are the sheet's sea
-        // illustrations, each shown or hidden whole (null when not known). sheetMarks are the
+        // illustrations (null when not known): the FogEdge leaves out every one not lying wholly
+        // in explored land (SeaMarkSeen), which InkWithMips and close-ups apply. sheetMarks are the
         // sheet's trees, glyphs and wave strokes (null for none): the returned FogEdge says
         // which are left out, which InkWithMips clears from the sheet's ink and close-ups leave
         // out, and relief the band's end would cut is shown whole by lifting the fog over it.
@@ -950,18 +951,7 @@ namespace Atlas
             var unexplored = (float[])cover.Clone();
             Blur(unexplored, n);
             Blur(unexplored, n);
-            var forced = new bool[n * n];
-            float[] depth = BandDepth(cover, inside, forced, n, metres, glimpseBand ? glimpses : null, glimpseBand);
-            // Where a sea illustration is shown whole, the glimpse's parchment is lifted too, or
-            // the unexplored part of its box shows the ink on bare paper with the sea gone from
-            // under it (a serpent's head standing on parchment over the explored strip).
-            var shownSea = new float[n * n];
-            if (snapshot != null && marks != null)
-            {
-                foreach (SeaMark mark in marks) SeaMarkDepth(depth, forced, shownSea, n, metres, snapshot, mark);
-                Blur(shownSea, n);
-                Blur(shownSea, n);
-            }
+            float[] depth = BandDepth(cover, inside, n, metres, glimpseBand ? glimpses : null, glimpseBand);
             Blur(depth, n);
             Blur(depth, n);
             float band = GlimpseBand / metres;
@@ -976,9 +966,8 @@ namespace Atlas
                     int x = i % n, y = i / n;
                     float t = depth[i] + (Fbm(x / EdgeGrain, y / EdgeGrain, EdgeSeed) - 0.5f) * 2f * EdgeWobble / band;
                     a = Smooth(1f - EdgeFade, 1f + EdgeFade * 0.5f, t);
-                    // Explored land is never covered, wherever the wobble takes the edge, but a
-                    // sea illustration hidden whole may be.
-                    if (cover[i] <= 0f && !forced[i]) a = 0f;
+                    // Explored land is never covered, wherever the wobble takes the edge.
+                    if (cover[i] <= 0f) a = 0f;
                     thin[i] = ToByte(Smooth(ThinFrom, 1f, t) * 255f);
                 }
                 opacity[i] = ToByte(a * 255f);
@@ -996,9 +985,12 @@ namespace Atlas
                 beyond[o] = parchment[p];
                 beyond[o + 1] = parchment[p + 1];
                 beyond[o + 2] = parchment[p + 2];
-                beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * (1f - shownSea[i]) * 255f) : (byte)0;
+                beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
             }
             var result = new FogEdge { m_marks = sheetMarks, m_edge = opacity, m_thin = thin };
+            if (marks != null)
+                foreach (SeaMark mark in marks)
+                    if (snapshot == null || !SeaMarkSeen(snapshot, mark)) result.HideSea(mark);
             if (sheetMarks != null) Decide(result, rgba, beyond);
             // Without the glimpse it takes the band's opacity: wherever it would show, the fog
             // lies over it. Not the fog's own once relief is lifted out of it: through the lift
@@ -1012,7 +1004,7 @@ namespace Atlas
         // (GlimpseBand out from the explored pixels and from glimpses, the game's marks out in the
         // unexplored). With glimpseBand false the band's end lies on the explored land's own edge:
         // the fade starts on the explored pixels and the fog closes about 30 m past them.
-        private static float[] BandDepth(float[] cover, bool[] inside, bool[] forced, int n, float metres, IList<Vector2> glimpses, bool glimpseBand)
+        private static float[] BandDepth(float[] cover, bool[] inside, int n, float metres, IList<Vector2> glimpses, bool glimpseBand)
         {
             var seeds = new bool[n * n];
             for (int i = 0; i < n * n; i++) seeds[i] = inside[i] && cover[i] < 0.5f;
@@ -1262,6 +1254,24 @@ namespace Atlas
             return mask;
         }
 
+        // Adds the sea illustrations the fog leaves out (FogEdge.m_hiddenSea) to the cleared ink
+        // (mask, HiddenInk's, or null), their whole box and a pixel round it: nothing else is
+        // inked within InkPainter.IllustrationInkGap of one, so the box clears that glyph alone.
+        private static byte[] HiddenSeaInk(byte[] mask, FogEdge edge)
+        {
+            if (edge?.m_hiddenSea == null) return mask;
+            int n = InkPainter.CanvasSize;
+            if (mask == null) mask = new byte[n * n];
+            foreach (Vector4 b in edge.m_hiddenSea)
+            {
+                int x0 = Math.Max(0, (int)b.x - 1), x1 = Math.Min(n - 1, (int)Math.Ceiling(b.z) + 1);
+                int y0 = Math.Max(0, (int)b.y - 1), y1 = Math.Min(n - 1, (int)Math.Ceiling(b.w) + 1);
+                for (int y = y0; y <= y1; y++)
+                    for (int x = x0; x <= x1; x++) mask[y * n + x] = 255;
+            }
+            return mask;
+        }
+
         // Clears a hidden mark's shape in the mask (canvas order), less what the marks in front
         // of it cover.
         private static void Clear(byte[] mask, FogMark mark, List<FogMark> front)
@@ -1306,44 +1316,28 @@ namespace Atlas
             return t * t * (3f - 2f * t);
         }
 
-        // A sea illustration shown or hidden whole: before the band's depth is blurred, its box and
-        // SeaMarkMargin round it are set to the explored land's depth or far past the band's end,
-        // and marked forced, so the fog may lie over its explored part when it is hidden. Its box
-        // lies far out in open water, so lifting the fog off a little unexplored sea, or laying it
-        // over a little explored sea, shows or hides nothing but water; left to the fog alone, a
-        // pass over a glyph shows half a monster. A shown one also marks its pixels in shown, where
-        // the glimpse's parchment is lifted.
-        private static void SeaMarkDepth(float[] depth, bool[] forced, float[] shown, int n, float metres, Snapshot snapshot, SeaMark mark)
+        // Whether a sea illustration lies wholly in the explored land's colour: its box and
+        // SeaMarkMargin round it all explored. Only then is it drawn: one shown across the band
+        // stood half on parchment or under the fog, and one partly explored but hidden laid the
+        // fog over explored sea. Its box lies far out in open water, so leaving it out leaves
+        // nothing but water.
+        private static bool SeaMarkSeen(Snapshot snapshot, SeaMark mark)
         {
-            int seen = 0, total = 0;
-            for (float wz = mark.m_south + SeaMarkStep * 0.5f; wz < mark.m_north; wz += SeaMarkStep)
+            float west = mark.m_west - SeaMarkMargin, east = mark.m_east + SeaMarkMargin;
+            float south = mark.m_south - SeaMarkMargin, north = mark.m_north + SeaMarkMargin;
+            for (float wz = south; wz <= north + SeaMarkStep * 0.5f; wz += SeaMarkStep)
             {
-                for (float wx = mark.m_west + SeaMarkStep * 0.5f; wx < mark.m_east; wx += SeaMarkStep)
+                float z = Math.Min(wz, north);
+                float dz = Math.Max(0f, Math.Max(mark.m_south - z, z - mark.m_north));
+                for (float wx = west; wx <= east + SeaMarkStep * 0.5f; wx += SeaMarkStep)
                 {
-                    total++;
-                    if (snapshot.IsExplored(wx, wz)) seen++;
-                }
-            }
-            if (total == 0) return;
-            float value = seen >= SeaMarkShown * total ? 0f : 3f;
-            int x0 = Mathf.Max(0, Mathf.FloorToInt((mark.m_west - SeaMarkMargin + InkPainter.HalfExtent) / metres));
-            int x1 = Mathf.Min(n - 1, Mathf.CeilToInt((mark.m_east + SeaMarkMargin + InkPainter.HalfExtent) / metres));
-            int y0 = Mathf.Max(0, Mathf.FloorToInt((mark.m_south - SeaMarkMargin + InkPainter.HalfExtent) / metres));
-            int y1 = Mathf.Min(n - 1, Mathf.CeilToInt((mark.m_north + SeaMarkMargin + InkPainter.HalfExtent) / metres));
-            for (int y = y0; y <= y1; y++)
-            {
-                float wz = (y + 0.5f) * metres - InkPainter.HalfExtent;
-                float dz = Math.Max(0f, Math.Max(mark.m_south - wz, wz - mark.m_north));
-                for (int x = x0; x <= x1; x++)
-                {
-                    float wx = (x + 0.5f) * metres - InkPainter.HalfExtent;
-                    float dx = Math.Max(0f, Math.Max(mark.m_west - wx, wx - mark.m_east));
+                    float x = Math.Min(wx, east);
+                    float dx = Math.Max(0f, Math.Max(mark.m_west - x, x - mark.m_east));
                     if (dx * dx + dz * dz > SeaMarkMargin * SeaMarkMargin) continue;
-                    depth[y * n + x] = value;
-                    forced[y * n + x] = true;
-                    if (value == 0f) shown[y * n + x] = 1f;
+                    if (!snapshot.IsExplored(x, z)) return false;
                 }
             }
+            return true;
         }
 
         // A 3x3 box blur, rows then columns.

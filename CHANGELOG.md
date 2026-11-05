@@ -52,8 +52,8 @@
   bonemaw's bare bones in the Ashlands' boiling sea; the northern sea stays empty. Each appears
   at most three times, spread over the map, some facing the other way and a little larger or
   smaller, its body laid in a slightly darker wash of the sea's blue so it stands out a little
-  from the water round it. A monster shows only once its stretch of sea is mostly explored, and then whole,
-  never cut in half by the edge of the unexplored parchment.
+  from the water round it. A monster is drawn only once you have explored all the sea round it,
+  so it is never cut by the edge of the unexplored or seen half on bare parchment.
 - The Ashlands' boiling sea takes a faint reddish-brown warmth, as on the game's own map, fading
   in where the game's does, and a very few spots far out simmer: bubbles rising from a short
   level wave, with a wave behind and one in front, as if seen across the water.

@@ -21,16 +21,23 @@ namespace Atlas
         private const float IllustrationScaleMax = 1.15f;
         // Open water is measured on cells of OpenCell sheet pixels: the distance from a cell to the
         // nearest land or to the frame's inner ring. A glyph's box centre needs OpenWaterMin of it
-        // (about 470 m), and its box IllustrationClear past its own half diagonal, so it stands
-        // far out at sea, well clear of coasts, islets and the waves round them.
+        // (about 315 m), and its box IllustrationClear past its own half diagonal, so it stands
+        // out at sea, clear of coasts, islets and the waves round them. Lower than that it makes
+        // no difference: the clearance (66-73 px) and SameKindSpacing then cap the count.
         private const int OpenCell = 4;
-        private const float OpenWaterMin = 90f;
+        private const float OpenWaterMin = 60f;
         private const float IllustrationClear = 40f;
         // No ink at all (waves, floes, anything) within IllustrationInkGap of a glyph's box, and
         // glyphs IllustrationSpacing apart (about 3.2 km), so they spread over the oceans instead
         // of gathering in the widest one.
         private const float IllustrationInkGap = 8f;
         private const float IllustrationSpacing = 600f;
+        // A glyph never stands within SameKindSpacing (about 10.5 km) of another of its kind: the
+        // map opens on about 3070 x 1640 sheet pixels, and two copies of one figure in a view read
+        // as stamped (historical sheets draw each creature once). With up to three of a kind
+        // they cannot always be a whole view apart, so the nearest that still keeps most worlds'
+        // counts.
+        private const float SameKindSpacing = 2000f;
         // Hash salt of the placement rule (see Scatter's salts).
         private const int IllustrationSalt = 61;
         // The boiling sea's bubbles (Simmer): very few, one at most in a cell of BoilStep sheet
@@ -112,6 +119,7 @@ namespace Atlas
 
             var counts = new int[SeaGlyphs.Names.Length];
             var placed = new List<Vector2>();
+            var placedKinds = new List<int>();
             int firstKind = (int)(Unit(salt, 1) * 3f) % 3;
             InkLayer layer = m_canvas.m_layer;
             m_canvas.m_layer = InkLayer.Illustration;
@@ -120,7 +128,7 @@ namespace Atlas
                 var at = new Vector2((spot.m_cx + 0.5f) * OpenCell, (spot.m_cy + 0.5f) * OpenCell);
                 if (Crowded(placed, at, IllustrationSpacing)) continue;
                 Sea sea = SeaAt(at.x, at.y);
-                int kind = PickIllustration(sea, counts, firstKind);
+                int kind = PickIllustration(sea, counts, firstKind, kindAt => KindNear(placed, placedKinds, kindAt, at));
                 if (kind < 0) continue;
                 int seed = HashInt(spot.m_cx, spot.m_cy, salt + 1);
                 bool mirror = Unit(seed, 1) < 0.5f;
@@ -137,6 +145,7 @@ namespace Atlas
                 if (InkNear(bounds, IllustrationInkGap)) continue;
                 counts[kind]++;
                 placed.Add(at);
+                placedKinds.Add(kind);
                 m_canvas.BeginGroup(y);
                 SeaGlyphs.Draw(m_canvas, kind, x, y, mirror, scale);
                 m_canvas.EndGroup();
@@ -178,8 +187,6 @@ namespace Atlas
                     float margin = (1f - BoilJitter) * 0.5f;
                     float x = (cx + margin + BoilJitter * Unit(seed, 1)) * BoilStep;
                     float y = (cy + margin + BoilJitter * Unit(seed, 2)) * BoilStep;
-                    float dx = x - centre, dy = y - centre;
-                    if (dx * dx + dy * dy >= ring * ring) continue;
                     if (SeaAt(x, y) != Sea.Ashlands) continue;
                     float wx = x * MetresPerPixel - HalfExtent, wz = HalfExtent - y * MetresPerPixel;
                     if (m_world.Sample(m_world.m_ashSea, wx, wz) < BoilHeat) continue;
@@ -187,6 +194,9 @@ namespace Atlas
                     // lower water line lies about 8 px under the point, and the front line runs
                     // up to about 10 px either side.
                     var box = new InkBox { m_left = x - 10.7f, m_top = y - 11.5f, m_right = x + 10.7f, m_bottom = y + 8.8f };
+                    // The frame is inked after the marks, so InkNear cannot see it: the whole box,
+                    // not only its point, keeps BoilClear inside the frame's inner ring.
+                    if (!InsideRing(box, centre, ring)) continue;
                     if (InkNear(box, BoilClear)) continue;
                     if (Crowded(placed, new Vector2(x, y), BoilSpacing)) continue;
                     placed.Add(new Vector2(x, y));
@@ -275,6 +285,14 @@ namespace Atlas
             return true;
         }
 
+        // Whether all four corners of the box lie within radius of the sheet's centre.
+        private static bool InsideRing(InkBox box, float centre, float radius)
+        {
+            float l = box.m_left - centre, r = box.m_right - centre, t = box.m_top - centre, b = box.m_bottom - centre;
+            float most = Math.Max(Math.Max(l * l, r * r) + t * t, Math.Max(l * l, r * r) + b * b);
+            return most < radius * radius;
+        }
+
         private static bool Crowded(List<Vector2> placed, Vector2 at, float spacing)
         {
             foreach (Vector2 other in placed)
@@ -300,21 +318,30 @@ namespace Atlas
         }
 
         // The illustration for a spot in sea: the open ocean's three in turn, the one placed
-        // fewest times first (from a seed-set one), so each world gets a mix; -1 when the sea has
-        // none left.
-        private static int PickIllustration(Sea sea, int[] counts, int first)
+        // fewest times first (from a seed-set one), so each world gets a mix, skipping any kind
+        // that already stands near the spot (near); -1 when the sea has none left there.
+        private static int PickIllustration(Sea sea, int[] counts, int first, Func<int, bool> near)
         {
-            if (sea == Sea.Ashlands) return counts[SeaGlyphs.BonemawSerpent] < IllustrationsEach ? SeaGlyphs.BonemawSerpent : -1;
+            if (sea == Sea.Ashlands)
+                return counts[SeaGlyphs.BonemawSerpent] < IllustrationsEach && !near(SeaGlyphs.BonemawSerpent) ? SeaGlyphs.BonemawSerpent : -1;
             if (sea != Sea.Open) return -1;
             int[] open = { SeaGlyphs.SeaSerpent, SeaGlyphs.SerpentCoil, SeaGlyphs.Leviathan };
             int best = -1;
             for (int k = 0; k < open.Length; k++)
             {
                 int kind = open[(first + k) % open.Length];
-                if (counts[kind] >= IllustrationsEach) continue;
+                if (counts[kind] >= IllustrationsEach || near(kind)) continue;
                 if (best < 0 || counts[kind] < counts[best]) best = kind;
             }
             return best;
+        }
+
+        // Whether a glyph of this kind is already placed within SameKindSpacing of the spot.
+        private static bool KindNear(List<Vector2> placed, List<int> kinds, int kind, Vector2 at)
+        {
+            for (int i = 0; i < placed.Count; i++)
+                if (kinds[i] == kind && (placed[i] - at).sqrMagnitude < SameKindSpacing * SameKindSpacing) return true;
+            return false;
         }
 
         // The box round a glyph's ink, relative to the point it is drawn at, measured by drawing

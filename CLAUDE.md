@@ -401,28 +401,35 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the offline harness cannot load. Each glyph at most `IllustrationsEach` 3 times. Candidates
   are the peaks of the open water: the distance from any land, islets included, and from the
   frame's inner ring, on `OpenCell` 4 px cells, with no farther cell within two; at least
-  `OpenWaterMin` 90 px (about 470 m), ranked by that distance times a seed-set 0.85-1.15. In
+  `OpenWaterMin` 60 px (about 315 m; the user's choice over 90 and 75, measured in
+  `../reports/sea-glyph-review/round2/`), ranked by that distance times a seed-set 0.85-1.15. In
   rank order a spot takes the illustration of its sea placed fewest times so far (ties from a
-  seed-set first), if its box (measured by drawing the glyph on a scratch canvas) sits
-  `IllustrationClear` 40 px past its half diagonal inside the open water, all four corners in
-  the same sea, no ink at all within `IllustrationInkGap` 8 px (waves, floes) and
-  `IllustrationSpacing` 600 px (about 3.2 km) from every other one; a world with fewer such
-  spots gets fewer. Scale 0.85-1.15 and mirroring by hash. `SeaGlyphs.Draw` mirrors and scales
+  seed-set first), skipping any kind already within `SameKindSpacing` 2000 px (about 10.5 km;
+  `KindNear`: two copies of one figure in the opening view read as stamped) and skipping the
+  spot when every kind of its sea is near, if its box (measured by drawing the glyph on a
+  scratch canvas) sits `IllustrationClear` 40 px past its half diagonal inside the open water,
+  all four corners in the same sea, no ink at all within `IllustrationInkGap` 8 px (waves,
+  floes) and `IllustrationSpacing` 600 px (about 3.2 km) from every other one; a world with
+  fewer such spots gets fewer (8-9 on the local worlds). Below 60 px `OpenWaterMin` changes
+  nothing: the clearance (66-73 px) and the kind rule cap the count. Scale 0.85-1.15 and mirroring by hash. `SeaGlyphs.Draw` mirrors and scales
   the points itself (`Hand`), scrapes scaled with the shape, pens kept at their width so none
   falls under `Pen`; the leviathan is not mirrored but lays its profile, barnacles and tufts the
   other way round, since its hatched east flank is the map's shade. Drawn after the floes on
   the `Illustration` layer, one record group each, which close-ups replay whole after their
   floes.
-  The fog: a glyph shows or hides whole. Its box is kept in `InkRecord.m_seaMarks` and in the
-  cache's header; `Paper.Fog` sets the band's depth over the box and `SeaMarkMargin` 60 m round
-  it to the explored land's when at least `SeaMarkShown` half the box is explored, and to far
-  past the band's end when less is (`SeaMarkDepth`, marked forced, so the fog may lie over the
-  explored part of a hidden one), before the depth is blurred, so the edge (its wobble and fade
-  within about 32 m of the band's end) never crosses the glyph (left to the fog alone, a pass
-  over a glyph shows half a monster). Since the box lies far out in open water, only water is
-  shown or hidden; a pass along its edge shows as a rounded bulge or bite in the explored strip.
-  `AtlasMap` opens the atlas only once the fog was laid with the uploaded sheet's marks
-  (`s_fogMarks`).
+  The fog: a glyph is drawn only when it lies wholly in the coloured, explored part of the map
+  (the user's rule): its box and `SeaMarkMargin` 60 m round it all explored
+  (`Paper.SeaMarkSeen`, sampled every `SeaMarkStep` 6 m), past the glimpse's softening of the
+  explored edge (about 21 m) and its wash's reach, so neither the glimpse's parchment nor the
+  fog lies over any of it, Glimpse on or off. Any other is left out whole: `Paper.Fog` lists it
+  in `FogEdge.m_hiddenSea` (its sheet box and its record group's foot), `InkWithMips` clears its
+  box from the ink (nothing else is inked within `IllustrationInkGap` of it) and lays no wash,
+  and close-ups skip its group (`HidesSeaGroup`) and wash. The water round it stays as the fog
+  lays it. Do not show a mark across the band or lift the fog or glimpse over it: shown at half
+  explored, a serpent's head stood on bare parchment or under the fog, and laying fog over a
+  hidden one's explored part bit into explored sea. Its box is kept in `InkRecord.m_seaMarks`
+  and in the cache's header. `AtlasMap` opens the atlas only once the fog was laid with the
+  uploaded sheet's marks (`s_fogMarks`).
   **Where the drawing stops** (the user's design, chosen over a torn-paper edge, a plain fade, a
   crisp line and a pencilled coast): both sides of the edge are the same parchment, so the
   edge reads as the cartographer drawing less and less where they knew less and then stopping,
@@ -468,7 +475,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   (`InkCanvas.m_scraped`), so the wash follows the scraped body, not the box, ripples or foam;
   the bonemaw's bare bones would only get a glow, so the water each arch encloses down to the
   waterline is washed too (`FillArches`). Box-blurred (about 0.7 sheet px), `Gain`, mottled, and
-  kept within `Reach` 3 px of the box, inside what the fog shows or hides whole. A glaze
+  kept within `Reach` 3 px of the box, inside the explored margin a shown mark needs. A glaze
   `Paper.s_seaWash` (72, 100, 160 at 0.22): close-ups glaze it over their water
   (`Paper.SeaGlaze`, from `InkRecord.m_seaWashes`); the sheet's ink texture cannot glaze, so
   `InkWithMips` lays it as the colour and opacity that give the same glaze over clean water
@@ -492,7 +499,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the pen rule below). Lone wave strokes far out read as birds; under the bubbles they read as
   boiling water. Drawn by `DrawBoiling` after the illustrations, on the floes' layer: a hashed `BoilStep` grid
   (salt 62), `BoilOdds`, `BoilSpacing` 300 px apart, heat at least `BoilHeat` 0.8, and no ink
-  within `BoilClear` (coast, waves, islets, the bonemaw) nor the frame. Velen gets seven on the
+  within `BoilClear` (coast, waves, islets, the bonemaw) nor the frame (the whole box,
+  `InsideRing`, since the frame is inked after the marks and `InkNear` cannot see it). Velen gets seven on the
   whole map; the user asked for very sparse, so err on fewer.
 - Ring lines at fixed distances, short double curves in staggered rows, tildes tilted with the
   coast, tildes at scored points of the shore with a scatter at sea, and a band of short tildes

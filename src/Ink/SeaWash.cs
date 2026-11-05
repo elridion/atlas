@@ -11,14 +11,15 @@ namespace Atlas
     /// erase's coverage (InkCanvas.m_scraped), grown a hair and softened. Being made from the mark
     /// alone, it is the same from a cached sheet, on the sheet (Paper.InkWithMips) and in every
     /// close-up (DetailTile), which only sample it. It never reaches more than Reach past the
-    /// mark's box, inside what the fog shows or hides whole round it (Paper.SeaMarkFog).
+    /// mark's box, inside the explored margin a mark needs to be drawn (Paper.SeaMarkSeen).
     /// </summary>
     internal sealed class SeaWash
     {
         // The wash is built at Detail pixels a sheet pixel, so its edge stays smooth in close-ups.
         private const int Detail = 2;
-        // Sheet pixels it may reach past the box: the fog keeps SeaMarkMargin (40 m) round the box
-        // whole and blurs about 21 m of that, leaving some 3.6 px. Grow and the blur stay inside.
+        // Sheet pixels it may reach past the box: a mark is drawn only with Paper.SeaMarkMargin
+        // (60 m) round its box explored, and the glimpse softens about 21 m of that, leaving some
+        // 7 px of explored sea. Grow and the blur stay inside.
         private const int Reach = 3;
         // The scraped body (which already reaches under the outline's ink) can be grown by
         // GrowPixels detail pixels; then it is blurred BlurPasses times by a box BlurRadius wide

@@ -309,8 +309,8 @@ internal static class Program
             {
                 // fogNAME:wx:wz:widthPx:scale:dz:halfWidth[:gx:gz] lays the game's fog over the
                 // sheet square, for a snapshot that has explored only a level strip halfWidth
-                // metres either side of wz + dz, with the sheet's sea marks shown or hidden whole
-                // (fogNAMEplain without them) and a glimpse round a game mark at gx, gz.
+                // metres either side of wz + dz, with the sheet's sea marks drawn only where wholly
+                // explored (fogNAMEplain without them) and a glimpse round a game mark at gx, gz.
                 float wx = float.Parse(p[1]), wz = float.Parse(p[2]), dz = float.Parse(p[5]), halfWidth = float.Parse(p[6]);
                 int w = int.Parse(p[3]), scale = int.Parse(p[4]);
                 int left = (int)((wx + half) / mpp) - w / 2, top = (int)((half - wz) / mpp) - w / 2;

@@ -46,6 +46,8 @@ namespace Atlas
             var rgba = new byte[w * h * 4];
             var seaWashes = new List<SeaWash>();
             record.SeaWashes(left, top, left + width, top + height, seaWashes);
+            // The washes of the sea illustrations the fog leaves out go with them.
+            if (edge != null) seaWashes.RemoveAll(sea => edge.HidesSea(sea.Left, sea.Top, sea.Right, sea.Bottom));
             // The paper's bilinear weights depend on the column and the row alone, so they are
             // worked out once each, and every paper sample of a pixel shares them; the parchment
             // under a pixel is read once, when first needed, instead of up to five times over (the

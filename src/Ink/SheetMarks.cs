@@ -52,8 +52,9 @@ namespace Atlas
     /// (FogSize planes, rows from the south), and per mark of m_marks whether it is left out.
     /// The sheet's ink is cleared over the marks left out (Paper.InkWithMips); close-ups judge
     /// their own trees by the planes (Paper.CutByFog) and leave out the sheet's glyphs and wave
-    /// strokes by index, but only for a record drawn with the same pins (Matches). Read-only once
-    /// laid, so workers share it.
+    /// strokes by index, but only for a record drawn with the same pins (Matches). It also leaves
+    /// out every sea illustration not lying wholly in explored land (m_hiddenSea), on the sheet
+    /// and in close-ups. Read-only once laid, so workers share it.
     /// </summary>
     internal sealed class FogEdge
     {
@@ -64,6 +65,53 @@ namespace Atlas
         public byte[] m_thin;
         // Left out, per m_marks list; null when there were no marks.
         public bool[] m_trees, m_glyphs, m_waves;
+        // The sea illustrations left out (any not wholly in explored land, Paper.SeaMarkSeen): their
+        // boxes in sheet pixels (left, top, right, bottom) and the sheet y each was drawn at, its
+        // record group's foot; null when none is. They stand far apart (IllustrationSpacing), so
+        // a box overlapping one names it.
+        public List<Vector4> m_hiddenSea;
+        private List<float> m_hiddenSeaFeet;
+
+        public void HideSea(SeaMark mark)
+        {
+            if (m_hiddenSea == null)
+            {
+                m_hiddenSea = new List<Vector4>();
+                m_hiddenSeaFeet = new List<float>();
+            }
+            m_hiddenSea.Add(SeaBox(mark));
+            m_hiddenSeaFeet.Add(mark.m_y);
+        }
+
+        public bool HidesSea(SeaMark mark)
+        {
+            Vector4 b = SeaBox(mark);
+            return HidesSea(b.x, b.y, b.z, b.w);
+        }
+
+        // Whether a sheet rectangle (a sea wash's area) overlaps a sea illustration left out.
+        public bool HidesSea(float left, float top, float right, float bottom)
+        {
+            if (m_hiddenSea == null) return false;
+            foreach (Vector4 b in m_hiddenSea)
+                if (b.x <= right && left <= b.z && b.y <= bottom && top <= b.w) return true;
+            return false;
+        }
+
+        // Whether an Illustration record group drew a sea illustration left out.
+        public bool HidesSeaGroup(InkRecord.Group group)
+        {
+            if (m_hiddenSeaFeet == null) return false;
+            foreach (float foot in m_hiddenSeaFeet)
+                if (System.Math.Abs(foot - group.m_foot) < 0.01f) return true;
+            return false;
+        }
+
+        private static Vector4 SeaBox(SeaMark mark) => new Vector4(
+            (mark.m_west + InkPainter.HalfExtent) / InkPainter.MetresPerPixel,
+            (InkPainter.HalfExtent - mark.m_north) / InkPainter.MetresPerPixel,
+            (mark.m_east + InkPainter.HalfExtent) / InkPainter.MetresPerPixel,
+            (InkPainter.HalfExtent - mark.m_south) / InkPainter.MetresPerPixel);
 
         // Whether the record's marks are the ones judged here, so its indices hold.
         public bool Matches(InkRecord record) =>

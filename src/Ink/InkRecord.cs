@@ -21,8 +21,9 @@ namespace Atlas
         Illustration,
     }
 
-    // Where a sea illustration stands, in world metres: the box round its ink. The fog shows or
-    // hides the whole box at once (Paper.Fog), so no half-explored monster is shown cut in two.
+    // Where a sea illustration stands, in world metres: the box round its ink. It is drawn only
+    // when the box lies wholly in explored land (Paper.SeaMarkSeen), so no monster is shown half
+    // explored, on parchment or cut by the fog.
     // The glyph itself (SeaGlyphs kind, the sheet point it was drawn at, mirroring and scale) is
     // kept too, so its wash (SeaWash) can be laid again from the cached sheet.
     internal struct SeaMark

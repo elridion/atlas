@@ -109,6 +109,8 @@ namespace Atlas
         // Water is one even indigo wash, so seas, lakes and rivers read as water. A shade by depth
         // would draw the sea floor more exactly than a hand-tinted map does.
         private static readonly Tint s_water = new Tint(100, 135, 190, 0.42f);
+        // The Deep North's lakes take this share of the water's strength.
+        private const float NorthLakeWater = 0.55f;
         // The sea marks' washes (SeaWash, the user's "take 3"): a second glaze of a deeper indigo
         // in the wedge of water under a mark's waterline, the shadow it casts trailing east, and
         // an iron grey glazed over a figure's body above the water. The grey is neutral to cool:
@@ -167,19 +169,23 @@ namespace Atlas
         // the tint mixed in by its strength.
         private static float Filter(float tint, float paper) => Math.Min(tint / paper, 1.1f);
 
-        public static void WaterColor(float r, float g, float b, out float wr, out float wg, out float wb)
+        public static void WaterColor(float r, float g, float b, out float wr, out float wg, out float wb) =>
+            WaterColor(r, g, b, s_water.m_strength, out wr, out wg, out wb);
+
+        private static void WaterColor(float r, float g, float b, float s, out float wr, out float wg, out float wb)
         {
-            float s = s_water.m_strength;
             wr = r * (1f - s + s * Filter(s_water.m_color.r, PaperColor.r));
             wg = g * (1f - s + s * Filter(s_water.m_color.g, PaperColor.g));
             wb = b * (1f - s + s * Filter(s_water.m_color.b, PaperColor.b));
         }
 
-        // The water's colour over this parchment at a world point, warmed by the Ashlands' boiling
-        // sea there (AshSeaGlaze).
+        // The water's colour over this parchment at a world point, lighter on the Deep North's
+        // lakes (NorthLakeWater, the user's call: frozen-over water among the snow) and warmed by
+        // the Ashlands' boiling sea there (AshSeaGlaze).
         public static void WaterColor(float r, float g, float b, WorldSource world, float wx, float wz, out float wr, out float wg, out float wb)
         {
-            WaterColor(r, g, b, out wr, out wg, out wb);
+            float lake = world.m_northLake != null ? world.Sample(world.m_northLake, wx, wz) : 0f;
+            WaterColor(r, g, b, s_water.m_strength * (1f - lake * (1f - NorthLakeWater)), out wr, out wg, out wb);
             if (world.m_ashSea == null) return;
             float heat = world.Sample(world.m_ashSea, wx, wz);
             if (heat > 0f) AshSeaGlaze(wr, wg, wb, heat, out wr, out wg, out wb);

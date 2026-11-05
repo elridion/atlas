@@ -124,6 +124,19 @@ namespace Atlas
         public float[] m_swampField;
         // Swamp water joined to the sea, which is not raised (MarkSwampSea).
         public bool[] m_swampSea;
+        // The Deep North's own water, where the game sets its ice (MarkIce), grown by IceReach map
+        // pixels so a floe may lie half over the open sea beside a narrow fringe.
+        public bool[] m_iceWater;
+        // The Deep North's lakes (water not joined to the map's edge), 1 in a lake, 0 elsewhere,
+        // which take a lighter water glaze (Paper.WaterColor).
+        public float[] m_northLake;
+        // Vanilla's GetBiome gives the Ocean before the Deep North wherever the base height is low,
+        // so the open northern sea is Ocean, at most about 4 m above the sea floor's zero, and the
+        // Deep North's own water (its shallow coast, the north side of the border moat, its lakes)
+        // stands at 23 m and more before CreateDeepNorthGap pulls the moat under; nothing lies
+        // between, so IceFloor (metres, absolute) splits them on the height over the gap.
+        private const float IceFloor = 14f;
+        private const int IceReach = 4;
         private const int SwampBlur = 3;
         // Rivers and streams from the world generator. The minimap's 12 m pixels lose the narrow
         // ones (a stream's channel is about 20 m wide), so they are drawn from their courses.
@@ -487,6 +500,7 @@ namespace Atlas
                 if (z < m_size - 1) Seed(i + m_size);
             }
             for (int i = 0; i < count; i++) m_swampSea[i] = sea[i] && m_biome[i] == Land.Swamp;
+            MarkIce(sea);
 
             void Seed(int j)
             {
@@ -496,6 +510,48 @@ namespace Atlas
                 queue[tail++] = j;
             }
         }
+
+        // The Deep North's ice water and lakes (m_iceWater, m_northLake), from the heights before
+        // any swamp is raised and the water flooded from the map's edge (sea). The game's ice
+        // (ice1_deepnorth, ice_rock1_deepnorth) is Deep North vegetation only; the open northern
+        // sea is Ocean and has none.
+        private void MarkIce(bool[] sea)
+        {
+            int count = m_size * m_size, half = m_size / 2;
+            var ice = new bool[count];
+            m_northLake = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                float h = m_height[i];
+                if (h > m_waterLevel) continue;
+                float wx = (i % m_size - half) * m_pixelSize + m_pixelSize * 0.5f;
+                float wz = (i / m_size - half) * m_pixelSize + m_pixelSize * 0.5f;
+                if (!WorldGenerator.IsDeepnorth(wx, wz)) continue;
+                if (!sea[i]) m_northLake[i] = 1f;
+                // Right on the border the gap pulls both kinds of water to nothing.
+                double gap = WorldGenerator.CreateDeepNorthGap(wx, wz);
+                if (gap > 1e-3 && h / gap >= IceFloor) ice[i] = sea[i];
+            }
+            // Grown a square of IceReach either way, rows then columns.
+            var rows = new bool[count];
+            m_iceWater = new bool[count];
+            for (int z = 0; z < m_size; z++)
+                for (int x = 0; x < m_size; x++)
+                    for (int d = -IceReach; d <= IceReach; d++)
+                    {
+                        int xx = x + d;
+                        if (xx >= 0 && xx < m_size && ice[z * m_size + xx]) { rows[z * m_size + x] = true; break; }
+                    }
+            for (int z = 0; z < m_size; z++)
+                for (int x = 0; x < m_size; x++)
+                    for (int d = -IceReach; d <= IceReach; d++)
+                    {
+                        int zz = z + d;
+                        if (zz >= 0 && zz < m_size && rows[zz * m_size + x]) { m_iceWater[z * m_size + x] = true; break; }
+                    }
+        }
+
+        public bool IsIceWater(float wx, float wz) => m_iceWater != null && m_iceWater[Index(wx, wz)];
 
         // Vanilla grows every Deep North tree (snowy firs and pines, ZoneSystem's vegetation from
         // _LocationList_DeepNorth) only where the forest factor is under 1.15, the Meadows' own

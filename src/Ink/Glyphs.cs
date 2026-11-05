@@ -1039,16 +1039,19 @@ namespace Atlas
         }
 
 
+        // An ice floe's largest radius (its outline lies within it), for the floes' shore gap.
+        public static float FloeRadius(float s, int seed) => Mathf.Lerp(2.5f, 5.5f, Unit(seed, 10)) * s;
+
         // An ice floe: a small irregular outline lying on the water. Only the outline itself is
         // scraped back to parchment, so a floe touching the shore lies over the coast line without
         // cutting it beside the floe, and it is filled with the Deep North's wash, as ice, not the
-        // sea's. Waves are already kept off floes (m_floeSet). The outline
+        // sea's. Floes are drawn over the waves and scrape them. The outline
         // may sag inwards, so it is filled in one pass as peak bodies are
         // (InkCanvas.EraseOutline); a fan of triangles from its centre leaves faint seams.
         private void IceFloe(float x, float y, float s, int seed)
         {
             const int corners = 6;
-            float size = Mathf.Lerp(2.5f, 5.5f, Unit(seed, 10)) * s;
+            float size = FloeRadius(s, seed);
             m_bodyOutline.Clear();
             for (int k = 0; k < corners; k++)
             {

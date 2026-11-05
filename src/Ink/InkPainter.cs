@@ -421,6 +421,12 @@ namespace Atlas
         private readonly List<Vector2> m_crags = new List<Vector2>(1024);
         // Ice floes sit on the water, so they are drawn after the coast's wave accents, over them.
         private readonly List<Glyph> m_floes = new List<Glyph>(4096);
+        // Floes: a grid of FloeStep G with FloeOdds of its cells taken (fine enough to hit the
+        // narrow coastal ice, mostly within 24-36 m of land), and FloeShoreGap canvas pixels
+        // kept between a floe's outline and land.
+        private const float FloeStep = 10f;
+        private const float FloeOdds = 0.5f;
+        private const float FloeShoreGap = 1.5f;
         private float[] m_coast;
         // Map pixels of water joined to the sea, and canvas pixels of sea.
         private bool[] m_seaCell;
@@ -2625,12 +2631,15 @@ namespace Atlas
                 m_glyphs.Add(thorn);
                 m_thorns.Add(thorn);
             });
-            // Sea: ice floes in the northern sea. The open sea is otherwise left blank but for a
-            // few illustrations (DrawIllustrations); wave marks far out read as birds.
-            Scatter(15f * G, 33, s =>
+            // Sea: ice floes on the Deep North's own water (WorldSource.m_iceWater: its shallow
+            // coast and the north side of the border moat), where the game sets its ice; the open
+            // northern sea is Ocean and has none. A floe keeps FloeShoreGap clear of land beyond
+            // its own size, so it never hides the coast line. The open sea is otherwise left blank
+            // but for a few illustrations (DrawIllustrations); wave marks far out read as birds.
+            Scatter(FloeStep * G, 33, s =>
             {
-                if (m_sea[s.m_pixel] == 0 || s.m_water < 4f * G || !(s.m_roll < 0.5f)) return;
-                if (!WorldGenerator.IsDeepnorth(s.m_worldX, s.m_worldZ)) return;
+                if (m_sea[s.m_pixel] == 0 || !(s.m_roll < FloeOdds)) return;
+                if (s.m_water < FloeRadius(G, s.m_seed) + FloeShoreGap || !m_world.IsIceWater(s.m_worldX, s.m_worldZ)) return;
                 m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
             // The pins among the rest: glyphs placed without Add that would hide one give way too;
@@ -2905,16 +2914,12 @@ namespace Atlas
         {
             int n = CanvasSize;
             int salt = unchecked(m_world.m_seed + 34 * 7919);
-            // Floes are inked over the waves and erase under them; keeping the waves off them
-            // spares half-erased strokes.
+            // Floes are inked over the waves and scrape what lies under them: the waves are laid
+            // as if the ice were not there and the floes win (the user's call), as the Deep
+            // North's coasts all carry an ice fringe and keeping the waves off it left them bare.
             m_floeSet = new HashSet<int>();
-            foreach (Glyph floe in m_floes)
-            {
-                float size = 5.5f * floe.m_size + 1.5f;
-                Footprint(m_floeSet, n, new Vector2(floe.m_x - size, floe.m_y), new Vector2(floe.m_x + size, floe.m_y), size * 0.7f, true);
-            }
             // The Ashlands' sea thorns are drawn before the waves; the waves keep off them and
-            // their waterlines the same way.
+            // their waterlines.
             foreach (Glyph thorn in m_thorns)
             {
                 Vector4 box = GlyphBox(thorn);

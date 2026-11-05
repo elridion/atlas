@@ -47,13 +47,15 @@
   the tiniest specks on their own and the open sea get no waves. Lakes get straight
   lines instead, stacked on consecutive rows from one shore, each touching the shore and running
   into the lake, at the lake's bends and along its straight shores, never across it, so still
-  water reads apart from the sea; ponds stay bare. Ice floes in the northern sea are white as the northern snow; rivers and
+  water reads apart from the sea; ponds stay bare. Ice floes, white as the northern snow, lie where the game sets its ice: along the
+  Deep North's shores and on its side of the deep channel at its border, not out on the open
+  northern sea; the Deep North's lakes are washed a lighter blue. Rivers and
   streams are drawn as ink lines, except across the Ashlands, where the game carves none, and
   streams that run down into the Deep North, which the game never carves.
 - A few sea monsters are inked out in wide stretches of open water, spread over the seas rather
   than crowded along the map's rim, as on old maps:
   sea serpents and serpent coils where the game's Serpents swim, the odd leviathan, and the
-  bonemaw's bare bones in the Ashlands' boiling sea; the northern sea stays empty. Each appears
+  bonemaw's bare bones in the Ashlands' boiling sea; the Deep North's icy waters stay empty. Each appears
   at most three times, spread over the map, some facing the other way and a little larger or
   smaller, its body washed iron grey above the water and a wedge of deeper blue in the water
   under it, trailing east like its shadow, so it stands out from the sea round it (the

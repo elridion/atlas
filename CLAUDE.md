@@ -392,7 +392,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
     or `WaveFloating` strokes floating off its tip (`Floating`, `WaveFloatClear` from land) and
     the rest off its flanks.
   - A bay opening north or south gets its strokes across it from either shore in turn.
-  - `Room` stops a stroke `WaveSlotGap` short of land, floes or the frame, dropping crests to fit,
+  - `Room` stops a stroke `WaveSlotGap` short of land, sea thorns or the frame (not floes, which are drawn over the waves), dropping crests to fit,
     never under two; `Claim` keeps strokes in a row apart.
 - Each wave is also kept as an `InkRecord.Wave` (position, length, crests, phase, lift and
   anchor; every stroke is level, so no direction is kept).
@@ -427,11 +427,12 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   shore in turn. Water under `LakeMinWidth` (ponds, chains of forest ponds, swamp-side pools)
   stays bare.
 - **Sea illustrations** (`SeaGlyphs`, placed by `DrawIllustrations` in `InkPainter.Sea.cs`):
-  the sea serpent, the serpent coil and the leviathan in the open ocean (the Ocean biome outside
-  `IsDeepnorth`, where the Serpent swims; the leviathan is decoration, not at real positions),
-  the bonemaw serpent only in the Ashlands' sea (water of the Ashlands biome: vanilla's
-  `GetBiome` gives the Ashlands before the ocean, the Deep North after it). The Deep North's sea
-  stays blank. `IsAshlands` is not called: it runs `WorldGenerator`'s static constructor, which
+  the sea serpent, the serpent coil and the leviathan in the open ocean (the Ocean biome, where
+  the Serpent swims, the open northern sea included; the leviathan is decoration, not at real
+  positions), the bonemaw serpent only in the Ashlands' sea (water of the Ashlands biome:
+  vanilla's `GetBiome` gives the Ashlands before the ocean, the Deep North after it). The Deep
+  North's own water (`WorldSource.m_iceWater`, below; the minimap's shared white decodes it as
+  Ocean) stays blank but for its floes. `IsAshlands` is not called: it runs `WorldGenerator`'s static constructor, which
   the offline harness cannot load. Each glyph at most `IllustrationsEach` 3 times. Candidates
   are the peaks of the open water: the distance from any land, islets included, and from the
   frame's inner ring, on `OpenCell` 4 px cells, with no farther cell within two; at least
@@ -465,7 +466,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   another sea, ink near), is a candidate, sorted back into rank order (not the figures'
   farthest-point order, so they keep their own spread; `PlaceStandIns`). One in the Ashlands'
   sea takes boiling water (`SeaGlyphs.Boil`), one in the open ocean a leaping fish
-  (`SeaGlyphs.Fish`); the Deep North's sea none, and lakes are never candidates (their own hand
+  (`SeaGlyphs.Fish`); the Deep North's own water none, and lakes are never candidates (their own hand
   of straight hairlines, a navigation map keeps inland water plain). A stand-in needs its own
   clear water, the figure rule scaled to a mark about 20 px across: open water from land and
   islets of its box's half diagonal plus `StandInOpenClear` 24 px and never under
@@ -930,7 +931,22 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   as ground fills), off any ground high enough for peaks (searched from the world's heights,
   mostly south of the mark, since a peak rises north of its foot) and off each other (a
   hash-only neighbour test like the marsh marks'), so the sheet and tiles agree. Ice floes are
-  filled with the Deep North's body wash, not left showing the sea's.
+  filled with the Deep North's body wash, not left showing the sea's. They lie where the game
+  sets its ice (`ice1_deepnorth`, `ice_rock1_deepnorth`: Deep North vegetation only, at least
+  1 m of water): `GetBiome` gives the Ocean before the Deep North wherever the base height is at
+  most 0.02, so the open northern sea is Ocean with no ice, and the Deep North's own water is its
+  shallow coast (mostly within 24-36 m of land), the north side of the border moat
+  (`CreateDeepNorthGap` pulls the land under for 400 m either side of the border; the minimap's
+  heights already include it) and its lakes. `WorldSource.MarkIce` marks sea water (flooded from
+  the map's edge) where `IsDeepnorth` holds and the height over the gap is at least `IceFloor`
+  14 m (Ocean is at most about 4 m, Deep North water 23 m and more, nothing between on Velen
+  or demoo), grown `IceReach` 4 map pixels (`m_iceWater`). Floes are scattered on a `FloeStep`
+  10 G grid at `FloeOdds` 0.5 there, their outline `FloeShoreGap` 1.5 px off land
+  (`FloeRadius`). About 70% of the floes used to stand on the open Ocean. They are drawn after
+  the waves and scrape them; the waves are laid as if the ice were not there (the user's call:
+  the floes win), so `m_floeSet` holds only the sea thorns. Lakes get no floes (the user's
+  call) but a lighter water glaze (`WorldSource.m_northLake`, Deep North water not joined to the
+  map's edge, at `Paper.NorthLakeWater` 0.55 of the water's strength, sheet and close-ups).
 - The Mistlands keep their wash. Mist banks are veils of three wavy lines (middle longest, a
   slight tilt, a break or two) with no scraped band under them (bands read as heavy padding),
   laid only in the mist area (`Spot.m_mist`, above) and off steep ground, in the hollows: the

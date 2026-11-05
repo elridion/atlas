@@ -309,10 +309,11 @@ namespace Atlas
             return false;
         }
 
-        // The open ocean is where Valheim's Serpent swims: the Ocean biome outside the Deep North.
-        // Vanilla's GetBiome gives the Ashlands before the ocean, so the boiling sea round the
-        // Ashlands is the Ashlands biome's water; the Deep North comes after it, so its sea is
-        // Ocean and is told apart by IsDeepnorth, as WorldSource does for the shared white.
+        // The open ocean is where Valheim's Serpent swims: the Ocean biome. Vanilla's GetBiome
+        // gives the Ashlands before the ocean, so the boiling sea round the Ashlands is the
+        // Ashlands biome's water; the Deep North comes after it, so the open northern sea is Ocean
+        // too and only the Deep North's own water, where its ice lies (WorldSource.m_iceWater),
+        // is not (the minimap's shared white decodes it as Ocean).
         // (IsAshlands would run WorldGenerator's static constructor, which the offline preview
         // cannot load; the minimap's biomes are enough.)
         private Sea SeaAt(float x, float y)
@@ -322,7 +323,7 @@ namespace Atlas
             float wx = x * MetresPerPixel - HalfExtent, wz = HalfExtent - y * MetresPerPixel;
             Land land = m_world.m_biome[m_world.Index(wx, wz)];
             if (land == Land.Ashlands) return Sea.Ashlands;
-            if (land == Land.Ocean && !WorldGenerator.IsDeepnorth(wx, wz)) return Sea.Open;
+            if (land == Land.Ocean && !m_world.IsIceWater(wx, wz)) return Sea.Open;
             return Sea.None;
         }
 

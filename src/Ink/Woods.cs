@@ -20,7 +20,15 @@ namespace Atlas
         // over large fBm patches, WorldGenerator.GetAshlandsHeight), so at 110 cells and four
         // blurs the atlas kept only about 5% of the Ashlands as lava where the game has 18%.
         private const int MinLava = 12;
-        private const int LavaBlurPasses = 2;
+        private const int LavaBlurPasses = 1;
+        // The mask's lava weight (0-255) from which ground is drawn as lava: 0.2, where the game
+        // stops growing its Ashlands trees (tree_ashlands1-4 take only a vegetation mask up to
+        // 0.2). It burns from 0.6 (Heightmap.IsLava), but the ground between is the lava fields'
+        // crust and veins; at 0.5 and two blurs the atlas drew about 15% of demoo's Ashlands as
+        // lava, where the game's lava ground is about a quarter.
+        private const int LavaWeight = 51;
+        // The large fields keep the old reading (over 0.5), so the crags stand where they did.
+        private const int MajorLavaWeight = 127;
         // The large lava fields alone, which crags keep their bases off (InkPainter.MajorLavaAt):
         // with every pool counted, the Ashlands' high ground had little room left for a base.
         // Their bodies cover the pools under them (Glyphs.AshBody).
@@ -59,12 +67,12 @@ namespace Atlas
 
         // The Ashlands' lava fields as a smooth field like the woods' (edge at 0.5), from vanilla's
         // lava mask (blue on Ashlands land), so they can be outlined and filled as shapes.
-        public static float[] BuildLava(WorldSource world) => BuildLava(world, MinLava, LavaBlurPasses);
+        public static float[] BuildLava(WorldSource world) => BuildLava(world, LavaWeight, MinLava, LavaBlurPasses);
 
         // The large lava fields only, as a field like BuildLava's.
-        public static float[] BuildMajorLava(WorldSource world) => BuildLava(world, MajorLava, MajorLavaBlurPasses);
+        public static float[] BuildMajorLava(WorldSource world) => BuildLava(world, MajorLavaWeight, MajorLava, MajorLavaBlurPasses);
 
-        private static float[] BuildLava(WorldSource world, int minCells, int blurPasses)
+        private static float[] BuildLava(WorldSource world, int weight, int minCells, int blurPasses)
         {
             int size = world.m_size;
             var lava = new bool[size * size];
@@ -72,10 +80,11 @@ namespace Atlas
             for (int i = 0; i < lava.Length; i++)
             {
                 land[i] = world.m_height[i] > world.m_waterLevel;
-                lava[i] = land[i] && world.m_biome[i] == Land.Ashlands && world.m_lava[i] > 127;
+                lava[i] = land[i] && world.m_biome[i] == Land.Ashlands && world.m_lava[i] > weight;
             }
-            // Only specks and pinholes too small to draw are dropped, then blurred as the woods
-            // are, so the traced edge runs as a curve instead of 12 m stairs.
+            // Only specks and pinholes too small to draw are dropped, then blurred once, so the
+            // traced edge runs as a curve instead of 12 m stairs while veins a pixel or two wide
+            // survive (two blurs melted them below the edge).
             Clean(lava, land, size, value: true, minCells);
             Clean(lava, land, size, value: false, minCells);
             var field = new float[size * size];

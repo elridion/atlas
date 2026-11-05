@@ -655,9 +655,13 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   mask's blue on Ashlands land is the lava weight of `GetAshlandsHeight` (cheap: 2 octaves of
   the fine cellular crackle instead of 3), large fBm patches at 0.01/m past `LerpStep(0.7, 1)`,
   squared, overlay-blended with the crackle, gated to ground over about 4 m above the water and
-  sunk 2-11 m. `Woods.BuildLava` takes blue over 127 and drops only patches and holes under
-  `MinLava` 12 cells, blurred twice as the woods are; at 110 cells and four blurs the veined
-  lava came out at about 5% of Ashlands land where vanilla has 18% (the demoo world). Downloaded
+  sunk 2-11 m. The game reads the weight three ways: it burns over 0.6 (`Heightmap.IsLava`),
+  no cliff stands over 0.5 and no Ashlands tree over 0.2 (their vegetation-mask windows).
+  `Woods.BuildLava` draws lava from 0.2 (`LavaWeight` 51), the lava ground's edge as the game's
+  own trees see it, and drops only patches and holes under `MinLava` 12 cells, blurred once so
+  veins a pixel or two wide survive. On demoo's Ashlands: over 0.6 16.5% of the land, over 0.5
+  18.2%, over 0.2 26.5%; drawn now about 24% (it was 5% at 110 cells and four blurs, then 15%
+  at 0.5, 12 cells and two blurs; the user saw more lava in game than either). Downloaded
   seed maps (valheim-map.world) glow over far more of the Ashlands than the mask; they are no
   measure of lava.
   **What the game stands in the Ashlands** (read from the `d59cfac` SoftRef bundle's

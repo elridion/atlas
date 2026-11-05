@@ -136,6 +136,9 @@ namespace Atlas
         // stands at 23 m and more before CreateDeepNorthGap pulls the moat under; nothing lies
         // between, so IceFloor (metres, absolute) splits them on the height over the gap.
         private const float IceFloor = 14f;
+        // The Deep North's summits and hilltops in sheet canvas points, filled once on first use
+        // by InkPainter.NorthTops (under a lock on this object).
+        public List<Vector2> m_northTops;
         private const int IceReach = 4;
         private const int SwampBlur = 3;
         // Rivers and streams from the world generator. The minimap's 12 m pixels lose the narrow

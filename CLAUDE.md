@@ -867,8 +867,19 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   roughly 70-115 per zone together) is `m_inForest` with forest factor 0 to 1.15, the Meadows'
   own `InForest` limit; only 5-10 small firs a zone stand at 1 to 2. So `WorldSource.MarkNorthForest`
   fills the mask's red for Deep North land where `GetForestFactor` < 1.15
-  (`GeneratorSampler.DeepNorthForest`; the factor is the same in every world), and `Woods.Build`
-  and `GeneratorSampler` keep that wood below `DeepNorthPeakHeight`, the ground drawn as peaks.
+  (`GeneratorSampler.DeepNorthForest`; the factor is the same in every world), at every height:
+  every Deep North tree takes altitude 0.2-1000 m, and the high ground is gentle uplands, not
+  mountains (`GetDeepNorthHeight` is base + 0.1 + 0.1 noise, without the Mountains' doubling,
+  ridge noise or `BaseHeightTilt` roughness; of its ground over 45 m only 6-11% is steeper than
+  30 degrees at 12 m pixels, of the Mountains' over 50 m 55%). So the Deep North gets no filler
+  peaks: over `DeepNorthSummitHeight` 45 m a real summit (the summit rule, 53-63 a world) takes a
+  peak and its other hilltops hills (`PlaceSummitsAndHills`, `HilltopCells`, `HillProminence`,
+  half a width off woods as everywhere), the user's choice over summits alone or slope-gated
+  fillers (those landed on sea cliffs and the border moat's ramp). Chevrons keep off those
+  summits and hilltops only (`NorthTops`, found once per world from its heights and kept on
+  the `WorldSource` for the sheet and every close-up, since ground fills are drawn before the
+  glyphs are placed). It used to fill all ground over 45 m (16-20% of the Deep North) with
+  peaks and cut the woods there.
   Its trees are the Black Forest's conifers (same rule, salt 24). The trees' own `maxTilt` 30 is
   not applied, as for the other biomes. `Mathf.PerlinNoise` under the factor means the offline
   harness cannot compute it: it sets `WorldSource.s_forestFactor` to Perlin's improved noise,
@@ -928,8 +939,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   a deliberate near-blank snowfield with rare chevrons, like the classic map's northern waste,
   not snow stars, drifts, ice shards or cracked ice. Its woods (above) are the one dense mark;
   the open snow between stays blank. Chevrons keep off the shore, off the woods (`IsOpenLand`,
-  as ground fills), off any ground high enough for peaks (searched from the world's heights,
-  mostly south of the mark, since a peak rises north of its foot) and off each other (a
+  as ground fills), off the Mountains' peak ground and the Deep North's summits and hilltops
+  (searched mostly south of the mark, since a peak rises north of its foot) and off each other (a
   hash-only neighbour test like the marsh marks'), so the sheet and tiles agree. Ice floes are
   filled with the Deep North's body wash, not left showing the sea's. They lie where the game
   sets its ice (`ice1_deepnorth`, `ice_rock1_deepnorth`: Deep North vegetation only, at least

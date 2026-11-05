@@ -29,10 +29,8 @@ namespace Atlas
         private const float PlainsForest = 0.8f;
         // Every Deep North tree grows under this forest factor (ZoneSystem's vegetation from
         // _LocationList_DeepNorth: snowy firs and pines, forest threshold 0 to 1.15), though
-        // vanilla's mask marks no forest there. Its woods stop below the peaks' ground, falling
-        // by NorthHeightFall a metre towards it, so the edge lies where the sheet's does.
+        // vanilla's mask marks no forest there.
         public const float DeepNorthForest = 1.15f;
-        private const float NorthHeightFall = 0.01f;
 
         private readonly WorldGenerator m_generator;
         private readonly float m_waterLevel;
@@ -65,10 +63,7 @@ namespace Atlas
                 case Land.Plains: wood = PlainsForest - Factor(wx, wz); break;
                 // All Mistlands land is wood, as on the sheet (Woods.Build).
                 case Land.Mistlands: wood = 1f; break;
-                case Land.DeepNorth:
-                    float below = InkPainter.DeepNorthPeakHeight - (height - m_waterLevel);
-                    wood = Mathf.Min(DeepNorthForest - Factor(wx, wz), below * NorthHeightFall);
-                    break;
+                case Land.DeepNorth: wood = DeepNorthForest - Factor(wx, wz); break;
                 // The Mountains' firs follow the ground's slope (WorldSource.MarkMountainForest),
                 // which one generator sample cannot tell; worked out here on the generator's
                 // finer heights it would break the woods into the copses and clearings the sheet

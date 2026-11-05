@@ -54,10 +54,8 @@ namespace Atlas
                 // The Mistlands' green is the mist area, not woods; the Yggdrasil shoots grow over
                 // all its land, most of them whatever the forest factor (ZoneSystem's vegetation).
                 else if (biome == Land.Mistlands) wood[i] = true;
-                // The Deep North's forest (WorldSource.MarkNorthForest), except on the high ground
-                // drawn as peaks, which trees keep off.
-                else if (biome == Land.DeepNorth)
-                    wood[i] = world.m_forest[i] > 127 && world.m_height[i] - water < InkPainter.DeepNorthPeakHeight;
+                // The Deep North's forest (WorldSource.MarkNorthForest), up its gentle uplands too.
+                else if (biome == Land.DeepNorth) wood[i] = world.m_forest[i] > 127;
             }
             Clean(wood, land, size, value: true, MinWood);
             Clean(wood, land, size, value: false, MinClearing);

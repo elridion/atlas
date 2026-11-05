@@ -238,8 +238,12 @@ namespace Atlas
 
         // Terrain thresholds: metres above the water and height change per metre of slope.
         private const float PeakHeight = 50f;
-        // Deep North ground this high carries peaks; its woods stop below it (Woods.Build).
-        public const float DeepNorthPeakHeight = 45f;
+        // Deep North ground this high carries a peak on a real summit and hills on its other
+        // hilltops. The game's Deep North rises in gentle uplands (GetDeepNorthHeight has none of
+        // the Mountains' doubling, ridge noise or roughness; only 6-11% of its ground over 45 m is
+        // steeper than 30 degrees, against 55% of the Mountains' over 50 m) and its snow forests
+        // grow up them, so it gets no filler peaks and its woods run uphill.
+        private const float DeepNorthSummitHeight = 45f;
         // Summits and hilltops: a map pixel (12 m) is a summit when it is the highest within
         // SummitCells and rises SummitProminence metres above the lowest point within
         // ProminenceCells; hilltops likewise with smaller numbers. Filler peaks mass round a
@@ -1657,7 +1661,7 @@ namespace Atlas
             float ridgeStep = 8f * m_g;
             Scatter(ridgeStep, 15, s =>
             {
-                if (!IsOpenLand(s, Land.DeepNorth, RidgeShore) || s.m_above >= DeepNorthPeakHeight) return;
+                if (!IsOpenLand(s, Land.DeepNorth, RidgeShore)) return;
                 if (!IsRidge(s.m_x, s.m_y) || !(s.m_roll < 0.8f)) return;
                 if (RidgeCrowded(s, ridgeStep) || NearHighGround(s.m_x, s.m_y)) return;
                 m_canvas.Stroke(s.m_x - 2.4f * m_g, s.m_y, s.m_x, s.m_y - 2f * m_g, Pen);
@@ -1893,7 +1897,9 @@ namespace Atlas
 
         // Whether high ground that carries peaks lies where one of them could stand over or beside
         // a mark at (x, y): a peak rises north of its foot, so the search reaches far south and only
-        // a little north. Read from the world's own heights, the same on the sheet and every tile.
+        // a little north. Mountain ground over PeakHeight is massed with peaks; in the Deep North
+        // only its summits and hilltops carry a glyph (NorthTops). Read from the world's own
+        // heights, the same on the sheet and every tile.
         private bool NearHighGround(float x, float y)
         {
             for (float dy = -3f * G; dy <= 22f * G; dy += 2.5f * G)
@@ -1902,12 +1908,41 @@ namespace Atlas
                 {
                     float wx = (x + dx) * MetresPerPixel - HalfExtent, wz = HalfExtent - (y + dy) * MetresPerPixel;
                     float above = m_world.HeightAt(wx, wz) - m_world.m_waterLevel;
-                    if (above < DeepNorthPeakHeight) continue;
-                    Land land = m_world.m_biome[m_world.Index(wx, wz)];
-                    if ((land == Land.Mountain && above >= PeakHeight) || land == Land.DeepNorth) return true;
+                    if (above >= PeakHeight && m_world.m_biome[m_world.Index(wx, wz)] == Land.Mountain) return true;
                 }
             }
+            foreach (Vector2 top in NorthTops())
+            {
+                float dx = top.x - x, dy = top.y - y;
+                if (dx >= -13f * G && dx <= 13f * G && dy >= -3f * G && dy <= 22f * G) return true;
+            }
             return false;
+        }
+
+        // The Deep North's summits and hilltops over DeepNorthSummitHeight (sheet canvas points),
+        // where PlaceSummitsAndHills may stand a peak or a hill, found once per world from its
+        // heights and shared by the sheet and every close-up (WorldSource.m_northTops). Ground
+        // fills are drawn before the glyphs are placed, so they cannot look at the glyphs.
+        private List<Vector2> NorthTops()
+        {
+            lock (m_world)
+            {
+                if (m_world.m_northTops != null) return m_world.m_northTops;
+                var tops = new List<Vector2>();
+                int size = m_world.m_size;
+                float[] h = m_world.m_height;
+                for (int z = ProminenceCells; z < size - ProminenceCells; z++)
+                    for (int x = ProminenceCells; x < size - ProminenceCells; x++)
+                    {
+                        int i = z * size + x;
+                        if (m_world.m_biome[i] != Land.DeepNorth || h[i] - m_world.m_waterLevel < DeepNorthSummitHeight) continue;
+                        if (!IsHighest(h, size, x, z, HilltopCells) || h[i] - Lowest(h, size, x, z, ProminenceCells) < HillProminence) continue;
+                        float wx = (x - size / 2 + 0.5f) * m_world.m_pixelSize, wz = (z - size / 2 + 0.5f) * m_world.m_pixelSize;
+                        tops.Add(new Vector2((wx + HalfExtent) / MetresPerPixel, (HalfExtent - wz) / MetresPerPixel));
+                    }
+                m_world.m_northTops = tops;
+                return tops;
+            }
         }
 
         // One marsh mark of the swamp rule's grid (cell gx, gy, its square grid of spacing c with
@@ -1976,7 +2011,9 @@ namespace Atlas
                     float above = h[i] - water;
                     if (above < 3f) continue;
                     Land land = m_world.m_biome[i];
-                    bool high = (land == Land.Mountain && above >= PeakHeight) || (land == Land.DeepNorth && above >= DeepNorthPeakHeight);
+                    // The Deep North's uplands: a peak on a real summit, hills on its other hilltops.
+                    bool upland = land == Land.DeepNorth && above >= DeepNorthSummitHeight;
+                    bool high = (land == Land.Mountain && above >= PeakHeight) || upland;
                     // A clear-cut is open country too: with its trees felled its rises show.
                     bool clearCut = land == Land.BlackForest && m_world.m_grove != null && m_world.m_grove[i] == Grove.ClearCut;
                     bool hillCountry = ((land == Land.Meadows || land == Land.Plains) && m_world.m_wood[i] < WoodEdge)
@@ -1988,8 +2025,15 @@ namespace Atlas
                     }
                     if (!high && !hillCountry) continue;
                     int radius = high ? SummitCells : land == Land.Meadows ? MeadowHilltopCells : HilltopCells;
-                    if (!IsHighest(h, size, x, z, radius)) continue;
-                    float prominence = h[i] - Lowest(h, size, x, z, ProminenceCells);
+                    bool highest = IsHighest(h, size, x, z, radius);
+                    float prominence = highest || upland ? h[i] - Lowest(h, size, x, z, ProminenceCells) : 0f;
+                    // An upland top that is no summit may still be a hilltop.
+                    if (upland && !(highest && prominence >= SummitProminence))
+                    {
+                        if (!IsHighest(h, size, x, z, HilltopCells)) continue;
+                        high = false;
+                    }
+                    else if (!highest) continue;
 
                     float wx = (x - size / 2 + 0.5f) * m_world.m_pixelSize;
                     float wz = (z - size / 2 + 0.5f) * m_world.m_pixelSize;
@@ -2550,13 +2594,11 @@ namespace Atlas
             PlaceSummitsAndHills();
             // Mountains between the summits: staggered rows of smaller overlapping peaks, so a range
             // still reads as one mass while its real summits stand out above it. In the Mountain
-            // biome and the high Deep North.
+            // biome only: the Deep North's uplands are gentle (DeepNorthSummitHeight).
             Scatter(16f * G, 9f * G, 0.3f, 0.5f, 21, s =>
             {
                 if (!s.m_isLand || !(s.m_roll < 0.97f)) return;
-                bool mountain = s.m_land == Land.Mountain && s.m_above >= PeakHeight;
-                bool north = s.m_land == Land.DeepNorth && s.m_above >= DeepNorthPeakHeight;
-                if (!mountain && !north) return;
+                if (s.m_land != Land.Mountain || s.m_above < PeakHeight) return;
                 float width = Mathf.Lerp(14f, 22f, Mathf.Clamp01((s.m_above - PeakHeight) / 160f)) * G;
                 if (s.m_shore < width * 0.45f || !PeakOnLand(s.m_x, s.m_y, width, PeakHeightOf(width, s.m_seed))) return;
                 if (NearSummit(s.m_x, s.m_y, width, PeakHeightOf(width, s.m_seed))) return;

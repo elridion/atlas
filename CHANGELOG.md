@@ -29,7 +29,9 @@
   Mistlands, thinner where the mist lies and sparse on the steep rock, veils of mist filling the hollows of its misty ground, black crags, and small hatched scarps marking the steep rock between them (its many small pools kept as water), a cinder stipple, rocky peaks, hatched vermilion lava fields wherever the game lays its lava, down to small pools, rocky crags, and spikes of rock standing out of its boiling sea in the Ashlands, and a
   near-blank snowfield with ice ridges in the Deep North, kept clear of the shore, the peaks and each other.
 - The Deep North's snowy forests are drawn as woods of dense dark pines, as in the Black Forest,
-  wherever the game grows its firs and pines there; its ice ridges keep to the open snow.
+  wherever the game grows its firs and pines there, up its high ground too; its ice ridges keep
+  to the open snow. Its high ground is drawn as the gentle uplands it is: a peak on each real
+  summit and hills on its other hilltops, not whole mountain ranges.
 - Biome variants show in their woods: a felled Black Forest is drawn with stands of stumps among its hills,
   variants where the game grows fewer trees (pine and rocky Black Forests, small-tree Meadows,
   drake and fortress Mountains, lox and death Plains) get sparser woods, and those where it grows

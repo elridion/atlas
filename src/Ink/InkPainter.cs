@@ -609,7 +609,9 @@ namespace Atlas
             {
                 float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
                 // A close-up's pins are smaller by its level of detail, as its trees (InkCanvas.Pin).
-                var g = new Glyph { m_x = x, m_y = y, m_size = PinSheetSize(pin.m_glyph) / m_lod, m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
+                // The glyph's place is its foot, below the pin's place for the Stones (PinGlyphs.Sink).
+                float size = PinSheetSize(pin.m_glyph) / m_lod;
+                var g = new Glyph { m_x = x, m_y = y + PinGlyphs.Sink(pin.m_glyph) * size, m_size = size, m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
                 g.m_order = g.m_y;
                 m_marks.Add(g);
                 Vector4 box = GlyphBox(g);
@@ -949,11 +951,13 @@ namespace Atlas
             return true;
         }
 
-        // A pin's box (left, top, size): its glyph stands on its place (PinGlyphs.Lift).
+        // A pin's box (left, top, size): its glyph stands on its place (PinGlyphs.Lift), which lies
+        // Sink above the glyph's foot.
         private static Vector3 PinBox(Glyph g)
         {
             float size = g.m_size;
-            float centre = g.m_y - PinGlyphs.Lift((PinGlyph)(g.m_seed & 0xFF)) * size;
+            var glyph = (PinGlyph)(g.m_seed & 0xFF);
+            float centre = g.m_y - (PinGlyphs.Lift(glyph) + PinGlyphs.Sink(glyph)) * size;
             return new Vector3(g.m_x - size * 0.5f, centre - size * 0.5f, size);
         }
 

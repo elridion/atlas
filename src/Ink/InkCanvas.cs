@@ -265,13 +265,14 @@ namespace Atlas
         {
             m_record?.Pin(m_layer, glyph, left, top, size, struck);
             // A close-up draws its pins smaller by its level of detail, as it draws its trees, so a
-            // pin keeps its size beside the trees at every zoom; its foot stays on its place.
+            // pin keeps its size beside the trees at every zoom; it stays on its place (its foot,
+            // the Stones' centre: PinGlyphs.Lift).
             if (m_penScale != 1f)
             {
-                float footX = left + size * 0.5f, footY = top + (0.5f + PinGlyphs.Lift(glyph)) * size;
+                float placeX = left + size * 0.5f, placeY = top + (0.5f + PinGlyphs.Lift(glyph)) * size;
                 size *= m_penScale;
-                left = footX - size * 0.5f;
-                top = footY - (0.5f + PinGlyphs.Lift(glyph)) * size;
+                left = placeX - size * 0.5f;
+                top = placeY - (0.5f + PinGlyphs.Lift(glyph)) * size;
             }
             int pixels = Mathf.Max(4, Mathf.RoundToInt(size * m_scale));
             // The map's own pen (1 sheet pixel, thinned in close-ups as every line is) in pin

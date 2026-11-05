@@ -27,8 +27,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   sheet's `WorldSource`). A black icon on a parchment ring and a flat underlay behind names read
   as modern stickers on the hand-drawn map. A pin drawn in elevation stands on its place as a
   tree or peak does, its foot on the spot (`PinGlyphs.Lift`, from each glyph's ground line in pin
-  units; the images and the name layout are lifted, the holder stays on the place); plan signs
-  (dot, stone circle) and traced sprites stay centred.
+  units; the images and the name layout are lifted, the holder stays on the place); the dot and
+  traced sprites stay centred, and the Sacrificial Stones put their ring's centre on the spot
+  (below).
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, a
   two-tongued flame a line of paper in front of two long low crossed logs with square ends sawn a
   little off square (the user's design; round caps read as crossed bones), house: longhouse, a
@@ -180,7 +181,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   special case, or give them a fill of their own (they had the peaks' rock wash and outlined
   blocks): they read as a different, parchment-filled pin at low zoom. `PinGlyphs.StoneCircle`
   in a 26 px box: a ring of solid standing stones round a low altar in the map's oblique view,
-  drawn back to front a line of paper apart, standing on the front of the ring (`StonesFoot`).
+  drawn back to front a line of paper apart. The ring's centre, the altar (`StonesCentreY`), is
+  on the location (the user's call: standing on the front of the ring put the ring north of
+  it), but the glyph is sorted by the front of the ring (`StonesFoot`, `PinGlyphs.Sink`: the
+  `Glyph`'s `m_y` lies that far below the place, `PinBox` adds it back), so a tree between the
+  altar and the front stones is drawn behind the ring, not over its front.
   The ground inside the ring is not cleared: only the stones scrape what lies behind them.
   Anything else is traced from its sprite and stays a marker (other mods' locations and
   pins: silhouette alpha over 200 as the body, a pen line on its edge, clearly darker inner

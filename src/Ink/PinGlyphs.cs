@@ -171,8 +171,18 @@ namespace Atlas
         // How far a glyph is lifted off its pin's place, as a share of the pin's size: a pin drawn
         // in elevation stands on its place as a tree or a peak does, its foot (the ground line it
         // is drawn on, in pin units) on the spot; the dot and icons traced from sprites
-        // stay centred on it.
-        public static float Lift(PinGlyph glyph) => (FootOf(glyph) - PinUnits * 0.5f) / PinUnits;
+        // stay centred on it. The Sacrificial Stones are a ring round their place, so the ring's
+        // centre, the altar, is on the spot (StandOf; the user's call).
+        public static float Lift(PinGlyph glyph) => (StandOf(glyph) - PinUnits * 0.5f) / PinUnits;
+
+        // How far a glyph's foot lies below its place, as a share of the pin's size: it is sorted
+        // in with the trees and glyphs by its foot (InkPainter.FindMarks). 0 but for the Stones,
+        // whose front stones stand south of the altar: sorted by the altar, a tree there would be
+        // drawn over the front of the ring.
+        public static float Sink(PinGlyph glyph) => (FootOf(glyph) - StandOf(glyph)) / PinUnits;
+
+        // The point of the glyph on its pin's place, in pin units.
+        private static float StandOf(PinGlyph glyph) => glyph == PinGlyph.StoneCircle ? StonesCentreY : FootOf(glyph);
 
         private static float FootOf(PinGlyph glyph)
         {
@@ -775,7 +785,9 @@ namespace Atlas
         // The Sacrificial Stones, where every Viking wakes: a ring of standing stones round a low
         // altar in the map's oblique view, as its peaks and trees are drawn. Each stone is a solid
         // block, drawn from the back of the ring to the front, a line of paper apart from what
-        // lies behind it. It stands on the front of its ring, as every pin stands on its foot.
+        // lies behind it. Its centre (StonesCentreY, the altar) is on its place, since the ring
+        // stands round the spot (the user's call); it is sorted by the front of the ring
+        // (StonesFoot, Sink), where its nearest stones stand.
         private const float StonesCentreY = 15f;
         private const float StonesFoot = 19f;
         private const float StonesRadius = 9f;

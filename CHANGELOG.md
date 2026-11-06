@@ -10,6 +10,8 @@
   pin no longer stutters the first time its name shows.
 - Recording discoveries several times in a row no longer redraws the map once for each record:
   only the latest pins are drawn.
+- Checking or unchecking a pin at the table now updates the map almost at once instead of
+  redrawing the whole world.
 
 ## 0.1.0
 

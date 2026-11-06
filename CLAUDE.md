@@ -143,7 +143,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Close-ups take the list from `InkRecord.m_pins` and decide the same. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
   a different key paints the world again in the background (about 6 s offline), the old sheet
   showing until the new one is uploaded and the table sparkling meanwhile; the close-up tiles
-  start over with the new record. The game's own marks are drawn into the sheet wherever they
+  start over with the new record. Except a list that differs only in ticks (same pins, order, places, glyphs; `InkPainter.OnlyChecksDiffer`): a tick changes only the pin plane in that pin's box, so `InkPainter.Recheck` patches a copy of the record (`InkRecord.WithChecks`) and replays it over each ticked pin's box (canvas origin even: `RoundToInt` rounds halves to even). The sheet's marks take the new key, the fog stays, and `DetailTiles.NewChecks` drops only tiles over those pins. Byte-identical to a full paint offline, about 15 ms. If `FindMarks`' pin placement changes, `SheetPinBox` must follow, or every tick quietly falls back to a full paint. The game's own marks are drawn into the sheet wherever they
   are (`AtlasView.InSheet`, `IsGameMark`); out in unexplored land the fog opens a glimpse round
   them (`Glimpsed`, `AtlasMap.s_glimpses`). The player's own pins in unexplored land and traced
   icons (other mods') stay markers in `AtlasView`, sized as the sheet's pins in sheet units

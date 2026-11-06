@@ -305,10 +305,30 @@ namespace Atlas
                 long key = s_pinsKey, cachedKey = s_cachedKey;
                 bool hasCache = s_hasCachedKey;
                 s_paintKey = key;
+                // Pins only ticked or unticked since the sheet and its record were drawn: only
+                // those pins are drawn again (InkPainter.Recheck), well under a second instead of
+                // a whole paint, unless a ticked pin's call cannot be told apart.
+                bool recheck = s_sheet != null && s_marks != null && s_record != null && s_record.m_marks.m_key == s_rawKey
+                    && InkPainter.OnlyChecksDiffer(s_record.m_pins, pins);
+                InkRecord sheetRecord = recheck ? s_record : null;
+                byte[] sheetInk = s_sheet;
+                InkDensity sheetDensity = s_sheetDensity;
                 s_paintTask = Workers.Run(() =>
                 {
-                    var record = new InkRecord();
-                    byte[] ink = InkPainter.Paint(source, cancel, record, pins);
+                    InkRecord record = null;
+                    byte[] ink = null;
+                    System.Collections.Generic.List<RectInt> changed = null;
+                    if (sheetRecord != null)
+                    {
+                        changed = new System.Collections.Generic.List<RectInt>();
+                        ink = InkPainter.Recheck(sheetInk, sheetRecord, pins, key, cancel, changed, out record);
+                        if (ink == null) changed = null;
+                    }
+                    if (ink == null)
+                    {
+                        record = new InkRecord();
+                        ink = InkPainter.Paint(source, cancel, record, pins);
+                    }
                     // A sheet drawn without the alt biomes' groves is not cached: the cache is keyed
                     // by seed, so it would stand in for the variants in every later session.
                     bool saved = false;
@@ -317,7 +337,9 @@ namespace Atlas
                         InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks, key, record.m_marks);
                         saved = true;
                     }
-                    return new PaintResult { m_ink = ink, m_record = record, m_density = InkDensity.FromSheet(ink), m_key = key, m_saved = saved };
+                    // A tick leaves the terrain's ink, which the density is taken from, as it was.
+                    InkDensity density = changed != null ? sheetDensity : InkDensity.FromSheet(ink);
+                    return new PaintResult { m_ink = ink, m_record = record, m_density = density, m_key = key, m_saved = saved, m_changed = changed };
                 });
                 return;
             }
@@ -348,6 +370,17 @@ namespace Atlas
             if (s_sheet != null && result.m_key != s_pinsKey) return;
             // Close-ups are drawn from the new record from now on.
             s_record = result.m_record;
+            if (result.m_changed != null)
+            {
+                // Only pins were ticked: the sheet's marks are the same, so the fog laid on them
+                // still holds once they carry the new pins' key (FogEdge.Matches), and only the
+                // close-ups over those pins are drawn again. The fog is not laid again for it
+                // (SetSheet with the same marks), and the ink is laid with the fog's decisions.
+                s_marks.m_key = result.m_key;
+                s_tiles.NewChecks(result.m_record, result.m_changed);
+                SetSheet(result.m_ink, s_sheetMarks, s_marks, result.m_density, result.m_key);
+                return;
+            }
             s_tiles.NewRecord();
             if (s_sheet != null && result.m_key == s_rawKey) return;
             SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_record.m_marks, result.m_density, result.m_key);
@@ -358,13 +391,14 @@ namespace Atlas
         // density and pins key. The fog is laid again for its sea illustrations.
         private static void SetSheet(byte[] sheet, SeaMark[] marks, SheetMarks sheetMarks, InkDensity density, long key)
         {
+            // A sheet with the marks it replaces (pins ticked, InkPainter.Recheck) keeps the fog.
+            if (sheetMarks != s_marks || marks != s_seaMarks) s_fogDirty = true;
             s_sheet = sheet;
             s_marks = sheetMarks;
             s_sheetMarks = marks;
             s_sheetDensity = density;
             s_rawKey = key;
             s_seaMarks = marks;
-            s_fogDirty = true;
         }
 
         // Lays the sheet's ink texture from its planes whenever the sheet or the glimpse changed.
@@ -434,6 +468,9 @@ namespace Atlas
             public InkDensity m_density;
             public long m_key;
             public bool m_saved;
+            // The pixels of the pins drawn again when only ticks changed (InkPainter.Recheck), or
+            // null for a whole paint.
+            public System.Collections.Generic.List<RectInt> m_changed;
         }
 
         // A fog laid on a worker: the parchment it was laid on and where its drawing stops.

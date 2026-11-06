@@ -43,6 +43,9 @@ namespace Atlas
         // Tiles drawn ahead round the pointer while zoomed out, at most.
         private const int AheadTiles = 48;
         private const float FadeSeconds = 0.2f;
+        // Sheet pixels round a ticked pin's box within which a tile is drawn again (NewChecks):
+        // tiles replay the calls whose bounds reach them, a pixel past their ink.
+        private const int ChecksMargin = 2;
 
         private sealed class Tile
         {
@@ -117,6 +120,49 @@ namespace Atlas
         {
             DropTiles();
             m_record = null;
+        }
+
+        // The same painting with pins ticked or unticked (InkPainter.Recheck): only the tiles over
+        // the redrawn pins (changed, sheet pixels) are drawn again, from the new record; the rest
+        // are the same in both records, so they stay, and tiles still being drawn from the old
+        // one elsewhere are kept too. Those over the pins are dropped, running or done.
+        public void NewChecks(InkRecord record, List<RectInt> changed)
+        {
+            m_finished.Clear();
+            foreach (KeyValuePair<long, Tile> entry in m_tiles)
+                if (Touches(entry.Value.m_region, changed)) m_finished.Add(entry.Key);
+            foreach (long key in m_finished)
+            {
+                Destroy(m_tiles[key]);
+                m_tiles.Remove(key);
+            }
+            m_finished.Clear();
+            foreach (KeyValuePair<long, RectInt> entry in m_runningRegion)
+                if (Touches(entry.Value, changed)) m_finished.Add(entry.Key);
+            // Left to finish on their worker; their tile is dropped when it comes in.
+            foreach (long key in m_finished)
+            {
+                m_running.Remove(key);
+                m_runningRegion.Remove(key);
+            }
+            m_finished.Clear();
+            int ready = m_ready.Count;
+            for (int i = 0; i < ready; i++)
+            {
+                Done done = m_ready.Dequeue();
+                if (!Touches(done.m_region, changed)) m_ready.Enqueue(done);
+            }
+            m_record = record;
+        }
+
+        private static bool Touches(RectInt region, List<RectInt> changed)
+        {
+            foreach (RectInt pin in changed)
+            {
+                var grown = new RectInt(pin.x - ChecksMargin, pin.y - ChecksMargin, pin.width + 2 * ChecksMargin, pin.height + 2 * ChecksMargin);
+                if (region.Overlaps(grown)) return true;
+            }
+            return false;
         }
 
         // Forgets everything, for a new world. Running tiles are cancelled and their results dropped.

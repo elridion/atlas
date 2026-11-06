@@ -104,7 +104,8 @@ namespace Atlas
             public readonly List<int> m_calls = new List<int>();
         }
 
-        private readonly List<Call> m_calls = new List<Call>(1 << 20);
+        // Not readonly only so WithChecks can give its copy a list of its own.
+        private List<Call> m_calls = new List<Call>(1 << 20);
         private readonly List<Vector2> m_points = new List<Vector2>(1 << 16);
         private List<int>[] m_cells;
         private readonly List<int> m_wide = new List<int>();
@@ -147,7 +148,8 @@ namespace Atlas
             m_calls.Add(new Call { m_op = Op.Pin, m_layer = layer, m_group = m_group, m_a = left, m_b = top, m_c = size, m_d = (int)glyph, m_e = struck ? 1f : 0f });
 
         // The marks the fog's edge shows or leaves out whole (Paper.Fog); kept in the disk cache.
-        public readonly SheetMarks m_marks = new SheetMarks();
+        // Not readonly only so WithChecks can give its copy marks of its own.
+        public SheetMarks m_marks = new SheetMarks();
 
         // The pins the sheet was drawn with, so close-ups keep the same clearings round them.
         public SheetPin[] m_pins = new SheetPin[0];
@@ -156,6 +158,46 @@ namespace Atlas
         // trees the same share.
         public float[] m_pinOrders;
         public bool[][] m_pinCovers;
+
+        // The pin call drawing glyph in the box (left, top, size) exactly as recorded, or -1 when
+        // there is none or more than one (two pins on one place, which InkPainter.Recheck leaves
+        // to a full paint).
+        public int PinCall(PinGlyph glyph, float left, float top, float size)
+        {
+            int found = -1;
+            foreach (int i in Picked(left, top, left + size, top + size))
+            {
+                Call c = m_calls[i];
+                if (c.m_op != Op.Pin || (int)c.m_d != (int)glyph || c.m_a != left || c.m_b != top || c.m_c != size) continue;
+                if (found >= 0) return -1;
+                found = i;
+            }
+            return found;
+        }
+
+        // A copy of this record for the same pins with only their ticks changed (InkPainter.Recheck):
+        // the pin calls at calls drawn struck or not as struck says, m_pins the new list and the
+        // marks keyed by it. Everything else is shared, as a record is read-only once sealed
+        // (tiles still drawing from this one are not disturbed): only the call list and the marks
+        // are copied, a few tens of MB, against a paint of the whole world.
+        public InkRecord WithChecks(SheetPin[] pins, IList<int> calls, IList<bool> struck, long key)
+        {
+            var copy = (InkRecord)MemberwiseClone();
+            copy.m_calls = new List<Call>(m_calls);
+            for (int k = 0; k < calls.Count; k++)
+            {
+                Call c = copy.m_calls[calls[k]];
+                c.m_e = struck[k] ? 1f : 0f;
+                copy.m_calls[calls[k]] = c;
+            }
+            copy.m_pins = (SheetPin[])pins.Clone();
+            // The fog's marks do not change with a tick (pins are not among them), only their key.
+            copy.m_marks = new SheetMarks { m_key = key };
+            copy.m_marks.m_trees.AddRange(m_marks.m_trees);
+            copy.m_marks.m_glyphs.AddRange(m_marks.m_glyphs);
+            copy.m_marks.m_waves.AddRange(m_marks.m_waves);
+            return copy;
+        }
 
         // Calls visit with the ends and width of every stroke of a layer touching the sheet
         // rectangle (each once). Scrapes are left out.

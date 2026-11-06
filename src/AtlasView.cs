@@ -58,9 +58,10 @@ namespace Atlas
         private InkDensity m_density;
         private WorldSource m_world;
 
-        // The hovered pin's name: bold, in the pins' red ink, with no outline, shadow or halo (a
-        // plain copy of the font's material), centred HoverGap above the pin's box and at least
-        // HoverEdge inside the view. Vanilla's pin font has hairline strokes that were hard to
+        // The hovered pin's name: bold, in the pins' red ink with no outline or halo (a plain copy
+        // of the font's material), lettered on a slip of parchment (NameSlip) HoverPad wider and
+        // taller than the name each side, so it reads over woods and ranges whose ink is as dark
+        // as the red; centred HoverGap above the pin's box and at least HoverEdge inside the view. Vanilla's pin font has hairline strokes that were hard to
         // read at 18 in game, so the name is larger and its strokes are thickened by HoverDilate
         // (TextMeshPro's face dilate, 0 to 1), spaced HoverSpacing apart so the heavier letters do
         // not run together. A pin is hovered within its sheet box (which holds the smaller pin a
@@ -72,6 +73,9 @@ namespace Atlas
         private const float HoverGap = 4f;
         // How far the name is moved toward the pin, in lines of its own height.
         private const float HoverDrop = 0.5f;
+        private static readonly Vector2 s_hoverPad = new Vector2(8f, 2f);
+        private RawImage m_hoverSlip;
+        private float m_hoverLine;
         private const float HoverEdge = 4f;
         private const float HoverMin = 8f;
         private static Material s_plainMaterial;
@@ -381,8 +385,11 @@ namespace Atlas
                 if (hovered >= 0)
                 {
                     m_hoverText.text = m_hoverPins[hovered].m_name;
-                    m_hoverSize = m_hoverText.GetPreferredValues(m_hoverText.text);
+                    Vector2 name = m_hoverText.GetPreferredValues(m_hoverText.text);
+                    m_hoverLine = name.y;
+                    m_hoverSize = NameSlip.Fit(name + 2f * s_hoverPad);
                     m_hoverRect.sizeDelta = m_hoverSize;
+                    if (m_hoverSlip) m_hoverSlip.texture = NameSlip.For(m_hoverSize);
                 }
                 m_hoverRect.gameObject.SetActive(hovered >= 0);
             }
@@ -398,7 +405,7 @@ namespace Atlas
             float reach = Mathf.Max(pin.m_half * m_scale, HoverMin) + HoverGap;
             // Half a line closer to the pin than its box would put it, so the name reads as the
             // pin's own (the user's call): above, it reaches down over the glyph's top.
-            float drop = m_hoverSize.y * HoverDrop;
+            float drop = m_hoverLine * HoverDrop;
             float y = centre.y + reach - drop;
             float below = centre.y - reach - m_hoverSize.y + drop;
             if (y + m_hoverSize.y > view.yMax - HoverEdge && below >= view.yMin + HoverEdge) y = below;
@@ -413,7 +420,11 @@ namespace Atlas
             if (!m_hoverRect || !font) return;
             if (!m_hoverText)
             {
-                m_hoverText = m_hoverRect.gameObject.AddComponent<TextMeshProUGUI>();
+                // The text has a rect of its own after the slip's, since a UI parent draws before
+                // its children and the slip must lie under the letters.
+                var text = NewRect("Text", m_hoverRect);
+                Stretch(text, 0f);
+                m_hoverText = text.gameObject.AddComponent<TextMeshProUGUI>();
                 m_hoverText.fontSize = HoverFontSize;
                 m_hoverText.fontStyle = FontStyles.Bold;
                 m_hoverText.characterSpacing = HoverSpacing;
@@ -626,6 +637,11 @@ namespace Atlas
             m_hoverRect = NewRect("Hover", m_viewport);
             m_hoverRect.anchorMin = m_hoverRect.anchorMax = new Vector2(0.5f, 0.5f);
             m_hoverRect.pivot = Vector2.zero;
+            // The slip reaches NameSlip.Margin past the name's box each side, where its shadow lies.
+            var slip = NewRect("Slip", m_hoverRect, typeof(RawImage));
+            Stretch(slip, -NameSlip.Margin);
+            m_hoverSlip = slip.GetComponent<RawImage>();
+            m_hoverSlip.raycastTarget = false;
             m_hoverRect.gameObject.SetActive(false);
             m_hoverText = null;
             m_hovered = -1;

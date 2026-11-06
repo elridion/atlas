@@ -2,8 +2,8 @@
 
 ## 0.1.1
 
-- A pin's name now shows centred above the pin you point at, in larger, heavier lettering that
-  is easier to read over the map.
+- A pin's name now shows centred above the pin you point at, in larger, heavier lettering on a
+  small slip of parchment pasted onto the map, so it reads over woods and mountains.
 
 ## 0.1.0
 

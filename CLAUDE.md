@@ -182,7 +182,13 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   top cuts it off (`AtlasView.UpdateHover`, `PlaceHover`: bold vanilla
   pin font in `Paper.PinInkColor` on a plain copy of its material with no outline, underlay or
   glow; the user's design). The font's hairlines were too fine to read at 18, so the name is 22
-  with its face grown `HoverDilate` 0.2 and `HoverSpacing` 2 (the user's call). The preview takes `-Temple wx:wz` and
+  with its face grown `HoverDilate` 0.2 and `HoverSpacing` 2 (the user's call). The red is about
+  as dark as the woods' wash and the terrain ink, so the name is lettered on a slip of parchment
+  pasted onto the map (`NameSlip`, the user's call; it is an exception to the no-backing rule for
+  names): paler than the sheet, a hand cut wandering about a texel with worn corners and a
+  browned fringe, grain, and a soft shadow south-east; `s_hoverPad` round the name, sizes
+  rounded up to 8 units and one texture per size kept for the session. `HoverDrop` is half the
+  text's line, not the slip's. The preview takes `-Temple wx:wz` and
   `-Pin GLYPH:wx:wz[:checked]`, and `-PinCross` marks their places (below).
   The Sacrificial Stones are a pin like every other, with no special treatment anywhere (the
   user's call, made twice): the game's own location pin for `StartTemple` from the snapshot,

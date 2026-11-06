@@ -25,6 +25,10 @@ namespace Atlas
         // Screen pixels per sheet pixel from which tiles are shown; below it the sheet is sharp
         // enough, and at the finest level a wider view would take hundreds of tiles.
         private const float DetailFrom = 1.25f;
+        // The finest close-ups' coast in sheet pixels: they ink it with the base pen (InkPainter
+        // DrawTileCoast, not the sheet's heavier CoastWidth), thinner by their level of detail
+        // (DetailTile's lod). The hovered name's banner is inked with it (AtlasView.ShoreWidth).
+        public static float FinestCoastPixels => 1f / Mathf.Sqrt(Mathf.Max(1f, s_scales[s_scales.Length - 1] * 0.5f));
         // The most tiles a view may take before close-ups start: a 1080p view at DetailFrom takes
         // about 340; at 1440p close-ups start at about 1.3 screen pixels a sheet pixel, at 4K
         // about 2 (the user asked for close-ups a little earlier).
@@ -151,6 +155,7 @@ namespace Atlas
             RectTransform parent = view.DetailLayer;
             if (parent != m_parent) Rebuild(parent);
             Upload();
+            view.DetailShown = false;
             if (!view.IsOpen || !m_parent || !Ready) return;
             if (!view.ViewRegion(out RectInt visible, out float onScreen, out Vector2 pointer)) return;
 
@@ -164,6 +169,7 @@ namespace Atlas
             Vector2 screen = view.ViewPixels;
             float from = Mathf.Max(DetailFrom, Mathf.Sqrt(screen.x * screen.y / MaxVisible) / size);
             bool detail = onScreen >= from;
+            view.DetailShown = detail;
             Show(detail ? level : -1, visible);
             Fade();
 

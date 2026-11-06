@@ -59,9 +59,9 @@ namespace Atlas
         private WorldSource m_world;
 
         // The hovered pin's name: bold, in the pins' red ink with no outline or halo (a plain copy
-        // of the font's material), lettered on a slip of parchment (NameSlip) HoverPad wider and
+        // of the font's material), lettered on a slip of parchment (NameBanner) HoverPad wider and
         // taller than the name each side, so it reads over woods and ranges whose ink is as dark
-        // as the red; centred HoverGap above the pin's box and at least HoverEdge inside the view. Vanilla's pin font has hairline strokes that were hard to
+        // as the red; centred HoverGap above the pin's box. Vanilla's pin font has hairline strokes that were hard to
         // read at 18 in game, so the name is larger and its strokes are thickened by HoverDilate
         // (TextMeshPro's face dilate, 0 to 1), spaced HoverSpacing apart so the heavier letters do
         // not run together. A pin is hovered within its sheet box (which holds the smaller pin a
@@ -74,10 +74,19 @@ namespace Atlas
         // How far the name is moved toward the pin, in lines of its own height.
         private const float HoverDrop = 0.5f;
         private static readonly Vector2 s_hoverPad = new Vector2(8f, 2f);
-        private RawImage m_hoverSlip;
+        // The banner (NameBanner): its fill masks the bare parchment, its ink lies over it. The
+        // banner hangs in the sheet under the dirt, fixed on the sheet (LabelZoom).
+        private RawImage m_hoverFill;
+        private RawImage m_hoverParchment;
+        private RawImage m_hoverInk;
+        private Texture m_parchmentTexture;
+        private Vector2 m_hoverMargin;
         private float m_hoverLine;
-        private const float HoverEdge = 4f;
         private const float HoverMin = 8f;
+        // Names are fixed on the sheet as pins are, at the size the label constants above give
+        // them at the deepest zoom (MaxScale canvas units a sheet pixel), where close-ups are
+        // finest.
+        private const float LabelZoom = MaxScale;
         private static Material s_plainMaterial;
         private static TMP_FontAsset s_plainFont;
         private readonly List<HoverPin> m_hoverPins = new List<HoverPin>();
@@ -329,8 +338,8 @@ namespace Atlas
         }
 
         // The dev commands marker: a copy of vanilla's large map arrow (Minimap.m_largeMarker),
-        // under the hovered name so a name stays readable. Null, with a warning, when vanilla's
-        // marker has no sprite.
+        // over the whole sheet, the hovered name's banner included. Null, with a warning, when
+        // vanilla's marker has no sprite.
         private RectTransform NewPlayerMarker()
         {
             m_playerMarkerTried = true;
@@ -350,7 +359,6 @@ namespace Atlas
             image.color = source.color;
             image.preserveAspect = true;
             image.raycastTarget = false;
-            if (m_hoverRect) rect.SetSiblingIndex(m_hoverRect.GetSiblingIndex());
             m_playerMarkerYaw = float.NaN;
             rect.gameObject.SetActive(false);
             return rect;
@@ -362,7 +370,7 @@ namespace Atlas
         {
             if (!m_hoverRect || !m_hoverText) return;
             int hovered = -1;
-            if (!ZInput.IsGamepadActive() && RectTransformUtility.RectangleContainsScreenPoint(m_viewport, pointer, camera)
+            if (DetailShown && !ZInput.IsGamepadActive() && RectTransformUtility.RectangleContainsScreenPoint(m_viewport, pointer, camera)
                 && RectTransformUtility.ScreenPointToLocalPointInRectangle(m_viewport, pointer, camera, out Vector2 local))
             {
                 float best = float.MaxValue;
@@ -387,31 +395,75 @@ namespace Atlas
                     m_hoverText.text = m_hoverPins[hovered].m_name;
                     Vector2 name = m_hoverText.GetPreferredValues(m_hoverText.text);
                     m_hoverLine = name.y;
-                    m_hoverSize = NameSlip.Fit(name + 2f * s_hoverPad);
+                    m_hoverSize = BannerSize(name);
                     m_hoverRect.sizeDelta = m_hoverSize;
-                    if (m_hoverSlip) m_hoverSlip.texture = NameSlip.For(m_hoverSize);
+                    SetBanner();
                 }
                 m_hoverRect.gameObject.SetActive(hovered >= 0);
             }
             if (hovered >= 0) PlaceHover(m_hoverPins[hovered]);
         }
 
-        // Centred over the pin, or under it where the top runs out of the view; then kept inside
-        // the view.
+        // The banner for the hovered name's size. Without its textures or the bare parchment the
+        // name shows bare, as before the banner.
+        private void SetBanner()
+        {
+            if (!m_hoverFill || !m_hoverInk) return;
+            NameBanner.Banner banner = NameBanner.For(m_hoverSize, ShoreWidth);
+            bool shown = banner != null && m_parchmentTexture;
+            m_hoverFill.gameObject.SetActive(shown);
+            m_hoverInk.gameObject.SetActive(shown);
+            if (!shown) return;
+            // The rolls and the wave reach past the name's box.
+            m_hoverMargin = NameBanner.Margin(m_hoverSize, ShoreWidth);
+            foreach (RawImage image in new[] { m_hoverFill, m_hoverInk })
+            {
+                image.rectTransform.offsetMin = -m_hoverMargin;
+                image.rectTransform.offsetMax = m_hoverMargin;
+            }
+            m_hoverFill.texture = banner.m_fill;
+            m_hoverInk.texture = banner.m_ink;
+            m_hoverParchment.texture = m_parchmentTexture;
+        }
+
+        // The banner's strip for a name of the given size: padded and rounded (NameBanner.Fit).
+        private static Vector2 BannerSize(Vector2 name) => NameBanner.Fit(name + 2f * s_hoverPad);
+
+        // Whether the close-ups are shown (DetailTiles sets it): names show only then, at the
+        // finest drawing, for which they are sized (the user's call).
+        public bool DetailShown { get; set; }
+
+        // The banner's outline in label units: the finest close-ups' coast (their base pen,
+        // InkPainter.DrawTileCoast) at the deepest zoom, so it matches the coast there.
+        private static float ShoreWidth => DetailTiles.FinestCoastPixels * LabelZoom;
+
+        // The sheet's bare parchment, with no wash: what lies inside a banner drawn on it.
+        public void SetParchment(Texture parchment)
+        {
+            m_parchmentTexture = parchment;
+            if (m_hovered >= 0) SetBanner();
+        }
+
+        // Centred over the pin, fixed on the sheet as the pins are: laid out in label units (the
+        // view's canvas units at the deepest zoom, LabelZoom sheet's per sheet pixel) and hung
+        // in the sheet scaled down by LabelZoom, so the name grows and shrinks with the map.
         private void PlaceHover(HoverPin pin)
         {
-            Rect view = m_viewport.rect;
-            Vector2 centre = m_position + pin.m_at * m_scale;
-            float reach = Mathf.Max(pin.m_half * m_scale, HoverMin) + HoverGap;
+            Vector2 centre = pin.m_at * LabelZoom;
+            float reach = pin.m_half * LabelZoom + HoverGap;
             // Half a line closer to the pin than its box would put it, so the name reads as the
-            // pin's own (the user's call): above, it reaches down over the glyph's top.
+            // pin's own (the user's call): it reaches down over the glyph's top.
             float drop = m_hoverLine * HoverDrop;
-            float y = centre.y + reach - drop;
-            float below = centre.y - reach - m_hoverSize.y + drop;
-            if (y + m_hoverSize.y > view.yMax - HoverEdge && below >= view.yMin + HoverEdge) y = below;
-            y = Mathf.Clamp(y, view.yMin + HoverEdge, Mathf.Max(view.yMin + HoverEdge, view.yMax - HoverEdge - m_hoverSize.y));
-            float x = Mathf.Clamp(centre.x - m_hoverSize.x * 0.5f, view.xMin + HoverEdge, Mathf.Max(view.xMin + HoverEdge, view.xMax - HoverEdge - m_hoverSize.x));
-            m_hoverRect.anchoredPosition = new Vector2(x, y);
+            var at = new Vector2(centre.x - m_hoverSize.x * 0.5f, centre.y + reach - drop);
+            m_hoverRect.anchoredPosition = at / LabelZoom;
+            if (m_hoverParchment && m_hoverFill && m_hoverFill.gameObject.activeSelf)
+            {
+                // The bare parchment under the banner's box, in the sheet's texture coordinates.
+                float size = InkPainter.CanvasSize * LabelZoom;
+                Vector2 from = (at - m_hoverMargin) / size + new Vector2(0.5f, 0.5f);
+                Vector2 extent = (m_hoverSize + 2f * m_hoverMargin) / size;
+                m_hoverParchment.uvRect = new Rect(from, extent);
+            }
         }
 
         // The hover name's text, made once vanilla's pin font is known.
@@ -420,8 +472,8 @@ namespace Atlas
             if (!m_hoverRect || !font) return;
             if (!m_hoverText)
             {
-                // The text has a rect of its own after the slip's, since a UI parent draws before
-                // its children and the slip must lie under the letters.
+                // The text has a rect of its own after the banner's, since a UI parent draws before
+                // its children and the banner must lie under the letters.
                 var text = NewRect("Text", m_hoverRect);
                 Stretch(text, 0f);
                 m_hoverText = text.gameObject.AddComponent<TextMeshProUGUI>();
@@ -608,6 +660,34 @@ namespace Atlas
             m_fog = NewLayer("Fog");
             m_pinLayer = NewRect("Pins", m_content);
             Stretch(m_pinLayer, 0f);
+            // The hovered pin's name, on a banner drawn on the sheet: over the pins, under the
+            // dirt and the trimmed edge, so the sheet's stains lie over it as over the drawing.
+            var names = NewRect("Names", m_content);
+            Stretch(names, 0f);
+            m_hoverRect = NewRect("Hover", names);
+            m_hoverRect.anchorMin = m_hoverRect.anchorMax = new Vector2(0.5f, 0.5f);
+            m_hoverRect.pivot = Vector2.zero;
+            m_hoverRect.localScale = new Vector3(1f / LabelZoom, 1f / LabelZoom, 1f);
+            // The banner's fill is the mask the bare parchment is laid through (a UI Mask cuts
+            // hard, but the outline in its ink covers that edge); then the ink; the text is added
+            // last (SetHoverFont), as a UI parent draws before its children.
+            var fill = NewRect("Fill", m_hoverRect, typeof(RawImage));
+            Stretch(fill, 0f);
+            m_hoverFill = fill.GetComponent<RawImage>();
+            m_hoverFill.raycastTarget = false;
+            fill.gameObject.AddComponent<Mask>().showMaskGraphic = false;
+            var parchment = NewRect("Parchment", fill, typeof(RawImage));
+            Stretch(parchment, 0f);
+            m_hoverParchment = parchment.GetComponent<RawImage>();
+            m_hoverParchment.raycastTarget = false;
+            var ink = NewRect("Ink", m_hoverRect, typeof(RawImage));
+            Stretch(ink, 0f);
+            m_hoverInk = ink.GetComponent<RawImage>();
+            m_hoverInk.raycastTarget = false;
+            m_hoverRect.gameObject.SetActive(false);
+            m_hoverText = null;
+            m_hovered = -1;
+            m_hoverPins.Clear();
             // Dirt lies on top of everything, pins and names included, as on a real map.
             m_dirt = NewLayer("Dirt");
             m_dirt.enabled = false;
@@ -632,20 +712,6 @@ namespace Atlas
                 m_edge[k].color = s_border;
             }
             SetEdge(m_edgeTextures);
-            // The hovered pin's name is not part of the map: over the dirt, in the view's own
-            // units, so it keeps its size and can be kept inside the view.
-            m_hoverRect = NewRect("Hover", m_viewport);
-            m_hoverRect.anchorMin = m_hoverRect.anchorMax = new Vector2(0.5f, 0.5f);
-            m_hoverRect.pivot = Vector2.zero;
-            // The slip reaches NameSlip.Margin past the name's box each side, where its shadow lies.
-            var slip = NewRect("Slip", m_hoverRect, typeof(RawImage));
-            Stretch(slip, -NameSlip.Margin);
-            m_hoverSlip = slip.GetComponent<RawImage>();
-            m_hoverSlip.raycastTarget = false;
-            m_hoverRect.gameObject.SetActive(false);
-            m_hoverText = null;
-            m_hovered = -1;
-            m_hoverPins.Clear();
             // The dev commands marker is made the first time it is needed (UpdatePlayerMarker).
             m_playerMarker = null;
             m_playerMarkerTried = false;

@@ -178,17 +178,34 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   login does not lay it twice. A second texture split from the ink would cost as much in video
   memory, and no custom shader is possible without asset bundles. The always-on name
   layout is left off (`s_showNames`); instead the hovered pin's name shows centred above it,
-  `HoverDrop` half a line down over the glyph's top (the user's call), under it where the view's
-  top cuts it off (`AtlasView.UpdateHover`, `PlaceHover`: bold vanilla
+  `HoverDrop` half a line down over the glyph's top (the user's call). Names show only while the
+  close-ups are shown (`AtlasView.DetailShown`, set by `DetailTiles`) and are fixed on the sheet as
+  the pins are, sized for the finest drawing: the label constants are canvas units at the deepest
+  zoom (`LabelZoom` = `MaxScale`), the name hung in the sheet at 1 / `LabelZoom` (the user's call:
+  "restrict and fix the labels for and to the finest render size") (`AtlasView.UpdateHover`, `PlaceHover`: bold vanilla
   pin font in `Paper.PinInkColor` on a plain copy of its material with no outline, underlay or
   glow; the user's design). The font's hairlines were too fine to read at 18, so the name is 22
   with its face grown `HoverDilate` 0.2 and `HoverSpacing` 2 (the user's call). The red is about
-  as dark as the woods' wash and the terrain ink, so the name is lettered on a slip of parchment
-  pasted onto the map (`NameSlip`, the user's call; it is an exception to the no-backing rule for
-  names): paler than the sheet, a hand cut wandering about a texel with worn corners and a
-  browned fringe, grain, and a soft shadow south-east; `s_hoverPad` round the name, sizes
-  rounded up to 8 units and one texture per size kept for the session. `HoverDrop` is half the
-  text's line, not the slip's. The preview takes `-Temple wx:wz` and
+  as dark as the woods' wash and the terrain ink, so the name is lettered on a scroll banner
+  (`NameBanner`, the user's pick; an exception to the no-backing rule for names). It must read
+  as **a banner the cartographer drew on the parchment and left unwashed** (the user's rule),
+  drawn with the map's own pen (the user's rule): a period banderole inked on `InkCanvas` with
+  the pins' hand (their waver and hand trace) and an outline as wide as the finest close-ups' coast at the deepest zoom (the user's call: `AtlasView.ShoreWidth` = `DetailTiles.FinestCoastPixels` x `LabelZoom`; close-ups ink their coast with the base pen `Pen` / lod, not the sheet's `CoastWidth` 1.4, and taking 1.4 there drew the banner visibly heavier than the coast; hatching the outline over `CoastWidth`), a near-level face with
+  one slight swell, each end turned back behind it at a diagonal crease, the back showing as a
+  small wedge of three or four hatch lines, and a drooping swallowtail tail below each end, the
+  two ends varied by seed. Inside the outline lies the sheet's own
+  bare parchment (`Paper.Parchment`, uploaded once per world as `AtlasMap.s_bareParchment`, about
+  12 MB) laid through the banner's fill as a UI `Mask`, whose hard edge the outline covers. The
+  banner hangs in the sheet (`Names`, after `Pins`, before `Dirt` and `Edge`), fixed on the sheet,
+  so the map's stains and trimmed edge lie over it as over the drawing.
+  No paper colour, grain, browned rim, nicks or shadow of its own: an earlier pale slip with a
+  drop shadow read as a sticker (and `atlas-label-research.md` in the workspace finds no cast
+  shadows or gradient-shaded rolls on period maps; turned-back parts there are hatched or toned
+  flat). The parchment is shown untinted, the sheet's own colour (the user's call; a darker tint was tried and taken back). Without the parchment or its textures the name shows bare. `s_hoverPad` (8 across, 2 up and down) round
+  the name and `NameBanner.PadX` 2 more before the turns (both tightened, the user's call), the
+  textures reaching `NameBanner.Margin` past it, sizes rounded up to 4 units and one pair per
+  size kept for the session. `NameBanner.Pixels` is pure math, so it can be rendered offline.
+  `HoverDrop` is half the text's line, not the banner's. The preview takes `-Temple wx:wz` and
   `-Pin GLYPH:wx:wz[:checked]`, and `-PinCross` marks their places (below).
   The Sacrificial Stones are a pin like every other, with no special treatment anywhere (the
   user's call, made twice): the game's own location pin for `StartTemple` from the snapshot,

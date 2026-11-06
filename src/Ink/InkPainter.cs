@@ -40,7 +40,7 @@ namespace Atlas
 
         // The coast's pen, in canvas pixels: barely heavier than the waves beside it, as on the
         // classic map.
-        private const float CoastWidth = 1.4f;
+        internal const float CoastWidth = 1.4f;
         // The sea's water lines follow the 1980 redrawn Middle-earth map; sizes in canvas pixels.
         // The waterline is traced, not drawn, WaterLine out from every lined shore and is always a
         // closed loop, never a loose end: narrow channels and water that carries no line count as

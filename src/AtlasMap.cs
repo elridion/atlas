@@ -135,6 +135,7 @@ namespace Atlas
             KeepInk(worldUid);
             KeepFog();
             KeepPaper();
+            KeepBareParchment();
             KeepDirt();
             KeepEdge();
             if (!s_tiles.Ready && s_record != null && s_wash != null && s_samples != null)
@@ -585,6 +586,25 @@ namespace Atlas
             s_paper.Apply(updateMipmaps: false, makeNoLongerReadable: true);
         }
 
+        // Uploads the bare parchment once the fog has handed it back, for the hovered name's
+        // banner, which is drawn on the sheet and left unwashed (NameBanner). About 12 MB.
+        private static void KeepBareParchment()
+        {
+            if (s_bareParchment || s_parchment == null) return;
+            int size = Paper.FogSize;
+            s_bareParchment = new Texture2D(size, size, TextureFormat.RGB24, mipChain: false)
+            {
+                name = "Atlas bare parchment",
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear,
+            };
+            s_bareParchment.LoadRawTextureData(s_parchment);
+            s_bareParchment.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            s_view.SetParchment(s_bareParchment);
+        }
+
+        private static Texture2D s_bareParchment;
+
         // Makes the sheet's dirt once per world and uploads it; the atlas opens without it until it
         // is there, and an open atlas takes it up at once.
         private static void KeepDirt()
@@ -781,6 +801,9 @@ namespace Atlas
             s_fogFailed = false;
             if (s_dirt) UnityEngine.Object.Destroy(s_dirt);
             s_dirt = null;
+            s_view.SetParchment(null);
+            if (s_bareParchment) UnityEngine.Object.Destroy(s_bareParchment);
+            s_bareParchment = null;
             s_edgeStripsTask = null;
             s_view.SetEdge(null);
             if (s_edgeStrips != null)

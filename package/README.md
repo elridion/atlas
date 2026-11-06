@@ -9,7 +9,7 @@ Nomap worlds get a hand-inked map in the style of a classic fantasy novel. Recor
 - Every biome in its own pen marks and colour wash: woods, peaks, marshes, lava fields, snowfields,
   rivers, wave strokes and the odd sea monster. Biome variants show in their woods.
 - Your pins and the game's own marks (bed, last death, bosses, traders, Hildir's dungeons) are
-  inked into the map in red. Point at one to see its name.
+  inked into the map in red. Zoom in close and point at one to see its name.
 - "Read map" at the table opens the game's interactive map for placing and editing pins.
 - Zoom in for close-ups redrawn from the world itself, accurate to a few metres.
 - Drawn in the background and cached, so opening the map never stalls the game.

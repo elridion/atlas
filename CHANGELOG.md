@@ -2,8 +2,9 @@
 
 ## 0.1.1
 
-- A pin's name now shows centred above the pin you point at, in larger, heavier lettering on a
-  small slip of parchment pasted onto the map, so it reads over woods and mountains.
+- Zoomed in close, a pin's name now shows centred above the pin you point at, in larger,
+  heavier lettering on a ribbon banner drawn in pen on the bare parchment, its ends folded back
+  into swallowtails, so it reads over woods and mountains.
 
 ## 0.1.0
 

@@ -59,11 +59,16 @@ namespace Atlas
         private WorldSource m_world;
 
         // The hovered pin's name: bold, in the pins' red ink, with no outline, shadow or halo (a
-        // plain copy of the font's material), HoverGap beside the pin's box and at least
-        // HoverEdge inside the view. A pin is hovered within its sheet box (which holds the
-        // smaller pin a close-up draws, scaled about its foot) or HoverMin of its centre on
-        // screen, so small pins at the opening zoom can still be found. Canvas units.
-        private const float HoverFontSize = 18f;
+        // plain copy of the font's material), centred HoverGap above the pin's box and at least
+        // HoverEdge inside the view. Vanilla's pin font has hairline strokes that were hard to
+        // read at 18 in game, so the name is larger and its strokes are thickened by HoverDilate
+        // (TextMeshPro's face dilate, 0 to 1), spaced HoverSpacing apart so the heavier letters do
+        // not run together. A pin is hovered within its sheet box (which holds the smaller pin a
+        // close-up draws, scaled about its foot) or HoverMin of its centre on screen, so small
+        // pins at the opening zoom can still be found. Canvas units.
+        private const float HoverFontSize = 22f;
+        private const float HoverDilate = 0.2f;
+        private const float HoverSpacing = 2f;
         private const float HoverGap = 4f;
         private const float HoverEdge = 4f;
         private const float HoverMin = 8f;
@@ -382,18 +387,18 @@ namespace Atlas
             if (hovered >= 0) PlaceHover(m_hoverPins[hovered]);
         }
 
-        // Right of the pin, or left of it where the right runs out of the view, level with the
-        // glyph's centre; then kept inside the view.
+        // Centred over the pin, or under it where the top runs out of the view; then kept inside
+        // the view.
         private void PlaceHover(HoverPin pin)
         {
             Rect view = m_viewport.rect;
             Vector2 centre = m_position + pin.m_at * m_scale;
-            float reach = pin.m_half * m_scale + HoverGap;
-            float x = centre.x + reach;
-            float left = centre.x - reach - m_hoverSize.x;
-            if (x + m_hoverSize.x > view.xMax - HoverEdge && left >= view.xMin + HoverEdge) x = left;
-            x = Mathf.Clamp(x, view.xMin + HoverEdge, Mathf.Max(view.xMin + HoverEdge, view.xMax - HoverEdge - m_hoverSize.x));
-            float y = Mathf.Clamp(centre.y - m_hoverSize.y * 0.5f, view.yMin + HoverEdge, Mathf.Max(view.yMin + HoverEdge, view.yMax - HoverEdge - m_hoverSize.y));
+            float reach = Mathf.Max(pin.m_half * m_scale, HoverMin) + HoverGap;
+            float y = centre.y + reach;
+            float below = centre.y - reach - m_hoverSize.y;
+            if (y + m_hoverSize.y > view.yMax - HoverEdge && below >= view.yMin + HoverEdge) y = below;
+            y = Mathf.Clamp(y, view.yMin + HoverEdge, Mathf.Max(view.yMin + HoverEdge, view.yMax - HoverEdge - m_hoverSize.y));
+            float x = Mathf.Clamp(centre.x - m_hoverSize.x * 0.5f, view.xMin + HoverEdge, Mathf.Max(view.xMin + HoverEdge, view.xMax - HoverEdge - m_hoverSize.x));
             m_hoverRect.anchoredPosition = new Vector2(x, y);
         }
 
@@ -406,8 +411,9 @@ namespace Atlas
                 m_hoverText = m_hoverRect.gameObject.AddComponent<TextMeshProUGUI>();
                 m_hoverText.fontSize = HoverFontSize;
                 m_hoverText.fontStyle = FontStyles.Bold;
+                m_hoverText.characterSpacing = HoverSpacing;
                 m_hoverText.color = Paper.PinInkColor;
-                m_hoverText.alignment = TextAlignmentOptions.Left;
+                m_hoverText.alignment = TextAlignmentOptions.Center;
                 m_hoverText.textWrappingMode = TextWrappingModes.NoWrap;
                 m_hoverText.raycastTarget = false;
             }
@@ -420,7 +426,8 @@ namespace Atlas
         }
 
         // Main thread. The font's material with outline, underlay and glow turned off, so the
-        // name is bare ink whatever vanilla's material carries. One copy; vanilla's is never changed.
+        // name is bare ink whatever vanilla's material carries, and its face grown by HoverDilate.
+        // One copy; vanilla's is never changed.
         private static Material PlainMaterial(TMP_FontAsset font)
         {
             if (s_plainMaterial && s_plainFont == font) return s_plainMaterial;
@@ -431,7 +438,7 @@ namespace Atlas
             material.DisableKeyword(ShaderUtilities.Keyword_Underlay);
             material.DisableKeyword(ShaderUtilities.Keyword_Glow);
             if (material.HasProperty(ShaderUtilities.ID_OutlineWidth)) material.SetFloat(ShaderUtilities.ID_OutlineWidth, 0f);
-            if (material.HasProperty(ShaderUtilities.ID_FaceDilate)) material.SetFloat(ShaderUtilities.ID_FaceDilate, 0f);
+            if (material.HasProperty(ShaderUtilities.ID_FaceDilate)) material.SetFloat(ShaderUtilities.ID_FaceDilate, HoverDilate);
             if (material.HasProperty(ShaderUtilities.ID_UnderlayColor)) material.SetColor(ShaderUtilities.ID_UnderlayColor, Color.clear);
             if (material.HasProperty(ShaderUtilities.ID_GlowColor)) material.SetColor(ShaderUtilities.ID_GlowColor, Color.clear);
             s_plainMaterial = material;

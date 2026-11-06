@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1
+
+- A pin's name now shows centred above the pin you point at, in larger, heavier lettering that
+  is easier to read over the map.
+
 ## 0.1.0
 
 - In worlds without a map, "Record discoveries" at a cartography table now also updates your map,

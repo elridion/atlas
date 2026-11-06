@@ -168,37 +168,65 @@ namespace Atlas
         private const float HandCutRound = 0.4f;
         private const float HandCutNudge = 0.6f;
 
-        // How far a glyph is lifted off its pin's place, as a share of the pin's size: a pin drawn
-        // in elevation stands on its place as a tree or a peak does, its foot (the ground line it
-        // is drawn on, in pin units) on the spot; the dot and icons traced from sprites
-        // stay centred on it. The Sacrificial Stones are a ring round their place, so the ring's
-        // centre, the altar, is on the spot (StandOf; the user's call).
+        // Where a pin's place lies on its glyph. The map is an oblique view: the ground is
+        // foreshortened to GroundTilt of its depth, as the Stones' ring is drawn. A thing drawn in
+        // elevation is at the middle of its footprint, which lies behind the ground line it is
+        // drawn on (its foot) by half its depth on the ground, north-south (PlanHalfDepth),
+        // foreshortened. On top of that every standing glyph is raised StandBias: a pin has no
+        // cast shadow or ground beyond its body to tie it to its foot, so the eye places it
+        // nearer its mass (the user's call on the Stones, read off the pin reference). Emblems
+        // (the dot, the boss's skull) stand on nothing and put their mass centre on the place.
+        private const float GroundTilt = 0.42f;
+        private const float StandBias = 1.25f;
+        // The horned skull's ink centroid, in pin units, measured on the drawn glyph.
+        private const float BossCentre = 12.34f;
+
+        // How far a glyph is lifted off its pin's place, as a share of the pin's size (StandOf);
+        // icons traced from sprites stay centred on it.
         public static float Lift(PinGlyph glyph) => (StandOf(glyph) - PinUnits * 0.5f) / PinUnits;
 
         // How far a glyph's foot lies below its place, as a share of the pin's size: it is sorted
         // in with the trees and glyphs by its foot (InkPainter.FindMarks), not by its place: the
-        // Stones' front stones and every raised glyph's foot (StandRaise) lie south of the place,
+        // Stones' front stones and every standing glyph's foot (StandOf) lie south of the place,
         // and sorted by the place a tree there would be drawn over the glyph's foot.
         public static float Sink(PinGlyph glyph) => (FootOf(glyph) - StandOf(glyph)) / PinUnits;
 
-        // The point of the glyph on its pin's place, in pin units: its foot, raised by StandRaise.
-        private static float StandOf(PinGlyph glyph) =>
-            glyph == PinGlyph.StoneCircle ? StonesPlaceY : FootOf(glyph) - StandRaise(glyph);
-
-        // How far over its foot a glyph's place lies, in pin units (the user's calls, read off the
-        // pin reference's rulers): a glyph's mass sits well over its foot line, so standing on the
-        // foot alone read as standing north of the place. The glyph and its sort foot are unchanged.
-        private static float StandRaise(PinGlyph glyph)
+        // The point of the glyph on its pin's place, in pin units (y running south). The Stones'
+        // footprint middle is the ring's centre, drawn exactly.
+        private static float StandOf(PinGlyph glyph)
         {
             switch (glyph)
             {
-                case PinGlyph.Fire: return 5f;
-                case PinGlyph.House: return 3f;
-                case PinGlyph.Hammer: return 2f;
-                case PinGlyph.Tomb: return 1f;
-                case PinGlyph.Cavern: return 2f;
-                case PinGlyph.Tower: return 1f;
-                case PinGlyph.Tent: return 1f;
+                case PinGlyph.Point: return PinUnits * 0.5f;
+                case PinGlyph.Boss: return BossCentre;
+                case PinGlyph.StoneCircle: return StonesCentreY - StandBias;
+                default: return FootOf(glyph) - PlanHalfDepth(glyph) * GroundTilt - StandBias;
+            }
+        }
+
+        // Half a glyph's depth on the ground, north-south, in pin units: what its plan would be,
+        // from its drawn width. Round things (the sack, the cauldron, the bell tent, the barrow and
+        // the cave's hill) are as deep as wide, the campfire's logs cross in a square, the tower
+        // and the Forge's plinth are square; the longhouse is about 0.4 as deep as long, the bed
+        // half, the grave's plinth and Mjolnir's head (it stands on its head) about a third. The
+        // portal is a ring on a shallow slab.
+        private static float PlanHalfDepth(PinGlyph glyph)
+        {
+            switch (glyph)
+            {
+                case PinGlyph.Fire: return 11f;
+                case PinGlyph.House: return 3.4f;
+                case PinGlyph.Hammer: return 3.3f;
+                case PinGlyph.Portal: return 2f;
+                case PinGlyph.Death: return 3f;
+                case PinGlyph.Bed: return 5.3f;
+                case PinGlyph.Tomb: return 10.2f;
+                case PinGlyph.Cavern: return 10.4f;
+                case PinGlyph.Tower: return 4.8f;
+                case PinGlyph.Trader: return 7.6f;
+                case PinGlyph.Tent: return 9.5f;
+                case PinGlyph.Cauldron: return 10f;
+                case PinGlyph.Forge: return 6.8f;
                 default: return 0f;
             }
         }
@@ -804,15 +832,13 @@ namespace Atlas
         // The Sacrificial Stones, where every Viking wakes: a ring of standing stones round a low
         // altar in the map's oblique view, as its peaks and trees are drawn. Each stone is a solid
         // block, drawn from the back of the ring to the front, a line of paper apart from what
-        // lies behind it. Its centre is on its place, since the ring stands round the spot (the
-        // user's call): StonesPlaceY, one and a quarter units over the altar (StonesCentreY; the
-        // user's calls, read off the pin reference); it is sorted by the front of the ring
-        // (StonesFoot, Sink), where its nearest stones stand.
+        // lies behind it. Its centre, the altar, is the middle of its footprint, so it stands on
+        // its place as every glyph does (StandOf: StandBias over the altar); it is sorted by the
+        // front of the ring (StonesFoot, Sink), where its nearest stones stand.
         private const float StonesCentreY = 15f;
-        private const float StonesPlaceY = StonesCentreY - 1.25f;
         private const float StonesFoot = 19f;
         private const float StonesRadius = 9f;
-        private const float StonesTilt = 0.42f;
+        private const float StonesTilt = GroundTilt;
         private const int StonesCount = 7;
 
         private static void StoneCircle(InkCanvas ink, InkCanvas body)

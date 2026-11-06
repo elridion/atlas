@@ -882,7 +882,8 @@ internal static class Program
             }
             float lift = (float)liftOf.Invoke(null, new[] { glyph }), sink = (float)sinkOf.Invoke(null, new[] { glyph });
             string anchor = rows[r][0] == "Point" ? "place: centre (a plan sign)"
-                : rows[r][0] == "StoneCircle" ? "place: the ring's centre (altar)" : "place: the foot (ground line)";
+                : rows[r][0] == "Boss" ? "place: mass centre (an emblem)"
+                : rows[r][0] == "StoneCircle" ? "place: the ring's centre (altar)" : "place: footprint middle (oblique)";
             notes[r] = new[] { rows[r][1], rows[r][2], anchor, FormattableString.Invariant($"box {box:0} px, lift {lift:0.###}, sink {sink:0.###}") };
             System.Console.WriteLine($"PINREF {rows[r][0]} {extent} (8x close-up px round the place)");
         }

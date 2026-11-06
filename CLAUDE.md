@@ -25,14 +25,18 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   filled in the wash of the biome under the pin (`Paper.PinBodyColor`: the biome's glaze on clean
   paper, as a peak's body takes the mountains', water's on water; biome and water from the
   sheet's `WorldSource`). A black icon on a parchment ring and a flat underlay behind names read
-  as modern stickers on the hand-drawn map. A pin drawn in elevation stands on its place as a
-  tree or peak does, its foot on the spot (`PinGlyphs.Lift`, from each glyph's ground line in pin
-  units; the images and the name layout are lifted, the holder stays on the place); the dot and
-  traced sprites stay centred, and the Sacrificial Stones put their ring's centre on the spot
-  (below). Some glyphs stand with their place raised over the foot (`PinGlyphs.StandRaise`, pin
-  units, the user's calls read off the pin reference's rulers: campfire 5, longhouse 3, Mjolnir
-  2, cave 2, barrow 1, tower 1, Hildir's tent 1), since their mass sits well over the foot line;
-  they still sort by their foot (`Sink`).
+  as modern stickers on the hand-drawn map. Where a pin's place lies on its glyph
+  (`PinGlyphs.StandOf`, `Lift`; the images and the name layout are lifted, the holder stays on
+  the place) follows the map's oblique view: a glyph drawn in elevation is at the middle of its
+  footprint, which lies behind its foot (ground line) by half its depth on the ground
+  (`PlanHalfDepth`, pin units, from its drawn width and plan shape: round things as deep as
+  wide, the longhouse 0.4, the bed half, the grave and Mjolnir, which stands on its head, a
+  third) foreshortened by `GroundTilt` 0.42 (the Stones' ring's own squash), plus `StandBias`
+  1.25 for every standing glyph: with no cast shadow the eye places a pin nearer its mass (the
+  user's call on the Stones). No glyph has a raise of its own; the Stones fall out of the same
+  rule (their altar is the footprint's middle). Emblems put their mass centre on the place: the
+  dot, and the boss's horned skull (`BossCentre`, its measured ink centroid). Traced sprites stay
+  centred. Glyphs still sort by their foot (`Sink`).
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, a
   two-tongued flame a line of paper in front of two long low crossed logs with square ends sawn a
   little off square (the user's design; round caps read as crossed bones), house: longhouse, a
@@ -185,9 +189,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   blocks): they read as a different, parchment-filled pin at low zoom. `PinGlyphs.StoneCircle`
   in a 26 px box: a ring of solid standing stones round a low altar in the map's oblique view,
   drawn back to front a line of paper apart. The ring's centre is on the location (the user's
-  call: standing on the front of the ring put the ring north of it): `StonesPlaceY`, one and a
-  quarter pin units over the altar (`StonesCentreY`; the user's calls, read off the pin
-  reference), but the glyph is sorted by the front of the ring (`StonesFoot`, `PinGlyphs.Sink`: the
+  call: standing on the front of the ring put the ring north of it), `StandBias` over the altar
+  (`StonesCentreY`) as every standing glyph stands over its footprint's middle, but the glyph is sorted by the front of the ring (`StonesFoot`, `PinGlyphs.Sink`: the
   `Glyph`'s `m_y` lies that far below the place, `PinBox` adds it back), so a tree between the
   altar and the front stones is drawn behind the ring, not over its front.
   The ground inside the ring is not cleared: only the stones scrape what lies behind them.
@@ -1272,7 +1275,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   glyph's own pin units (box / `PinUnits`, as `InkCanvas.Pin` draws it there). Each is placed by the painter's own
   `FindMarks`, `DrawGlyph` and `PinBox` (`Lift`, `Sink`) at level of detail 1, and the close-ups
   replay that box through `InkCanvas.Pin` as `InkRecord.Replay` does, so the cross shows the
-  drawing's truth: the foot of elevation glyphs, the dot's centre, the Stones' altar. It prints
+  drawing's truth: the footprint's middle of elevation glyphs, the dot's and skull's centre. It prints
   each glyph's ink extent round its place (`PINREF`, 8x close-up px). `run.ps1 -PinCross`
   (`--pincross`) draws the same cross on every `-Pin` and `-Temple` place in any view but `trim`,
   by that view's own sheet-to-image mapping: a full cross from 3x up, arms pointing in from

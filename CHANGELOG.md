@@ -28,7 +28,7 @@
   and there on the open Meadows, about as often as the game grows its big oaks there, clear of
   the woods, hills, water and steep ground; grass never peeks out from behind one. Every tree carries its biome's wood
   colour, as the peaks carry the mountains' grey, right out to the edge of its wood.
-- Every biome has its own pen marks: ranges of jagged, hatched peaks washed in the mountains' grey, ringed by foothills, grass and woods of
+- Every biome has its own pen marks: each mountain as one big jagged, hatched peak (more only where it has clearly separate summits) with low ridges round it, washed in the mountains' grey, ringed by foothills, grass and woods of
   round crowns in the Meadows, dark pine woods in the Black Forest, patches of marsh lines with reeds
   among many tall ancient dead trees on the Swamp's higher ground, a dry stipple and copses on the Plains, rolling hills on the real hilltops of the
   Meadows and Plains, each drawn a little differently (low or round, a long ridge, a double crest or a shoulder), gnarled trees over the whole of the

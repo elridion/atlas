@@ -553,6 +553,8 @@ namespace Atlas
             SmallTree,
             // A lone oak on open Meadows (Oaks).
             Oak,
+            // A stretch of mountain wall with no summit of its own (Ridge), beside a massif's peaks.
+            Ridge,
         }
 
         // Pins (the Sacrificial Stones among them) are drawn into the sheet as glyphs of their own,
@@ -699,7 +701,7 @@ namespace Atlas
             Vector4 box = GlyphBox(g);
             if (p.y > g.m_y || p.y < box.y) return false;
             float half = (box.z - box.x) * 0.5f;
-            if (g.m_kind == Kind.Hill)
+            if (g.m_kind == Kind.Hill || g.m_kind == Kind.Ridge)
             {
                 float hx = (p.x - g.m_x) / half, hy = (g.m_y - p.y) / (g.m_y - box.y);
                 return hx * hx + hy * hy < 1f;
@@ -894,7 +896,7 @@ namespace Atlas
         // The land's own shape: peaks, hills, spires and sea thorns are never left out for a pin, as
         // a range must still read as one; a pin among them is drawn in front instead (OrderMarks).
         private static bool IsRelief(Kind kind) =>
-            kind == Kind.Peak || kind == Kind.Hill || kind == Kind.Spire || kind == Kind.Thorn;
+            kind == Kind.Peak || kind == Kind.Ridge || kind == Kind.Hill || kind == Kind.Spire || kind == Kind.Thorn;
 
         // The order glyphs are drawn in, north to south: a glyph's foot, a mark's m_order.
         private static float Order(Glyph g) => IsMark(g.m_kind) ? g.m_order : g.m_y;
@@ -1144,6 +1146,7 @@ namespace Atlas
                 case Kind.Thorn:
                     return MarkShape.Spire;
                 case Kind.Hill:
+                case Kind.Ridge:
                     return MarkShape.Dome;
                 default:
                     return MarkShape.Box;
@@ -1910,6 +1913,10 @@ namespace Atlas
                     half = 0.75f * s;
                     height = 0.5f * s;
                     break;
+                case Kind.Ridge:
+                    half = 0.56f * s;
+                    height = RidgeHeightOf(s, g.m_seed);
+                    break;
                 case Kind.Spire:
                     height = SpireHeightOf(s, g.m_seed);
                     half = 0.42f * height;
@@ -2178,6 +2185,8 @@ namespace Atlas
 
                     if (high)
                     {
+                        // The Mountains' massifs get their peaks and ridges from PlaceMassifs.
+                        if (!upland) continue;
                         if (prominence < SummitProminence) continue;
                         float width = Mathf.Lerp(22f, 34f, Mathf.Clamp01((prominence - SummitProminence) / 80f)) * G;
                         PlaceSummitPeak(cx, cy, width, seed);
@@ -2475,7 +2484,7 @@ namespace Atlas
         {
             var peaks = new List<Vector4>();
             foreach (Glyph g in m_glyphs)
-                if (g.m_kind == Kind.Peak) peaks.Add(GlyphBox(g));
+                if (g.m_kind == Kind.Peak || g.m_kind == Kind.Ridge) peaks.Add(GlyphBox(g));
             if (peaks.Count == 0) return;
             m_glyphs.RemoveAll(g =>
             {
@@ -2856,21 +2865,10 @@ namespace Atlas
         private void PlaceGlyphs()
         {
             PlaceSummitsAndHills();
-            // Mountains between the summits: staggered rows of smaller overlapping peaks, so a range
-            // still reads as one mass while its real summits stand out above it. In the Mountain
-            // biome only: the Deep North's uplands are gentle (DeepNorthSummitHeight).
-            Scatter(16f * G, 9f * G, 0.3f, 0.5f, 21, s =>
-            {
-                if (!s.m_isLand || !(s.m_roll < 0.97f)) return;
-                if (s.m_land != Land.Mountain || s.m_above < PeakHeight) return;
-                float width = Mathf.Lerp(14f, 22f, Mathf.Clamp01((s.m_above - PeakHeight) / 160f)) * G;
-                if (s.m_shore < width * 0.45f || !PeakOnLand(s.m_x, s.m_y, width, PeakHeightOf(width, s.m_seed))) return;
-                if (NearSummit(s.m_x, s.m_y, width, PeakHeightOf(width, s.m_seed))) return;
-                Add(s, Kind.Peak, width);
-            });
+            PlaceMassifs();
             foreach (Glyph glyph in m_glyphs)
             {
-                if (glyph.m_kind != Kind.Peak) continue;
+                if (glyph.m_kind != Kind.Peak && glyph.m_kind != Kind.Ridge) continue;
                 AddPeakBase(new Vector3(glyph.m_x, glyph.m_y, glyph.m_size));
                 m_record?.AddPeak(glyph.m_x, glyph.m_y, glyph.m_size);
             }

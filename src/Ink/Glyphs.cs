@@ -55,6 +55,7 @@ namespace Atlas
                 case Kind.Peak:
                     Peak(g.m_x, g.m_y, g.m_size, g.m_seed);
                     break;
+                case Kind.Ridge: Ridge(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Hill: Hill(g.m_x, g.m_y, g.m_size, g.m_seed, g.m_lone); break;
                 case Kind.Broadleaf: Broadleaf(g.m_x, g.m_y, g.m_size, g.m_seed); break;
                 case Kind.Conifer: Conifer(g.m_x, g.m_y, g.m_size, g.m_seed); break;
@@ -217,6 +218,85 @@ namespace Atlas
         // A peak's height for its width: from broad and low to tall and narrow, by seed. Summit
         // placement uses it too, to set the foot so the summit lies SummitAnchor up the glyph.
         private static float PeakHeightOf(float width, int seed) => width * Mathf.Lerp(0.58f, 1.02f, Unit(seed, 10));
+
+        // A ridge (the user's design, "D" of the ridge rounds): a stretch of mountain wall with no
+        // summit of its own, so it can stand beside a massif's peaks without competing with them.
+        // A near level crest with small jags, a gentle west slope and a steep east end, hachures
+        // hanging from the crest down its front, thicker to the east, and no solid wedge, the
+        // peaks' mark of a summit. By seed: the west slope's length, the crest's tilt and jag
+        // rhythm, a saddle now and then, a sheer east end or one with a ledge, the hachures'
+        // spacing and reach. The steep end stays east, the map's shade side.
+        private void Ridge(float x, float y, float width, int seed)
+        {
+            float height = RidgeHeightOf(width, seed);
+            var left = new Vector2(x - width * 0.5f * Vary(seed, 13, 0.08f), y);
+            var right = new Vector2(x + width * 0.5f * Vary(seed, 14, 0.06f), y);
+            float span = right.x - left.x;
+            float slope = Mathf.Lerp(0.22f, 0.5f, Unit(seed, 15));
+            float tilt = (Unit(seed, 16) - 0.5f) * 0.14f;
+            float jag = Mathf.Lerp(0.025f, 0.08f, Unit(seed, 17));
+            int steps = 9 + (int)(Unit(seed, 18) * 7f);
+            bool saddle = Unit(seed, 19) < 0.5f;
+            float saddleAt = Mathf.Lerp(0.5f, 0.8f, Unit(seed, 20)), saddleDepth = Mathf.Lerp(0.1f, 0.2f, Unit(seed, 21));
+            float drop = Mathf.Lerp(0.03f, 0.09f, Unit(seed, 22));
+            bool ledge = Unit(seed, 23) < 0.4f;
+            float end = 1f - drop - (ledge ? 0.05f : 0f);
+
+            // The crest, west foot to east foot.
+            m_west.Clear();
+            m_west.Add(left);
+            for (int k = 1; k <= steps; k++)
+            {
+                float t = end * k / steps;
+                float rise = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / slope));
+                float level = 0.92f + tilt * (t - 0.5f) * 2f;
+                if (saddle) level -= saddleDepth * Mathf.Exp(-Mathf.Pow((t - saddleAt) / 0.07f, 2f));
+                float notch = (k % 2 == 0 ? 1f : -0.7f) * jag * Vary(seed, 30 + k, 0.6f);
+                m_west.Add(new Vector2(left.x + span * t, y - height * rise * (level + notch)));
+            }
+            if (ledge)
+            {
+                float ledgeY = y - height * Mathf.Lerp(0.45f, 0.6f, Unit(seed, 24));
+                m_west.Add(new Vector2(left.x + span * (end + drop * 0.4f), ledgeY));
+                m_west.Add(new Vector2(left.x + span * (end + 0.05f), ledgeY + height * 0.04f));
+            }
+            else m_west.Add(new Vector2(left.x + span * (end + drop * 0.5f), y - height * Mathf.Lerp(0.4f, 0.55f, Unit(seed, 24))));
+            m_west.Add(right);
+
+            ScrapeBase(left, right);
+            m_points.Clear();
+            m_points.AddRange(m_west);
+            BodyKind kind = IsNorthAt(x, y) ? BodyKind.North : BodyKind.Mountain;
+            BaseFade(left, right);
+            m_canvas.m_markBody = kind;
+            ScrapeBody(m_points);
+            m_canvas.m_markBody = BodyKind.None;
+            Skirt(left, right, kind);
+
+            // Hachures from the end of the west slope to the east end, longer to the east.
+            float spacing = Mathf.Lerp(2.1f, 3f, Unit(seed, 25)) * m_pen;
+            float reachFrom = Mathf.Lerp(0.3f, 0.45f, Unit(seed, 26)), reachTo = Mathf.Lerp(0.65f, 0.85f, Unit(seed, 27));
+            int n = 0;
+            for (float sx = left.x + span * slope * 0.75f; sx < right.x - span * 0.03f; sx += spacing * Vary(seed, 300 + n, 0.25f), n++)
+            {
+                float top = CrestY(m_west, sx);
+                if (y - top < height * 0.35f) continue;
+                float length = (y - top) * Mathf.Lerp(reachFrom, reachTo, (sx - left.x) / span) * Vary(seed, 400 + n, 0.2f);
+                m_canvas.Stroke(sx, top + 0.8f * m_pen, sx + length * 0.12f, top + length, Pen);
+            }
+            m_canvas.Polyline(m_west, 1.5f);
+        }
+
+        // A ridge's height for its width: low, a third or so of it, so it never reads as a summit.
+        private static float RidgeHeightOf(float width, int seed) => width * Mathf.Lerp(0.26f, 0.38f, Unit(seed, 10));
+
+        // The crest's height over x, along a polyline running west to east.
+        private static float CrestY(List<Vector2> crest, float x)
+        {
+            for (int i = 1; i < crest.Count; i++)
+                if (x <= crest[i].x) return Mathf.Lerp(crest[i - 1].y, crest[i].y, Mathf.InverseLerp(crest[i - 1].x, crest[i].x, x));
+            return crest[crest.Count - 1].y;
+        }
 
         // Scrapes a peak's or pinnacle's outline (foot to foot, the base closing it) back to
         // parchment in one pass, its flanks BodyGrow pen out under their ink. A fan of grown

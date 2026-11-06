@@ -606,17 +606,39 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - Ring lines at fixed distances, short double curves in staggered rows, tildes tilted with the
   coast, tildes at scored points of the shore with a scatter at sea, and a band of short tildes
   along every coast all read badly; keep groups at the bends.
-- Peaks stand on real summits: local height maxima within `SummitCells` that rise
-  `SummitProminence` above their surroundings, sized by prominence, the glyph placed so the
-  summit lies `SummitAnchor` 0.4 of its height up its centre line, not at its apex: the glyphs
-  are drawn in elevation on a plan, and with the apex on the summit the whole body hangs south
-  of it, over the next biome or the coast; the top rising over the land behind reads
-  naturally, as glyphs in front hide those behind. Smaller filler peaks mass between and round
-  them in staggered rows, overlapping them; only a filler within `SummitCore` 0.3 of a summit's
-  width from its centre, whose height overlaps the summit's, is left out when it would hide
-  more than the summit's lower `SummitShown` half from in front or rise above its apex from
-  behind (`NearSummit`). A fixed clearance round every summit (0.55 of the two widths) dropped
-  about 80% of the fillers and left large mountain areas bare, reading as low ground.
+- **One mountain, one peak** (`InkPainter.Massifs.cs`, the user's design): in game a Mountain
+  patch is mostly one broad massif whose rough top carries a bump every 100 m or so, and a peak
+  on every local summit (highest within 72 m) plus a dense filler of peaks broke it into a
+  field of them. Each massif, a connected patch of Mountain land above water (grouped over all
+  its land: grouped by the ground over `PeakHeight` alone it fell apart into many small
+  massifs), gets one dominant peak on its highest point, `MassifPeakShare` 0.6 of its span
+  (the side of a square of its area), `MassifPeakMin` 16 to `MassifPeakMax` 56 G, its seed
+  drawn again until its shape is at least `MassifPeakTall` of the tallest, so the top never
+  comes out broad and low. Another summit gets a peak only when it is clearly one (the user's
+  call: a mountain with several clear summits gets several peaks): `SecondProminence` 35 m of
+  true prominence (its height over the saddle joining it to higher ground, by union-find over
+  the massif's pixels highest first) and `SecondIsolation` 400 m from every peak already on
+  its massif, 22 to 34 G by prominence and at most `SecondShare` 0.75 of the top's width
+  (about 5 on Velen; 60 m gave one in the world). Every summit's peak is placed so the summit
+  lies `SummitAnchor` 0.4 of its height up its centre line, not at its apex: the glyphs are
+  drawn in elevation on a plan, and with the apex on the summit the whole body hangs south of
+  it, over the next biome or the coast; the top rising over the land behind reads naturally,
+  as glyphs in front hide those behind. The rest of the high ground over `PeakHeight` carries
+  **ridges** (`Kind.Ridge`, `InkPainter.Ridge`, the user's design "D" of two design rounds):
+  stretches of mountain wall with no summit of their own, a near level jagged crest, a gentle
+  west slope and a steep east end, hachures hanging down the front, no solid wedge (the
+  peak's mark of a summit), varied by seed (slope length, crest tilt and jag rhythm, a saddle,
+  a sheer or ledged east end, hachure spacing and reach). They stand on staggered rows
+  (`RidgeStepX` 30 by `RidgeStepY` 12 G, jitter 0.6, `RidgeOdds` 0.9), `RidgeMin` 26 to
+  `RidgeMax` 40 G wide by height, at most `RidgeShare` 0.85 of their massif's peak, moved
+  `RidgePull` 0.12 of the way towards the massif's middle (the user's call: it closes the
+  range up), and never hide more than a summit peak's lower `RidgeShown` 0.3 from in front
+  or rise over its apex from behind, along their whole length (`RidgeHidesSummit`). Ridges are
+  relief like peaks (never thinned or left out for pins, trees off their bases, crags off
+  them). Placed on the sheet only; close-ups replay them. The Deep North keeps its own summit
+  rule (`PlaceSummitsAndHills`) and the Mountains' hills below `PeakHeight` are unchanged. The
+  earlier dense filler (16 by 9 G rows of peaks, "one dark mass") is gone: with fewer, lower
+  bodies more of the stained ground's wash shows between them, so massifs read warmer.
   Hills sit on real hilltops found the same way (`HilltopCells` 4, `HillProminence` 6 m, one rule
   for all hill country, the user's choice: the game builds Meadows and Plains heights with the same
   code and their open land has the same relief, so the Meadows' finer search, radius 2 and 4 m,
@@ -635,10 +657,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   placed (`m_hillBoxes`), at every size `FitHill` tries.
 - Glyphs are scattered on jittered grids per rule, sorted by their foot (north first) and drawn so
   that each scrapes its outline back to parchment before inking: southern glyphs hide northern ones.
-- Filler peaks are packed in staggered rows (16 G across, 9 G down, half-cell stagger) so ranges read as
-  one dark mass, as on the classic map; with that overlap the front peak hides the lower half of
-  the one behind, so the shaded wedge has to stay wide near the summit. Woods are packed so
-  densely that only their southern edge shows trunks, also as on the classic map.
+- Woods are packed so densely that only their southern edge shows trunks, as on the classic map.
 - Swamps and hills follow the classic map: the swamp fill is short flat marsh lines with
   seed-varied reed tufts on many, on a square, fully jittered grid, gathered into patches by a
   slow noise (`MarshPatch`) with thinner bog between (still 30% of cells; a near-empty bog reads

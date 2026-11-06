@@ -578,6 +578,8 @@ namespace Atlas
             s_ink.LoadRawTextureData(data);
             // Uploads once and drops the CPU copy; a new sheet is a new texture.
             s_ink.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            // The texture holds its own copy now; the next lay fills these pixels again.
+            Paper.ReturnInk(data);
             s_view.SetSheet(s_ink, s_density);
             if (old) UnityEngine.Object.Destroy(old);
         }
@@ -857,6 +859,7 @@ namespace Atlas
             s_cancel = new CancellationTokenSource();
             // The last paint's groundwork belongs to the old world.
             InkPainter.ClearGroundwork();
+            Paper.ReturnInk(null);
             s_view.Clear();
             s_worldUid = 0L;
             s_playerId = 0L;

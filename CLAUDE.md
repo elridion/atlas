@@ -576,7 +576,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   ends on the explored land's own edge: the fade starts on the explored pixels and the fog closes
   about 30 m past them, and the glimpse takes the fog's opacity before the lifts, so no wash
   shows round a lifted peak. About 0.8 s offline for the fog with Velen's 25,600 trees, 2,800
-  glyphs and 4,400 wave strokes, and about 0.5 s more for the sheet's ink. The fog is 2048²
+  glyphs and 4,400 wave strokes, and about 0.5 s more for the sheet's ink. `Paper.Fog` writes full opacity and thinning without the fBm past depth `1 + EdgeFade/2 + EdgeWobble/band`, reads the snapshot only within its explored bounds, and runs in parallel bands, byte-identical (now about 0.08-0.17 s). `InkWithMips` leaves 32Â² blocks wholly under opaque fog (`FoggedBlocks`: `m_edge` 255 over the block plus one fog pixel) clear, and `HiddenInk` skips marks lying there; level 0 is identical wherever the fog shows anything, and only coarse mips near the edge lose the ink under the fog. Mips are built in place in the result, which `AtlasMap.UploadInk` hands back through `Paper.ReturnInk` for the next lay (about 89 MB kept between lays). With the edge it takes about 0.12-0.15 s offline. The fog is 2048²
   (10.5 m a pixel), so close in its edge softens over a pixel; a finer fog would cost a four
   times bigger upload per recording.
   Each mark has two washes (`SeaWash`, the user's "take 3"), so it stands out from the sea: a

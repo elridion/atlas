@@ -1,5 +1,7 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Atlas
@@ -76,6 +78,14 @@ namespace Atlas
         // than vanilla's 12 m exploration grid.
         private const float SeaMarkMargin = 70f;
         private const float SeaMarkStep = 6f;
+        // How deep past the depth where the wobble can no longer reach the fog counts as wholly
+        // opaque (Fog), well over the noise's float rounding.
+        private const float FullMargin = 0.01f;
+        // The fog's and the ink's loops run on the workers in bands of rows (FogRows fog rows,
+        // InkBlock sheet rows), not row by row, so a worker the game holds up stalls little.
+        // The ink skips blocks of InkBlock sheet pixels wholly under opaque fog (FoggedBlocks).
+        private const int FogRows = 32;
+        private const int InkBlock = 32;
 
         // The biome wash: per biome (in Land order) a tint and how far the paper is moved towards
         // it, the extra share in the woods, and the blur passes (each about 10 m) that soften it.
@@ -831,15 +841,21 @@ namespace Atlas
         // pins keep their red. The marks the band leaves out (edge, Fog's, or null for none) are
         // cleared from the ink and bodies at the sheet's own resolution (HiddenInk); the pins'
         // plane is never cleared. The planes are read in place, not copied out: each is 16 MB.
-        // Levels are averaged premultiplied, so ink and body mix rightly.
+        // Levels are averaged premultiplied, so ink and body mix rightly. With an edge, blocks
+        // lying wholly under its opaque fog (FoggedBlocks) are left clear: nothing of them shows,
+        // so only the coarsest levels, whose texels reach past the fog's edge, see the difference.
         public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks, byte[] glimpse, FogEdge edge = null)
         {
             int n = InkPainter.CanvasSize;
+            bool[] fogged = FoggedBlocks(edge?.m_edge);
+            int blocks = n / InkBlock;
             byte[] hidden = HiddenSeaInk(HiddenInk(edge), edge);
             int plane = n * n;
             int total = 0;
             for (int size = n; size >= 1; size /= 2) total += size * size;
-            var data = new byte[total * 4];
+            // Every byte is written below, so a returned buffer (ReturnInk) serves as a new one.
+            byte[] data = Interlocked.Exchange(ref s_spareInk, null);
+            if (data == null || data.Length != total * 4) data = new byte[total * 4];
             Color32 peak = BodyColor(BodyKind.Mountain), northPeak = BodyColor(BodyKind.North);
             MistInk(out float mistAlpha, out float mistR, out float mistG, out float mistB);
             // A sheet missing a plane has no body of that kind.
@@ -862,39 +878,51 @@ namespace Atlas
             byte[] ink = sheet;
             SeaInk(false, out float bodyAlpha, out float bodyR, out float bodyG, out float bodyB);
             SeaInk(true, out float wedgeAlpha, out float wedgeR, out float wedgeG, out float wedgeB);
-            // Premultiplied RGBA of the current level, rows from the south.
-            var level = new byte[n * n * 4];
-            for (int y = 0; y < n; y++)
+            // Premultiplied RGBA of the first level, rows from the south, laid where it goes in
+            // data; each level is then made from the one before and un-premultiplied in place.
+            Parallel.For(0, blocks, Workers.LoopOptions(), by =>
             {
-                int from = (n - 1 - y) * n;
-                for (int x = 0; x < n; x++)
+                for (int y = by * InkBlock; y < (by + 1) * InkBlock; y++)
                 {
-                    int i = from + x;
-                    float keep = hidden != null ? 1f - hidden[i] / 255f : 1f;
-                    float a = ink[i] / 255f * keep;
-                    float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
-                    // Bodies fade out in the glimpse, leaving the parchment under them, and go
-                    // with the marks left out.
-                    float open = (1f - a) * (1f - g) * keep;
-                    float m = bodyAt >= 0 ? sheet[bodyAt + i] / 255f : 0f;
-                    float q = northAt >= 0 ? sheet[northAt + i] / 255f : 0f;
-                    float k = mistAt >= 0 ? sheet[mistAt + i] / 255f : 0f;
-                    byte wood = woodAt >= 0 ? sheet[woodAt + i] : (byte)0;
-                    int code = InkCanvas.WoodCodeOf(wood);
-                    float mu = m * open, qu = q * open, ku = k * mistAlpha * open;
-                    float wu = InkCanvas.WoodCover(wood) * woodAlpha[code] * open;
-                    // A pin's red ink lies under any black ink drawn over it later.
-                    float pr = pinInkAt >= 0 ? sheet[pinInkAt + i] / 255f * (1f - a) : 0f;
-                    float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
-                    float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
-                    float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
-                    int o = (y * n + x) * 4;
-                    level[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + woodR[code] * wu + PinInkColor.r * pr + inkR * a);
-                    level[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + woodG[code] * wu + PinInkColor.g * pr + inkG * a);
-                    level[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + woodB[code] * wu + PinInkColor.b * pr + inkB * a);
-                    level[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + wu + pr + a) * 255f);
+                    int from = (n - 1 - y) * n;
+                    for (int bx = 0; bx < blocks; bx++)
+                    {
+                        int x0 = bx * InkBlock;
+                        if (fogged != null && fogged[by * blocks + bx])
+                        {
+                            Array.Clear(data, (y * n + x0) * 4, InkBlock * 4);
+                            continue;
+                        }
+                        for (int x = x0; x < x0 + InkBlock; x++)
+                        {
+                            int i = from + x;
+                            float keep = hidden != null ? 1f - hidden[i] / 255f : 1f;
+                            float a = ink[i] / 255f * keep;
+                            float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
+                            // Bodies fade out in the glimpse, leaving the parchment under them, and go
+                            // with the marks left out.
+                            float open = (1f - a) * (1f - g) * keep;
+                            float m = bodyAt >= 0 ? sheet[bodyAt + i] / 255f : 0f;
+                            float q = northAt >= 0 ? sheet[northAt + i] / 255f : 0f;
+                            float k = mistAt >= 0 ? sheet[mistAt + i] / 255f : 0f;
+                            byte wood = woodAt >= 0 ? sheet[woodAt + i] : (byte)0;
+                            int code = InkCanvas.WoodCodeOf(wood);
+                            float mu = m * open, qu = q * open, ku = k * mistAlpha * open;
+                            float wu = InkCanvas.WoodCover(wood) * woodAlpha[code] * open;
+                            // A pin's red ink lies under any black ink drawn over it later.
+                            float pr = pinInkAt >= 0 ? sheet[pinInkAt + i] / 255f * (1f - a) : 0f;
+                            float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
+                            float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
+                            float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
+                            int o = (y * n + x) * 4;
+                            data[o] = ToByte(peak.r * mu + northPeak.r * qu + mistR * ku + woodR[code] * wu + PinInkColor.r * pr + inkR * a);
+                            data[o + 1] = ToByte(peak.g * mu + northPeak.g * qu + mistG * ku + woodG[code] * wu + PinInkColor.g * pr + inkG * a);
+                            data[o + 2] = ToByte(peak.b * mu + northPeak.b * qu + mistB * ku + woodB[code] * wu + PinInkColor.b * pr + inkB * a);
+                            data[o + 3] = ToByte(Math.Min(1f, mu + qu + ku + wu + pr + a) * 255f);
+                        }
+                    }
                 }
-            }
+            });
             // The sea marks' washes under their ink: the body's grey, the blue wedge over it. They
             // stand in open water far from any peak, so only the ink lies over them.
             if (marks != null)
@@ -910,6 +938,7 @@ namespace Atlas
                         int from = sy * n, y = n - 1 - sy;
                         for (int x = x0; x <= x1; x++)
                         {
+                            if (fogged != null && fogged[y / InkBlock * blocks + x / InkBlock]) continue;
                             float bu = wash.At(x + 0.5f, sy + 0.5f) * bodyAlpha;
                             float wu = wash.WedgeAt(x + 0.5f, sy + 0.5f) * wedgeAlpha;
                             if (bu <= 0f && wu <= 0f) continue;
@@ -927,10 +956,10 @@ namespace Atlas
                             float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
                             float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
                             int o = (y * n + x) * 4;
-                            level[o] = ToByte(pr + inkR * a);
-                            level[o + 1] = ToByte(pg + inkG * a);
-                            level[o + 2] = ToByte(pb + inkB * a);
-                            level[o + 3] = ToByte(Math.Min(1f, su + a) * 255f);
+                            data[o] = ToByte(pr + inkR * a);
+                            data[o + 1] = ToByte(pg + inkG * a);
+                            data[o + 2] = ToByte(pb + inkB * a);
+                            data[o + 3] = ToByte(Math.Min(1f, su + a) * 255f);
                         }
                     }
                 }
@@ -938,33 +967,96 @@ namespace Atlas
             int offset = 0;
             for (int size = n; ; size /= 2)
             {
-                for (int i = 0; i < size * size; i++)
+                int next = size / 2, at = offset, below = offset + size * size * 4;
+                // The next level from this one while it is still premultiplied.
+                if (size > 1) MipRows(next, (from, to) =>
                 {
-                    int o = offset + i * 4, p = i * 4;
-                    int alpha = level[p + 3];
-                    data[o + 3] = (byte)alpha;
-                    if (alpha == 0) continue;
-                    data[o] = (byte)Math.Min(255, level[p] * 255 / alpha);
-                    data[o + 1] = (byte)Math.Min(255, level[p + 1] * 255 / alpha);
-                    data[o + 2] = (byte)Math.Min(255, level[p + 2] * 255 / alpha);
-                }
-                offset += size * size * 4;
-                if (size == 1) break;
-                int next = size / 2;
-                var smaller = new byte[next * next * 4];
-                for (int y = 0; y < next; y++)
-                {
-                    for (int x = 0; x < next; x++)
+                    for (int y = from; y < to; y++)
                     {
-                        int a = ((2 * y) * size + 2 * x) * 4, b = a + size * 4;
-                        int o = (y * next + x) * 4;
-                        for (int c = 0; c < 4; c++)
-                            smaller[o + c] = (byte)((level[a + c] + level[a + 4 + c] + level[b + c] + level[b + 4 + c] + 2) / 4);
+                        for (int x = 0; x < next; x++)
+                        {
+                            int a = at + ((2 * y) * size + 2 * x) * 4, b = a + size * 4;
+                            int o = below + (y * next + x) * 4;
+                            for (int c = 0; c < 4; c++)
+                                data[o + c] = (byte)((data[a + c] + data[a + 4 + c] + data[b + c] + data[b + 4 + c] + 2) / 4);
+                        }
                     }
-                }
-                level = smaller;
+                });
+                MipRows(size, (from, to) =>
+                {
+                    for (int o = at + from * size * 4; o < at + to * size * 4; o += 4)
+                    {
+                        int alpha = data[o + 3];
+                        if (alpha == 0)
+                        {
+                            data[o] = data[o + 1] = data[o + 2] = 0;
+                            continue;
+                        }
+                        data[o] = (byte)Math.Min(255, data[o] * 255 / alpha);
+                        data[o + 1] = (byte)Math.Min(255, data[o + 1] * 255 / alpha);
+                        data[o + 2] = (byte)Math.Min(255, data[o + 2] * 255 / alpha);
+                    }
+                });
+                offset = below;
+                if (size == 1) break;
             }
             return data;
+        }
+
+        // A laid ink's pixels (InkWithMips's result) handed back once uploaded, so the next lay
+        // fills them again instead of allocating about 89 MB; null lets a kept one go. The caller
+        // must not touch them after.
+        public static void ReturnInk(byte[] data) => Interlocked.Exchange(ref s_spareInk, data);
+
+        private static byte[] s_spareInk;
+
+        // Runs body(from, to) over a mip level's rows: in bands on the workers for the large
+        // levels, at once for the small ones, where a parallel loop costs more than it saves.
+        private static void MipRows(int size, Action<int, int> body)
+        {
+            if (size < 256) body(0, size);
+            else Bands(size, Math.Max(8, size / 64), body);
+        }
+
+        // The ink's blocks (InkBlock sheet pixels square, rows from the south) lying wholly under
+        // opaque fog (opacity, FogEdge.m_edge), so nothing of them shows; null without a fog.
+        private static bool[] FoggedBlocks(byte[] opacity)
+        {
+            if (opacity == null) return null;
+            int blocks = InkPainter.CanvasSize / InkBlock;
+            var fogged = new bool[blocks * blocks];
+            Bands(blocks, 8, (from, to) =>
+            {
+                for (int by = from; by < to; by++)
+                    for (int bx = 0; bx < blocks; bx++)
+                        fogged[by * blocks + bx] = Opaque(opacity, bx * InkBlock, by * InkBlock, (bx + 1) * InkBlock - 1, (by + 1) * InkBlock - 1);
+            });
+            return fogged;
+        }
+
+        // Whether the fog's opacity is 255 wherever the sheet pixels x0 to x1, y0 to y1 (rows from
+        // the south) can sample it: the fog pixels under them and one round, since a sheet pixel's
+        // bilinear sample reaches into the fog pixel beside its own.
+        private static bool Opaque(byte[] opacity, int x0, int y0, int x1, int y1)
+        {
+            int ratio = InkPainter.CanvasSize / FogSize, last = FogSize - 1;
+            int fx0 = Math.Max(0, x0 / ratio - 1), fx1 = Math.Min(last, x1 / ratio + 1);
+            int fy0 = Math.Max(0, y0 / ratio - 1), fy1 = Math.Min(last, y1 / ratio + 1);
+            for (int y = fy0; y <= fy1; y++)
+                for (int x = fx0; x <= fx1; x++)
+                    if (opacity[y * FogSize + x] != 255) return false;
+            return true;
+        }
+
+        // Whether all a hidden mark would clear (Clear's pixels) lies under opaque fog, where
+        // clearing it changes nothing that shows.
+        private static bool ClearedUnderFog(byte[] opacity, FogMark mark)
+        {
+            int n = InkPainter.CanvasSize;
+            Vector4 b = mark.m_box;
+            int x0 = Math.Max(0, (int)(b.x - HiddenGrow) - 1), x1 = Math.Min(n - 1, (int)(b.z + HiddenGrow) + 1);
+            int y0 = Math.Max(0, (int)(b.y - HiddenGrow) - 1), y1 = Math.Min(n - 1, (int)(b.w + HiddenGrow) + 1);
+            return Opaque(opacity, x0, n - 1 - y1, x1, n - 1 - y0);
         }
 
         // Fills the alpha of an RGBA fog buffer whose colours are the parchment: opaque where the
@@ -990,62 +1082,84 @@ namespace Atlas
             var cover = new float[n * n];
             var inside = new bool[n * n];
             float edge = InkPainter.EdgeRadius - FrameBand;
-            for (int y = 0; y < n; y++)
+            // Only fog pixels whose samples can reach the explored snapshot pixels read the
+            // snapshot; every other is wholly unexplored.
+            ExploredFogBounds(snapshot, n, metres, out int ex0, out int ey0, out int ex1, out int ey1);
+            Bands(n, FogRows, (from, to) =>
             {
-                for (int x = 0; x < n; x++)
+                for (int y = from; y < to; y++)
                 {
-                    float wx = (x + 0.5f) * metres - InkPainter.HalfExtent;
-                    float wz = (y + 0.5f) * metres - InkPainter.HalfExtent;
-                    if (wx * wx + wz * wz > edge * edge) continue;
-                    inside[y * n + x] = true;
-                    int seen = 0;
-                    for (int sy = -1; sy <= 1; sy++)
-                        for (int sx = -1; sx <= 1; sx++)
-                            if (snapshot != null && snapshot.IsExplored(wx + sx * metres / 3f, wz + sy * metres / 3f)) seen++;
-                    cover[y * n + x] = 1f - seen / 9f;
+                    for (int x = 0; x < n; x++)
+                    {
+                        float wx = (x + 0.5f) * metres - InkPainter.HalfExtent;
+                        float wz = (y + 0.5f) * metres - InkPainter.HalfExtent;
+                        if (wx * wx + wz * wz > edge * edge) continue;
+                        inside[y * n + x] = true;
+                        if (x < ex0 || x > ex1 || y < ey0 || y > ey1)
+                        {
+                            cover[y * n + x] = 1f;
+                            continue;
+                        }
+                        int seen = 0;
+                        for (int sy = -1; sy <= 1; sy++)
+                            for (int sx = -1; sx <= 1; sx++)
+                                if (snapshot.IsExplored(wx + sx * metres / 3f, wz + sy * metres / 3f)) seen++;
+                        cover[y * n + x] = 1f - seen / 9f;
+                    }
                 }
-            }
+            });
             // The glimpse: the explored land's own edge, softened, is where the bare parchment
             // starts; the band reaches GlimpseBand further out, and round every glimpse.
             var unexplored = (float[])cover.Clone();
-            Blur(unexplored, n);
-            Blur(unexplored, n);
+            BlurParallel(unexplored, n);
+            BlurParallel(unexplored, n);
             float[] depth = BandDepth(cover, inside, n, metres, glimpseBand ? glimpses : null, glimpseBand);
-            Blur(depth, n);
-            Blur(depth, n);
+            BlurParallel(depth, n);
+            BlurParallel(depth, n);
             float band = GlimpseBand / metres;
+            // Past this depth no wobble of the fBm brings the band's end back (its noise is 0 to 1,
+            // so it moves the edge at most EdgeWobble pixels in): the fog is opaque and every mark
+            // thinned out, without working out the noise (about 1.27 of the band).
+            float full = 1f + EdgeFade * 0.5f + EdgeWobble / band + FullMargin;
             var opacity = new byte[n * n];
             var thin = new byte[n * n];
-            for (int i = 0; i < n * n; i++)
-            {
-                int o = i * 4, p = i * 3;
-                float a = 0f;
-                if (inside[i])
-                {
-                    int x = i % n, y = i / n;
-                    float t = depth[i] + (Fbm(x / EdgeGrain, y / EdgeGrain, EdgeSeed) - 0.5f) * 2f * EdgeWobble / band;
-                    a = Smooth(1f - EdgeFade, 1f + EdgeFade * 0.5f, t);
-                    // Explored land is never covered, wherever the wobble takes the edge.
-                    if (cover[i] <= 0f) a = 0f;
-                    thin[i] = ToByte(Smooth(ThinFrom, 1f, t) * 255f);
-                }
-                opacity[i] = ToByte(a * 255f);
-                rgba[o] = parchment[p];
-                rgba[o + 1] = parchment[p + 1];
-                rgba[o + 2] = parchment[p + 2];
-                rgba[o + 3] = opacity[i];
-            }
             // The glimpse's bare parchment: wherever the land is not explored (softened at the
             // explored edge); the fog lies over all of it but the band.
             byte[] beyond = glimpse ?? new byte[n * n * 4];
-            for (int i = 0; i < n * n; i++)
+            Bands(n, FogRows, (from, to) =>
             {
-                int o = i * 4, p = i * 3;
-                beyond[o] = parchment[p];
-                beyond[o + 1] = parchment[p + 1];
-                beyond[o + 2] = parchment[p + 2];
-                beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
-            }
+                for (int i = from * n; i < to * n; i++)
+                {
+                    int o = i * 4, p = i * 3;
+                    float a = 0f;
+                    if (inside[i])
+                    {
+                        if (depth[i] >= full && cover[i] > 0f)
+                        {
+                            a = 1f;
+                            thin[i] = 255;
+                        }
+                        else
+                        {
+                            int x = i % n, y = i / n;
+                            float t = depth[i] + (Fbm(x / EdgeGrain, y / EdgeGrain, EdgeSeed) - 0.5f) * 2f * EdgeWobble / band;
+                            a = Smooth(1f - EdgeFade, 1f + EdgeFade * 0.5f, t);
+                            // Explored land is never covered, wherever the wobble takes the edge.
+                            if (cover[i] <= 0f) a = 0f;
+                            thin[i] = ToByte(Smooth(ThinFrom, 1f, t) * 255f);
+                        }
+                    }
+                    opacity[i] = ToByte(a * 255f);
+                    rgba[o] = parchment[p];
+                    rgba[o + 1] = parchment[p + 1];
+                    rgba[o + 2] = parchment[p + 2];
+                    rgba[o + 3] = opacity[i];
+                    beyond[o] = parchment[p];
+                    beyond[o + 1] = parchment[p + 1];
+                    beyond[o + 2] = parchment[p + 2];
+                    beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
+                }
+            });
             var result = new FogEdge { m_marks = sheetMarks, m_edge = opacity, m_thin = thin };
             if (marks != null)
                 foreach (SeaMark mark in marks)
@@ -1077,7 +1191,7 @@ namespace Atlas
                 }
             }
             var distance = new byte[n * n];
-            new DistanceField(n).Compute(i => seeds[i], distance, GlimpseSteps);
+            new DistanceField(n).ComputeParallel(i => seeds[i], distance, GlimpseSteps, CancellationToken.None);
             float band = GlimpseBand / metres;
             var depth = new float[n * n];
             for (int i = 0; i < n * n; i++)
@@ -1087,6 +1201,79 @@ namespace Atlas
                 depth[i] = glimpseBand ? d / band : 1f - EdgeFade + d / band;
             }
             return depth;
+        }
+
+        // The fog pixels (inclusive, rows from the south) whose snapshot samples (Fog's, a third
+        // of a pixel either side) can reach an explored snapshot pixel, two pixels wider for
+        // rounding; none (x0 > x1) without a snapshot or anything explored.
+        private static void ExploredFogBounds(Snapshot snapshot, int n, float metres, out int x0, out int y0, out int x1, out int y1)
+        {
+            x0 = y0 = n;
+            x1 = y1 = -1;
+            if (snapshot?.m_explored == null) return;
+            int size = snapshot.m_size, count = Math.Min(snapshot.m_explored.Length, size * size);
+            var words = new int[(snapshot.m_explored.Length + 31) / 32];
+            snapshot.m_explored.CopyTo(words, 0);
+            int sx0 = size, sz0 = size, sx1 = -1, sz1 = -1;
+            for (int w = 0; w < words.Length; w++)
+            {
+                if (words[w] == 0) continue;
+                for (int bit = 0; bit < 32; bit++)
+                {
+                    int i = w * 32 + bit;
+                    if (i >= count) break;
+                    if ((words[w] & (1 << bit)) == 0) continue;
+                    int sx = i % size, sz = i / size;
+                    sx0 = Math.Min(sx0, sx);
+                    sx1 = Math.Max(sx1, sx);
+                    sz0 = Math.Min(sz0, sz);
+                    sz1 = Math.Max(sz1, sz);
+                }
+            }
+            if (sx1 < 0) return;
+            // Snapshot pixel s covers world (s - size / 2) to (s + 1 - size / 2) pixel sizes.
+            float ps = snapshot.m_pixelSize, reach = 1f / 3f;
+            x0 = Math.Max(0, (int)Math.Floor(((sx0 - size / 2) * ps + InkPainter.HalfExtent) / metres - 0.5f - reach) - 2);
+            x1 = Math.Min(n - 1, (int)Math.Ceiling(((sx1 + 1 - size / 2) * ps + InkPainter.HalfExtent) / metres - 0.5f + reach) + 2);
+            y0 = Math.Max(0, (int)Math.Floor(((sz0 - size / 2) * ps + InkPainter.HalfExtent) / metres - 0.5f - reach) - 2);
+            y1 = Math.Min(n - 1, (int)Math.Ceiling(((sz1 + 1 - size / 2) * ps + InkPainter.HalfExtent) / metres - 0.5f + reach) + 2);
+        }
+
+        // Runs body(from, to) over 0 to count in bands of band, in parallel on the workers.
+        private static void Bands(int count, int band, Action<int, int> body) =>
+            Parallel.For(0, (count + band - 1) / band, Workers.LoopOptions(), b => body(b * band, Math.Min(count, (b + 1) * band)));
+
+        // Blur on the workers, byte for byte the serial one: rows in bands, then columns in bands,
+        // each column band keeping the row above as it was before the column pass.
+        private static void BlurParallel(float[] values, int n)
+        {
+            Bands(n, FogRows, (from, to) =>
+            {
+                var row = new float[n];
+                for (int y = from; y < to; y++)
+                {
+                    for (int x = 0; x < n; x++)
+                        row[x] = (values[y * n + Math.Max(0, x - 1)] + values[y * n + x] + values[y * n + Math.Min(n - 1, x + 1)]) / 3f;
+                    Array.Copy(row, 0, values, y * n, n);
+                }
+            });
+            Bands(n, FogRows, (from, to) =>
+            {
+                int w = to - from;
+                var above = new float[w];
+                var here = new float[w];
+                Array.Copy(values, from, above, 0, w);
+                for (int y = 0; y < n; y++)
+                {
+                    Array.Copy(values, y * n + from, here, 0, w);
+                    int below = Math.Min(n - 1, y + 1) * n + from;
+                    for (int k = 0; k < w; k++)
+                        values[y * n + from + k] = (above[k] + here[k] + values[below + k]) / 3f;
+                    float[] swap = above;
+                    above = here;
+                    here = swap;
+                }
+            });
         }
 
         // Which of the sheet's marks the band leaves out (FogEdge), against the glimpse (beyond:
@@ -1259,19 +1446,29 @@ namespace Atlas
         // at sheet resolution, but not where a mark kept and drawn after it (south of it) lies
         // over it, so the trees in front of a hidden one keep their crowns. A mark behind it
         // stays without the part the hidden one scraped away when the sheet was painted, which
-        // only repainting could restore; close-ups leave the mark out exactly. Returns coverage
+        // only repainting could restore; close-ups leave the mark out exactly. Marks wholly under
+        // opaque fog are not cleared: InkWithMips leaves those blocks clear. Returns coverage
         // (canvas order, rows from the north) or null when nothing is left out.
         private static byte[] HiddenInk(FogEdge edge)
         {
             if (edge?.m_marks == null || edge.m_trees == null) return null;
             SheetMarks marks = edge.m_marks;
+            byte[] opacity = edge.m_edge;
             var hidden = new List<FogMark>();
             var kept = new List<FogMark>();
             var waves = new List<FogMark>();
-            for (int i = 0; i < marks.m_trees.Count; i++) (edge.m_trees[i] ? hidden : kept).Add(marks.m_trees[i]);
-            for (int i = 0; i < marks.m_glyphs.Count; i++) (edge.m_glyphs[i] ? hidden : kept).Add(marks.m_glyphs[i]);
+            for (int i = 0; i < marks.m_trees.Count; i++)
+            {
+                if (!edge.m_trees[i]) kept.Add(marks.m_trees[i]);
+                else if (opacity == null || !ClearedUnderFog(opacity, marks.m_trees[i])) hidden.Add(marks.m_trees[i]);
+            }
+            for (int i = 0; i < marks.m_glyphs.Count; i++)
+            {
+                if (!edge.m_glyphs[i]) kept.Add(marks.m_glyphs[i]);
+                else if (opacity == null || !ClearedUnderFog(opacity, marks.m_glyphs[i])) hidden.Add(marks.m_glyphs[i]);
+            }
             for (int i = 0; i < marks.m_waves.Count; i++)
-                if (edge.m_waves[i]) waves.Add(marks.m_waves[i]);
+                if (edge.m_waves[i] && (opacity == null || !ClearedUnderFog(opacity, marks.m_waves[i]))) waves.Add(marks.m_waves[i]);
             if (hidden.Count == 0 && waves.Count == 0) return null;
             int n = InkPainter.CanvasSize, cells = n / HiddenCell;
             // The kept marks near the hidden ones, filed by the cells their footprints touch.

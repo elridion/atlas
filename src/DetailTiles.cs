@@ -12,8 +12,11 @@ namespace Atlas
     /// magnification the view reaches, at most 4x, the one level at every zoom, mipmapped so they stay clean when zoomed out, each drawn on its own
     /// worker (DetailTile.Render) and kept as a
     /// texture. The view fills in piece by piece, each tile fading in, panning back is instant,
-    /// and tiles are drawn ahead of need: a ring round the view, and round the pointer before the
-    /// view is zoomed in far enough to show them. Main thread, except the rendering.
+    /// and tiles are drawn ahead of need: a ring round the view, further ahead where it is being
+    /// panned, the part a zoom out shows, round the pointer before the view is zoomed in far
+    /// enough to show them, and, slowly, round the view the closed atlas will open on. Tiles in
+    /// view take the workers' priority lane; tiles drawn ahead that the view has left are
+    /// cancelled. Main thread, except the rendering.
     /// </summary>
     internal sealed class DetailTiles
     {
@@ -38,10 +41,32 @@ namespace Atlas
         // At about 340 KB a tile with its mipmaps, about 110 MB of textures; the least recently
         // used beyond go.
         private const int Capacity = 320;
-        // Textures uploaded per frame, so a burst of finished tiles never stalls a frame.
+        // Textures uploaded per frame, so a burst of finished tiles never stalls a frame: at most
+        // UploadsPerFrame while open, and after the first only while the frame's uploads took
+        // under UploadBudgetMs (a 256² tile with mips is about 350 KB to copy and send); one a
+        // frame while closed, when the game is being played.
         private const int UploadsPerFrame = 3;
+        private const double UploadBudgetMs = 1.0;
         // Tiles drawn ahead round the pointer while zoomed out, at most.
         private const int AheadTiles = 48;
+        // Tiles drawn ahead of the view and its ring (where it is panned, a zoom out), at most,
+        // and never past Capacity with the view and ring, so memory stays as before.
+        private const int PrefetchTiles = 96;
+        // Panning: the view's motion in sheet pixels a second, smoothed over MotionSmoothing
+        // seconds, is drawn ahead LeadSeconds, at most a view's width and height.
+        private const float LeadSeconds = 0.75f;
+        private const float MotionSmoothing = 0.12f;
+        // Zooming out shows the view grown by the wheel's step about the pointer; tiles for up to
+        // ZoomOutSteps steps are drawn ahead (zooming in needs no new tiles: one level at every zoom).
+        private const int ZoomOutSteps = 2;
+        // While closed, once the close-up record is ready (after the opening's work): the view it
+        // will open on is drawn on at most ClosedWorkers workers in the normal lane, planned every
+        // ClosedPlanFrames frames, so play and the game's own loading keep the rest.
+        private const int ClosedWorkers = 1;
+        private const int ClosedPlanFrames = 15;
+        // A tile being drawn that has not been wanted for this many frames (the view left it) is
+        // cancelled, freeing its worker; a few frames' grace keeps a jittering pan from thrashing.
+        private const int CancelAfterFrames = 20;
         private const float FadeSeconds = 0.2f;
         // Sheet pixels round a ticked pin's box within which a tile is drawn again (NewChecks):
         // tiles replay the calls whose bounds reach them, a pixel past their ink.
@@ -70,20 +95,43 @@ namespace Atlas
             public byte[] m_rgba;
         }
 
+        // A tile on a worker, with its own cancellation, so a tile the view has left can be
+        // stopped without the others.
+        private sealed class Running
+        {
+            public Task<byte[]> m_task;
+            public RectInt m_region;
+            public CancellationTokenSource m_cancel;
+            // Queued in the workers' priority lane (it was in view).
+            public bool m_first;
+            // The last frame it was wanted.
+            public long m_wanted;
+        }
+
         private readonly Dictionary<long, Tile> m_tiles = new Dictionary<long, Tile>();
-        private readonly Dictionary<long, Task<byte[]>> m_running = new Dictionary<long, Task<byte[]>>();
-        private readonly Dictionary<long, RectInt> m_runningRegion = new Dictionary<long, RectInt>();
-        private readonly Queue<Done> m_ready = new Queue<Done>();
+        private readonly Dictionary<long, Running> m_running = new Dictionary<long, Running>();
+        private readonly List<Done> m_ready = new List<Done>();
         private readonly List<long> m_wanted = new List<long>(256);
         private readonly HashSet<long> m_wantedSet = new HashSet<long>();
         private readonly List<long> m_finished = new List<long>();
+        // The tiles of the view and its ring this frame (the first of m_wanted); Trim keeps room
+        // for them, the tiles drawn ahead come out of Capacity.
+        private int m_core;
+        // The part of the sheet in view (or the one the closed atlas opens on), whose finished
+        // tiles are uploaded first; empty when no close-ups are shown there.
+        private RectInt m_inView;
+        // The view's motion (Track): its centre and size last frame and its smoothed velocity,
+        // sheet pixels a second.
+        private Vector2 m_lastCentre;
+        private Vector2Int m_lastSize;
+        private Vector2 m_velocity;
+        private bool m_tracking;
         // Tiles lying wholly under opaque fog (UnderFog): done with no texture, as the fog covers
         // all they would show. Dropped like drawn tiles when the fog changes over them, so a fog
         // opened there tests them again.
         private readonly HashSet<long> m_fogged = new HashSet<long>();
         private readonly RectTransform[] m_layers = new RectTransform[s_scales.Length];
         private RectTransform m_parent;
-        private CancellationTokenSource m_cancel = new CancellationTokenSource();
         private long m_frame;
         private bool m_broken;
 
@@ -93,6 +141,10 @@ namespace Atlas
         private SampleCache m_samples;
 
         public bool Ready => m_record != null && m_paper != null && m_world != null && m_samples != null && !m_broken;
+
+        // Set by the controller while the atlas's own work for an opening runs (a fog or ink being
+        // laid after a record): nothing is drawn ahead for the closed atlas meanwhile.
+        public bool HoldWhileClosed { get; set; }
 
         public void SetSource(InkRecord record, Paper.Wash paper, WorldSource world, SampleCache samples)
         {
@@ -168,21 +220,16 @@ namespace Atlas
                 if (drop((int)(key >> 40), Region(key))) m_finished.Add(key);
             foreach (long key in m_finished) m_fogged.Remove(key);
             m_finished.Clear();
-            foreach (KeyValuePair<long, RectInt> entry in m_runningRegion)
-                if (drop((int)(entry.Key >> 40), entry.Value)) m_finished.Add(entry.Key);
-            // Left to finish on their worker; their tile is dropped when it comes in.
+            foreach (KeyValuePair<long, Running> entry in m_running)
+                if (drop((int)(entry.Key >> 40), entry.Value.m_region)) m_finished.Add(entry.Key);
+            // Cancelled; whatever still runs on its worker is never collected.
             foreach (long key in m_finished)
             {
+                m_running[key].m_cancel.Cancel();
                 m_running.Remove(key);
-                m_runningRegion.Remove(key);
             }
             m_finished.Clear();
-            int ready = m_ready.Count;
-            for (int i = 0; i < ready; i++)
-            {
-                Done done = m_ready.Dequeue();
-                if (!drop(done.m_level, done.m_region)) m_ready.Enqueue(done);
-            }
+            m_ready.RemoveAll(done => drop(done.m_level, done.m_region));
         }
 
         private static bool Touches(RectInt region, List<RectInt> changed)
@@ -214,15 +261,13 @@ namespace Atlas
 
         private void DropTiles()
         {
-            m_cancel.Cancel();
-            m_cancel.Dispose();
-            m_cancel = new CancellationTokenSource();
+            foreach (Running running in m_running.Values) running.m_cancel.Cancel();
             foreach (Tile tile in m_tiles.Values) Destroy(tile);
             m_tiles.Clear();
             m_fogged.Clear();
             m_running.Clear();
-            m_runningRegion.Clear();
             m_ready.Clear();
+            m_tracking = false;
         }
 
         public void Update(AtlasView view)
@@ -231,10 +276,33 @@ namespace Atlas
             Harvest();
             RectTransform parent = view.DetailLayer;
             if (parent != m_parent) Rebuild(parent);
-            Upload();
+            bool open = view.IsOpen;
+            Upload(open);
             view.DetailShown = false;
-            if (!view.IsOpen || !m_parent || !Ready) return;
-            if (!view.ViewRegion(out RectInt visible, out float onScreen, out Vector2 pointer)) return;
+            if (!open) m_tracking = false;
+            if (!m_parent || !Ready) return;
+            RectInt visible;
+            float onScreen;
+            Vector2 pointer;
+            if (open)
+            {
+                if (!view.ViewRegion(out visible, out onScreen, out pointer)) return;
+            }
+            else
+            {
+                // Closed: the view it will open on (kept across openings, as are the tiles) is
+                // drawn ahead slowly, planned now and then, so reopening after a record or a long
+                // trip finds it drawn. Not before the first opening, which has no view yet.
+                if (HoldWhileClosed) return;
+                if (m_frame % ClosedPlanFrames != 0)
+                {
+                    // Between plans the next of the last plan's tiles starts once its worker is
+                    // free, so the one worker is kept busy rather than idle until the next plan.
+                    if (m_running.Count < ClosedWorkers && m_wanted.Count > 0) Start(false);
+                    return;
+                }
+                if (!view.RememberedRegion(out visible, out onScreen, out pointer)) return;
+            }
 
             // One level only, the finest the view can reach, at every zoom: levels drawn at their
             // own level of detail change the trees and marks as the zoom crosses them. Mipmaps keep
@@ -246,22 +314,50 @@ namespace Atlas
             Vector2 screen = view.ViewPixels;
             float from = Mathf.Max(DetailFrom, Mathf.Sqrt(screen.x * screen.y / MaxVisible) / size);
             bool detail = onScreen >= from;
-            view.DetailShown = detail;
-            Show(detail ? level : -1, visible);
-            Fade();
+            m_inView = detail ? visible : default(RectInt);
+            if (open)
+            {
+                view.DetailShown = detail;
+                Show(detail ? level : -1, visible);
+                Fade();
+                Track(visible, detail);
+            }
 
             // What to draw, most wanted first: the view from the pointer outward and a ring of one
-            // tile round it; zoomed out, the part round the pointer a zoom to the start of close-ups
-            // shows.
+            // tile round it, then ahead of need: where the view is being panned and what a zoom out
+            // shows; zoomed out, the part round the pointer a zoom to the start of close-ups shows.
             m_wanted.Clear();
             m_wantedSet.Clear();
             if (detail)
             {
                 Want(level, visible, pointer, int.MaxValue);
-                Want(level, new RectInt(visible.x - size, visible.y - size, visible.width + 2 * size, visible.height + 2 * size), pointer, int.MaxValue);
+                Want(level, Grow(visible, size), pointer, int.MaxValue);
+                m_core = m_wanted.Count;
+                // Ahead of need only while the view and ring leave room under Capacity: at the
+                // start of close-ups the view alone takes more.
+                int room = Mathf.Min(PrefetchTiles, Capacity - m_core);
+                Vector2 centre = visible.center;
+                if (room > 0 && open && Lead(visible, size, out Vector2 lead))
+                {
+                    var ahead = new RectInt(visible.x + Mathf.RoundToInt(lead.x), visible.y + Mathf.RoundToInt(lead.y), visible.width, visible.height);
+                    room -= Want(level, Grow(ahead, size), centre, room);
+                }
+                // A zoom out keeps the point under the pointer still, so the view grows about it.
+                float grow = 1f;
+                for (int step = 0; step < ZoomOutSteps && onScreen / (grow * AtlasView.ZoomStep) >= from; step++)
+                    grow *= AtlasView.ZoomStep;
+                if (room > 0 && grow > 1f)
+                {
+                    var wider = new RectInt(
+                        Mathf.FloorToInt(pointer.x - (pointer.x - visible.x) * grow),
+                        Mathf.FloorToInt(pointer.y - (pointer.y - visible.y) * grow),
+                        Mathf.CeilToInt(visible.width * grow), Mathf.CeilToInt(visible.height * grow));
+                    Want(level, wider, pointer, room);
+                }
             }
             else
             {
+                m_core = 0;
                 // Zooming in keeps the point under the pointer still, so that is where it lands.
                 float shrink = onScreen / from;
                 var ahead = new RectInt(
@@ -270,8 +366,43 @@ namespace Atlas
                     Mathf.CeilToInt(visible.width * shrink), Mathf.CeilToInt(visible.height * shrink));
                 Want(level, ahead, pointer, AheadTiles);
             }
-            Start();
+            Start(open);
             Trim();
+        }
+
+        private static RectInt Grow(RectInt area, int by) =>
+            new RectInt(area.x - by, area.y - by, area.width + 2 * by, area.height + 2 * by);
+
+        // Follows the view's centre from frame to frame while close-ups show. A change of size is a
+        // zoom, not a pan (the centre moves toward the pointer), so it restarts the track.
+        private void Track(RectInt visible, bool detail)
+        {
+            float dt = Time.unscaledDeltaTime;
+            Vector2 centre = visible.center;
+            bool zoomed = Mathf.Abs(visible.width - m_lastSize.x) > 2 || Mathf.Abs(visible.height - m_lastSize.y) > 2;
+            if (!detail || !m_tracking || zoomed || dt <= 0f)
+            {
+                m_velocity = Vector2.zero;
+                m_tracking = detail;
+            }
+            else
+            {
+                Vector2 now = (centre - m_lastCentre) / dt;
+                m_velocity += (now - m_velocity) * (1f - Mathf.Exp(-dt / MotionSmoothing));
+            }
+            m_lastCentre = centre;
+            m_lastSize = new Vector2Int(visible.width, visible.height);
+        }
+
+        // Where a pan carries the view in LeadSeconds, at most a view either way; false while it
+        // moves under a tile in that time.
+        private bool Lead(RectInt visible, int size, out Vector2 lead)
+        {
+            lead = m_velocity * LeadSeconds;
+            if (lead.sqrMagnitude < size * size) return false;
+            lead.x = Mathf.Clamp(lead.x, -visible.width, visible.width);
+            lead.y = Mathf.Clamp(lead.y, -visible.height, visible.height);
+            return true;
         }
 
         // The coarsest level at least as fine as the screen, so tiles are never magnified.
@@ -286,13 +417,16 @@ namespace Atlas
 
         private static long Key(int level, int x, int y) => ((long)level << 40) | ((long)(x & 0xFFFFF) << 20) | (long)(y & 0xFFFFF);
 
-        // Adds the tiles of a level touching a sheet rectangle, nearest the pointer first, up to limit.
-        private void Want(int level, RectInt area, Vector2 pointer, int limit)
+        // Adds the tiles of a level touching a sheet rectangle not wanted yet, nearest the pointer
+        // first, up to limit; returns how many.
+        private int Want(int level, RectInt area, Vector2 pointer, int limit)
         {
             int size = TileSize(level);
-            int x0 = Mathf.Max(0, area.xMin / size), x1 = Mathf.Min(InkPainter.CanvasSize / size - 1, (area.xMax - 1) / size);
-            int y0 = Mathf.Max(0, area.yMin / size), y1 = Mathf.Min(InkPainter.CanvasSize / size - 1, (area.yMax - 1) / size);
-            if (x1 < x0 || y1 < y0) return;
+            // Floor division, so a rectangle reaching past the sheet's north or west edge is cut
+            // at it rather than rounded onto its first row.
+            int x0 = Mathf.Max(0, Mathf.FloorToInt(area.xMin / (float)size)), x1 = Mathf.Min(InkPainter.CanvasSize / size - 1, Mathf.FloorToInt((area.xMax - 1) / (float)size));
+            int y0 = Mathf.Max(0, Mathf.FloorToInt(area.yMin / (float)size)), y1 = Mathf.Min(InkPainter.CanvasSize / size - 1, Mathf.FloorToInt((area.yMax - 1) / (float)size));
+            if (x1 < x0 || y1 < y0) return 0;
             int first = m_wanted.Count;
             for (int y = y0; y <= y1; y++)
             {
@@ -303,7 +437,7 @@ namespace Atlas
                 }
             }
             int count = m_wanted.Count - first;
-            if (count <= 1) return;
+            if (count <= 1) return count;
             var range = m_wanted.GetRange(first, count);
             range.Sort((a, b) => Distance(a, pointer).CompareTo(Distance(b, pointer)));
             m_wanted.RemoveRange(first, count);
@@ -312,6 +446,7 @@ namespace Atlas
                 if (i < limit) m_wanted.Add(range[i]);
                 else m_wantedSet.Remove(range[i]);
             }
+            return Mathf.Min(count, limit);
         }
 
         private static float Distance(long key, Vector2 pointer)
@@ -328,22 +463,34 @@ namespace Atlas
             return new RectInt(x * size, y * size, size, size);
         }
 
-        // Starts the most wanted tiles not drawn yet, as many as there are workers. Tiles wholly
-        // under opaque fog are done at once with no texture (UnderFog), taking no worker.
-        private void Start()
+        // Starts the most wanted tiles not drawn yet. Open, tiles in view go to the workers'
+        // priority lane, as many as there are workers, ahead of anything queued (a background
+        // paint's loops included); the rest share the workers with them, so a tile drawn ahead
+        // never waits in front of one in view. Closed, ClosedWorkers in the normal lane. Tiles
+        // wholly under opaque fog are done at once with no texture (UnderFog), taking no worker.
+        // Tiles being drawn that the view has left are cancelled.
+        private void Start(bool open)
         {
+            foreach (long key in m_wanted)
+            {
+                if (m_tiles.TryGetValue(key, out Tile tile)) tile.m_used = m_frame;
+                else if (m_running.TryGetValue(key, out Running running)) running.m_wanted = m_frame;
+            }
+            Cancel();
+
+            int limit = open ? Workers.Count : ClosedWorkers;
+            int inView = 0;
+            foreach (Running running in m_running.Values)
+                if (running.m_first) inView++;
             int fogTests = 0;
             foreach (long key in m_wanted)
             {
-                if (m_tiles.TryGetValue(key, out Tile tile))
-                {
-                    tile.m_used = m_frame;
-                    continue;
-                }
-                if (m_fogged.Contains(key) || m_running.ContainsKey(key) || Queued(key)) continue;
-                if (m_running.Count >= Workers.Count) break;
+                if (m_tiles.ContainsKey(key) || m_fogged.Contains(key) || m_running.ContainsKey(key) || Queued(key)) continue;
                 int level = (int)(key >> 40);
                 RectInt region = Region(key);
+                bool first = open && region.Overlaps(m_inView);
+                // The wanted tiles come in view first, so once one cannot start none after can.
+                if (first ? inView >= Workers.Count : m_running.Count >= limit) break;
                 if (m_edge != null)
                 {
                     if (fogTests++ >= FogTestsPerFrame) break;
@@ -358,15 +505,37 @@ namespace Atlas
                 WorldSource world = m_world;
                 SampleCache samples = m_samples;
                 int scale = s_scales[level];
-                CancellationToken cancel = m_cancel.Token;
+                var source = new CancellationTokenSource();
+                CancellationToken cancel = source.Token;
                 byte[] glimpse = m_glimpse;
                 FogEdge edge = m_edge;
                 HashSet<int> hiddenGroups = HiddenGroups(record);
-                m_running[key] = Workers.Run(() => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel, glimpse, edge, hiddenGroups)), cancel);
-                m_runningRegion[key] = region;
+                Func<byte[]> work = () => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel, glimpse, edge, hiddenGroups));
+                m_running[key] = new Running
+                {
+                    m_task = first ? Workers.RunFirst(work, cancel) : Workers.Run(work, cancel),
+                    m_region = region,
+                    m_cancel = source,
+                    m_first = first,
+                    m_wanted = m_frame,
+                };
+                if (first) inView++;
             }
-            foreach (long key in m_wanted)
-                if (m_tiles.TryGetValue(key, out Tile tile)) tile.m_used = m_frame;
+        }
+
+        // Cancels the tiles being drawn that have not been wanted for CancelAfterFrames: a tile
+        // still queued never runs, one running stops at its next check.
+        private void Cancel()
+        {
+            m_finished.Clear();
+            foreach (KeyValuePair<long, Running> entry in m_running)
+                if (m_frame - entry.Value.m_wanted > CancelAfterFrames) m_finished.Add(entry.Key);
+            foreach (long key in m_finished)
+            {
+                m_running[key].m_cancel.Cancel();
+                m_running.Remove(key);
+            }
+            m_finished.Clear();
         }
 
         // Whether the fog as laid (FogEdge.m_edge, lifts included: the fog texture's own alpha,
@@ -418,14 +587,13 @@ namespace Atlas
         private void Harvest()
         {
             m_finished.Clear();
-            foreach (KeyValuePair<long, Task<byte[]>> entry in m_running)
-                if (entry.Value.IsCompleted) m_finished.Add(entry.Key);
+            foreach (KeyValuePair<long, Running> entry in m_running)
+                if (entry.Value.m_task.IsCompleted) m_finished.Add(entry.Key);
             foreach (long key in m_finished)
             {
-                Task<byte[]> task = m_running[key];
-                RectInt region = m_runningRegion[key];
+                Task<byte[]> task = m_running[key].m_task;
+                RectInt region = m_running[key].m_region;
                 m_running.Remove(key);
-                m_runningRegion.Remove(key);
                 if (task.IsCanceled) continue;
                 if (task.IsFaulted)
                 {
@@ -441,15 +609,30 @@ namespace Atlas
                     }
                     continue;
                 }
-                m_ready.Enqueue(new Done { m_key = key, m_level = (int)(key >> 40), m_region = region, m_rgba = task.Result });
+                m_ready.Add(new Done { m_key = key, m_level = (int)(key >> 40), m_region = region, m_rgba = task.Result });
             }
         }
 
-        private void Upload()
+        // Uploads finished tiles, those in view first, within the frame's budget (UploadsPerFrame,
+        // UploadBudgetMs; one while closed).
+        private void Upload(bool open)
         {
-            for (int n = 0; n < UploadsPerFrame && m_ready.Count > 0; n++)
+            if (m_ready.Count == 0) return;
+            long started = System.Diagnostics.Stopwatch.GetTimestamp();
+            double budget = UploadBudgetMs * System.Diagnostics.Stopwatch.Frequency / 1000.0;
+            int most = open ? UploadsPerFrame : 1;
+            for (int n = 0; n < most && m_ready.Count > 0; n++)
             {
-                Done done = m_ready.Dequeue();
+                if (n > 0 && System.Diagnostics.Stopwatch.GetTimestamp() - started >= budget) break;
+                int pick = 0;
+                for (int i = 0; i < m_ready.Count; i++)
+                {
+                    if (!m_ready[i].m_region.Overlaps(m_inView)) continue;
+                    pick = i;
+                    break;
+                }
+                Done done = m_ready[pick];
+                m_ready.RemoveAt(pick);
                 if (!m_parent || m_tiles.ContainsKey(done.m_key)) continue;
                 var texture = new Texture2D(TilePixels, TilePixels, TextureFormat.RGBA32, mipChain: true)
                 {
@@ -533,8 +716,9 @@ namespace Atlas
         {
             // A view with its ring can want more than Capacity (MaxVisible and a ring round it);
             // room for those and half of Capacity keeps a pan back instant without a tile list
-            // sorted every frame.
-            if (m_tiles.Count <= Mathf.Max(Capacity, m_wanted.Count + Capacity / 2)) return;
+            // sorted every frame. Tiles drawn ahead come out of Capacity (they are wanted only
+            // while the view and ring leave room), so they never raise the cap.
+            if (m_tiles.Count <= Mathf.Max(Capacity, m_core + Capacity / 2)) return;
             var tiles = new List<KeyValuePair<long, Tile>>(m_tiles);
             tiles.Sort((a, b) => a.Value.m_used.CompareTo(b.Value.m_used));
             for (int i = 0; i < tiles.Count - Capacity; i++)

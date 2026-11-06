@@ -591,6 +591,31 @@ namespace Atlas
         // The most screen pixels per sheet pixel the view zooms to.
         public float MaxOnScreen => MaxScale * (m_canvas ? m_canvas.scaleFactor : 1f);
 
+        // The scale one wheel notch zooms by (DetailTiles draws ahead what a zoom out shows).
+        public static float ZoomStep => WheelStep;
+
+        // The view the closed atlas opens on next, the one it was closed on (Show keeps it): as
+        // ViewRegion, with the view's centre for the pointer. False before the first opening and
+        // while the atlas is open.
+        public bool RememberedRegion(out RectInt visible, out float onScreen, out Vector2 centre)
+        {
+            visible = default;
+            centre = default;
+            onScreen = m_scale * (m_canvas ? m_canvas.scaleFactor : 1f);
+            if (IsOpen || !m_hasView || !m_root || !m_viewport || m_scale <= 0f) return false;
+            float half = InkPainter.CanvasSize * 0.5f;
+            // The sheet's centre sits m_position from the viewport's and scales by m_scale.
+            centre = new Vector2(half - m_position.x / m_scale, half + m_position.y / m_scale);
+            Vector2 reach = m_viewport.rect.size * 0.5f / m_scale;
+            int x0 = Mathf.Clamp(Mathf.FloorToInt(centre.x - reach.x), 0, InkPainter.CanvasSize);
+            int x1 = Mathf.Clamp(Mathf.CeilToInt(centre.x + reach.x), 0, InkPainter.CanvasSize);
+            int y0 = Mathf.Clamp(Mathf.FloorToInt(centre.y - reach.y), 0, InkPainter.CanvasSize);
+            int y1 = Mathf.Clamp(Mathf.CeilToInt(centre.y + reach.y), 0, InkPainter.CanvasSize);
+            if (x1 <= x0 || y1 <= y0) return false;
+            visible = new RectInt(x0, y0, x1 - x0, y1 - y0);
+            return true;
+        }
+
         // The view's size in screen pixels.
         public Vector2 ViewPixels => m_viewport ? m_viewport.rect.size * (m_canvas ? m_canvas.scaleFactor : 1f) : Vector2.zero;
 

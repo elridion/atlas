@@ -14,6 +14,8 @@
   redrawing the whole world, and other pin changes redraw it in well under half the time.
 - After recording discoveries, close-up detail is kept where nothing changed instead of being
   drawn again everywhere, and none is drawn under the fog, so zoomed-in detail appears sooner.
+- Close-ups are drawn ahead where the map is panned and zoomed out, and for the view the atlas
+  reopens on, so they are usually ready when it opens.
 
 ## 0.1.0
 

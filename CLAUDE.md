@@ -1264,10 +1264,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   start at `DetailFrom` 1.25 or once the view takes at most `MaxVisible` 520 tiles, whichever is
   later (from the viewport's screen size, so panning never toggles them): above 1080p the view
   takes more tiles than at 1080p,
-  so there they start at about 1.3 screen pixels a sheet pixel at 1440p, 2 at 4K (lowered from 1.5 and 400 when the user asked for close-ups a little earlier). Tiles are drawn ahead of need, one per worker (half the cores, at most 4): the view
-  from the pointer outward and a ring of one tile round it; zoomed out, up to 48 tiles round the
-  pointer, where a zoom lands. At most 3 textures are uploaded a frame and 320 kept (about
-  110 MB with mips), or the tiles wanted plus 160 when that is more. Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs
+  so there they start at about 1.3 screen pixels a sheet pixel at 1440p, 2 at 4K (lowered from 1.5 and 400 when the user asked for close-ups a little earlier). Tiles are drawn ahead of need: the view from the pointer outward (in the workers' priority lane, up to `Workers.Count` at once) and a ring of one tile, then up to 96 more while view and ring leave room under `Capacity` 320: where a pan carries the view in 0.75 s (velocity smoothed over 0.12 s) and two wheel steps out about the pointer; zoomed out, up to 48 round the pointer. Tiles not wanted for 20 frames are cancelled (their own token; `DetailTile` checks every 32 rows). Closed, once the record is ready, the remembered view (`AtlasView.RememberedRegion`) is drawn on one worker; tiles are kept across closing. Uploads: in view first, at most 3 a frame within 1 ms (1 while closed); 320 kept, or view and ring plus 160. Tiles sample their ground `TileMargin` beyond their edge and scatter glyphs
   from cells `GlyphReach` beyond it, so neighbours draw the same glyphs and margins and seams do
   not show. The sheet's non-tree glyphs are recorded as groups with their feet
   (`InkRecord.BeginGroup`), and a tile sorts them in with its own trees and draws all from north

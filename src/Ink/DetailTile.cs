@@ -87,6 +87,9 @@ namespace Atlas
             byte[] land = wash.m_land, parchment = wash.m_parchment;
             for (int ty = 0; ty < h; ty++)
             {
+                // A tile the view has left is cancelled (DetailTiles.Cancel); the colour pass is
+                // about half its time, so it stops here too.
+                if ((ty & 31) == 0) cancel.ThrowIfCancellationRequested();
                 // Parchment rows run from the south, the sheet's from the north.
                 float py = Mathf.Clamp((InkPainter.CanvasSize - (top + (ty + 0.5f) / scale)) * perSheet - 0.5f, 0f, limit);
                 int y0 = (int)py;

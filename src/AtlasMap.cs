@@ -211,7 +211,9 @@ namespace Atlas
             {
                 s_cacheStarted = true;
                 int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
-                s_cacheTask = Workers.Run(() =>
+                // The opening's own work, as are the fog and the ink below (Workers.RunFirst):
+                // queued ahead of the dirt, the edge, the deferred world and the close-ups.
+                s_cacheTask = Workers.RunFirst(() =>
                 {
                     byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks, out long key, out SheetMarks sheetMarks);
                     if (ink == null) return null;
@@ -260,11 +262,13 @@ namespace Atlas
                     {
                         if (!WorldSource.IsReady(Minimap.instance)) return;
                         WorldSource captured = WorldSource.Capture(Minimap.instance);
-                        s_decodeTask = Workers.Run(() =>
+                        Func<WorldSource> decode = () =>
                         {
                             captured.Decode();
                             return captured;
-                        });
+                        };
+                        // Without a cached washed paper the world's wash is the opening's paper.
+                        s_decodeTask = OpeningNeedsWash() ? Workers.RunFirst(decode) : Workers.Run(decode);
                         return;
                     }
                     if (!s_decodeTask.IsCompleted) return;
@@ -283,7 +287,10 @@ namespace Atlas
                     s_source = decodedSource;
                     WorldGenerator generator = WorldGenerator.instance;
                     s_samples = new SampleCache(generator != null ? new GeneratorSampler(generator, decodedSource) : (IWorldSampler)new MinimapSampler(decodedSource));
-                    s_washTask = Workers.Then(Parchment(decodedSource.m_seed), parchment => Paper.Washed(parchment, decodedSource));
+                    Func<byte[], Paper.Wash> wash = parchment => Paper.Washed(parchment, decodedSource);
+                    s_washTask = OpeningNeedsWash()
+                        ? Workers.ThenFirst(Parchment(decodedSource.m_seed), wash)
+                        : Workers.Then(Parchment(decodedSource.m_seed), wash);
                 }
 
                 // The sheet is painted when there is none, when its pins are not the current ones
@@ -437,7 +444,7 @@ namespace Atlas
             s_mipsGlimpse = s_glimpseSerial;
             s_mipsDensity = s_sheetDensity;
             s_mipsKey = s_rawKey;
-            s_mipsTask = Workers.Run(() => Paper.InkWithMips(sheet, marks, glimpse, edge));
+            s_mipsTask = Workers.RunFirst(() => Paper.InkWithMips(sheet, marks, glimpse, edge));
         }
 
         // The sheet's planes (SetSheet), and the planes and glimpse (s_glimpseSerial) the
@@ -649,14 +656,20 @@ namespace Atlas
             };
             // Chained rather than waiting on the parchment: a worker blocked on a task queued
             // behind it would never wake.
-            s_fogTask = parchment != null ? Workers.Run(() => lay(parchment)) : Workers.Then(parchmentTask, lay);
+            s_fogTask = parchment != null ? Workers.RunFirst(() => lay(parchment)) : Workers.ThenFirst(parchmentTask, lay);
         }
 
+        // The fog is laid on it, so it is the opening's work too.
         private static Task<byte[]> Parchment(int seed)
         {
-            if (s_parchmentTask == null) s_parchmentTask = Workers.Run(() => Paper.Parchment(seed));
+            if (s_parchmentTask == null) s_parchmentTask = Workers.RunFirst(() => Paper.Parchment(seed));
             return s_parchmentTask;
         }
+
+        // Whether the atlas still waits for the world's wash to open: no paper uploaded and none
+        // cached on disk. Then reading the world and its wash are the opening's work; otherwise
+        // they only serve the close-ups and keep their place in the queue.
+        private static bool OpeningNeedsWash() => !s_paper && !s_paperCached;
 
         // Uploads the sheet's paper once the wash is done, or the bare parchment if it failed.
         private static void KeepPaper()

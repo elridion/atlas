@@ -46,6 +46,10 @@ namespace Atlas
         // Sheet pixels round a ticked pin's box within which a tile is drawn again (NewChecks):
         // tiles replay the calls whose bounds reach them, a pixel past their ink.
         private const int ChecksMargin = 2;
+        // Tiles tested against the fog a frame at most (UnderFog reads up to 66² fog pixels each,
+        // about 2.5 us offline for a 2x tile under fog), so a view that opens far out in the fog
+        // never stalls a frame.
+        private const int FogTestsPerFrame = 64;
 
         private sealed class Tile
         {
@@ -73,6 +77,10 @@ namespace Atlas
         private readonly List<long> m_wanted = new List<long>(256);
         private readonly HashSet<long> m_wantedSet = new HashSet<long>();
         private readonly List<long> m_finished = new List<long>();
+        // Tiles lying wholly under opaque fog (UnderFog): done with no texture, as the fog covers
+        // all they would show. Dropped like drawn tiles when the fog changes over them, so a fog
+        // opened there tests them again.
+        private readonly HashSet<long> m_fogged = new HashSet<long>();
         private readonly RectTransform[] m_layers = new RectTransform[s_scales.Length];
         private RectTransform m_parent;
         private CancellationTokenSource m_cancel = new CancellationTokenSource();
@@ -154,6 +162,12 @@ namespace Atlas
                 m_tiles.Remove(key);
             }
             m_finished.Clear();
+            // Tested under the fog they were laid under (FogChange.Affects reads more than
+            // UnderFog, so a change there drops them).
+            foreach (long key in m_fogged)
+                if (drop((int)(key >> 40), Region(key))) m_finished.Add(key);
+            foreach (long key in m_finished) m_fogged.Remove(key);
+            m_finished.Clear();
             foreach (KeyValuePair<long, RectInt> entry in m_runningRegion)
                 if (drop((int)(entry.Key >> 40), entry.Value)) m_finished.Add(entry.Key);
             // Left to finish on their worker; their tile is dropped when it comes in.
@@ -205,6 +219,7 @@ namespace Atlas
             m_cancel = new CancellationTokenSource();
             foreach (Tile tile in m_tiles.Values) Destroy(tile);
             m_tiles.Clear();
+            m_fogged.Clear();
             m_running.Clear();
             m_runningRegion.Clear();
             m_ready.Clear();
@@ -313,20 +328,31 @@ namespace Atlas
             return new RectInt(x * size, y * size, size, size);
         }
 
-        // Starts the most wanted tiles not drawn yet, as many as there are workers.
+        // Starts the most wanted tiles not drawn yet, as many as there are workers. Tiles wholly
+        // under opaque fog are done at once with no texture (UnderFog), taking no worker.
         private void Start()
         {
+            int fogTests = 0;
             foreach (long key in m_wanted)
             {
-                if (m_running.Count >= Workers.Count) break;
                 if (m_tiles.TryGetValue(key, out Tile tile))
                 {
                     tile.m_used = m_frame;
                     continue;
                 }
-                if (m_running.ContainsKey(key) || Queued(key)) continue;
+                if (m_fogged.Contains(key) || m_running.ContainsKey(key) || Queued(key)) continue;
+                if (m_running.Count >= Workers.Count) break;
                 int level = (int)(key >> 40);
                 RectInt region = Region(key);
+                if (m_edge != null)
+                {
+                    if (fogTests++ >= FogTestsPerFrame) break;
+                    if (UnderFog(m_edge.m_edge, region))
+                    {
+                        m_fogged.Add(key);
+                        continue;
+                    }
+                }
                 InkRecord record = m_record;
                 Paper.Wash paper = m_paper;
                 WorldSource world = m_world;
@@ -341,6 +367,30 @@ namespace Atlas
             }
             foreach (long key in m_wanted)
                 if (m_tiles.TryGetValue(key, out Tile tile)) tile.m_used = m_frame;
+        }
+
+        // Whether the fog as laid (FogEdge.m_edge, lifts included: the fog texture's own alpha,
+        // FogSize² rows from the south) is fully opaque over a sheet region and one fog pixel
+        // round it. The fog layer lies over the close-ups and is sampled bilinearly, a sheet
+        // point x reading fog pixels floor(x / 2 - 0.5) and the one after, so the region's
+        // pixels show nothing but fog there and a close-up would be wasted. Outside the world's
+        // disc the fog is clear, so the sheet's margin is drawn as before.
+        internal static bool UnderFog(byte[] opacity, RectInt region)
+        {
+            if (opacity == null) return false;
+            int n = Paper.FogSize;
+            float scale = n / (float)InkPainter.CanvasSize, canvas = InkPainter.CanvasSize;
+            int x0 = Mathf.Max(0, Mathf.FloorToInt(region.xMin * scale) - 1);
+            int x1 = Mathf.Min(n - 1, Mathf.CeilToInt(region.xMax * scale));
+            int y0 = Mathf.Max(0, Mathf.FloorToInt((canvas - region.yMax) * scale) - 1);
+            int y1 = Mathf.Min(n - 1, Mathf.CeilToInt((canvas - region.yMin) * scale));
+            for (int y = y0; y <= y1; y++)
+            {
+                int row = y * n;
+                for (int x = x0; x <= x1; x++)
+                    if (opacity[row + x] != 255) return false;
+            }
+            return true;
         }
 
         // The record groups the edge leaves out, worked out once per edge and record (a few

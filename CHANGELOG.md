@@ -13,7 +13,7 @@
 - Checking or unchecking a pin at the table now updates the map almost at once instead of
   redrawing the whole world, and other pin changes redraw it in well under half the time.
 - After recording discoveries, close-up detail is kept where nothing changed instead of being
-  drawn again everywhere.
+  drawn again everywhere, and none is drawn under the fog, so zoomed-in detail appears sooner.
 
 ## 0.1.0
 

@@ -70,6 +70,8 @@ namespace Atlas
         private const float HoverDilate = 0.2f;
         private const float HoverSpacing = 2f;
         private const float HoverGap = 4f;
+        // How far the name is moved toward the pin, in lines of its own height.
+        private const float HoverDrop = 0.5f;
         private const float HoverEdge = 4f;
         private const float HoverMin = 8f;
         private static Material s_plainMaterial;
@@ -394,8 +396,11 @@ namespace Atlas
             Rect view = m_viewport.rect;
             Vector2 centre = m_position + pin.m_at * m_scale;
             float reach = Mathf.Max(pin.m_half * m_scale, HoverMin) + HoverGap;
-            float y = centre.y + reach;
-            float below = centre.y - reach - m_hoverSize.y;
+            // Half a line closer to the pin than its box would put it, so the name reads as the
+            // pin's own (the user's call): above, it reaches down over the glyph's top.
+            float drop = m_hoverSize.y * HoverDrop;
+            float y = centre.y + reach - drop;
+            float below = centre.y - reach - m_hoverSize.y + drop;
             if (y + m_hoverSize.y > view.yMax - HoverEdge && below >= view.yMin + HoverEdge) y = below;
             y = Mathf.Clamp(y, view.yMin + HoverEdge, Mathf.Max(view.yMin + HoverEdge, view.yMax - HoverEdge - m_hoverSize.y));
             float x = Mathf.Clamp(centre.x - m_hoverSize.x * 0.5f, view.xMin + HoverEdge, Mathf.Max(view.xMin + HoverEdge, view.xMax - HoverEdge - m_hoverSize.x));

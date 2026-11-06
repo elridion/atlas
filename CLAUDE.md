@@ -178,7 +178,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   login does not lay it twice. A second texture split from the ink would cost as much in video
   memory, and no custom shader is possible without asset bundles. The always-on name
   layout is left off (`s_showNames`); instead the hovered pin's name shows centred above it,
-  under it where the view's top cuts it off (`AtlasView.UpdateHover`, `PlaceHover`: bold vanilla
+  `HoverDrop` half a line down over the glyph's top (the user's call), under it where the view's
+  top cuts it off (`AtlasView.UpdateHover`, `PlaceHover`: bold vanilla
   pin font in `Paper.PinInkColor` on a plain copy of its material with no outline, underlay or
   glow; the user's design). The font's hairlines were too fine to read at 18, so the name is 22
   with its face grown `HoverDilate` 0.2 and `HoverSpacing` 2 (the user's call). The preview takes `-Temple wx:wz` and

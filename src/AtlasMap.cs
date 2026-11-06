@@ -478,6 +478,10 @@ namespace Atlas
         {
             public byte[] m_parchment;
             public FogEdge m_edge;
+            // A copy of the glimpse that workers may read while the next fog is laid, and what
+            // changed for the close-ups since the fog before (null: everything).
+            public byte[] m_glimpse;
+            public FogChange m_change;
         }
 
         // Whether reading the world waits for the atlas to open: while the cache is still being
@@ -595,7 +599,7 @@ namespace Atlas
                 s_parchment = done.Result.m_parchment;
                 s_edge = done.Result.m_edge;
                 s_fogMarks = s_fogTaskMarks;
-                UploadFog();
+                UploadFog(done.Result);
             }
             // The glimpse switched on or off: the fog is laid again, and with it the sheet's ink
             // and the close-ups (UploadFog).
@@ -618,12 +622,28 @@ namespace Atlas
             Vector2[] glimpses = s_glimpses;
             SheetMarks sheetMarks = s_marks;
             Task<byte[]> parchmentTask = Parchment(seed);
+            // The fog the close-ups were last given (UploadFog), which the new one is compared
+            // with on the worker, so only the close-ups it changes are drawn again.
+            byte[] oldGlimpse = s_glimpseCopy;
+            FogEdge oldEdge = s_edge;
+            bool sameSea = marks == s_fogMarks;
             // The task hands the parchment back instead of storing it, so a task still running
             // when the world changes cannot leave its paper behind for the next world.
-            Func<byte[], FogLaid> lay = paper => new FogLaid
+            Func<byte[], FogLaid> lay = paper =>
             {
-                m_edge = Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, sheetMarks, glimpseBand),
-                m_parchment = paper,
+                FogEdge edge = Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, sheetMarks, glimpseBand);
+                byte[] copy = (byte[])glimpse.Clone();
+                FogChange change = null;
+                try
+                {
+                    change = FogChange.Between(oldGlimpse, oldEdge, copy, edge, sameSea);
+                }
+                catch (Exception e)
+                {
+                    // Only the saving is lost: every close-up is drawn again, as with no change.
+                    Jotunn.Logger.LogWarning($"The atlas could not compare its fog with the last: {e}");
+                }
+                return new FogLaid { m_edge = edge, m_parchment = paper, m_glimpse = copy, m_change = change };
             };
             // Chained rather than waiting on the parchment: a worker blocked on a task queued
             // behind it would never wake.
@@ -786,7 +806,7 @@ namespace Atlas
             s_view.SetEdge(s_edgeStrips);
         }
 
-        private static void UploadFog()
+        private static void UploadFog(FogLaid laid)
         {
             int size = Paper.FogSize;
             if (!s_fog)
@@ -813,10 +833,11 @@ namespace Atlas
             s_glimpse.Apply(updateMipmaps: false);
             s_view.SetGlimpse(s_glimpse);
             // The sheet's ink and close-ups lay the same bare parchment and greyer ink in the
-            // glimpse, so they are laid again for the new fog (KeepMips).
-            s_glimpseCopy = (byte[])s_glimpsePixels.Clone();
+            // glimpse, so they are laid again for the new fog (KeepMips), the close-ups only
+            // where it changed them.
+            s_glimpseCopy = laid.m_glimpse;
             s_glimpseSerial++;
-            s_tiles.SetGlimpse(s_glimpseCopy, s_edge);
+            s_tiles.SetGlimpse(s_glimpseCopy, s_edge, laid.m_change);
             if (s_view.IsOpen) s_view.Refresh(s_fog, s_snapshot);
         }
 

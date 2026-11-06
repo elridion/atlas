@@ -168,8 +168,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   drawing stops"), and writes a second texture, the glimpse, bare parchment whose opacity is the
   unexplored land softened at the explored edge. `AtlasView` lays it over the paper's wash and
   under the ink, so the band shows the map on untinted parchment; close-ups lay it over their
-  wash before the glyphs' bodies (`DetailTile.Render`, `DetailTiles.SetGlimpse`, which drops
-  every tile drawn with the old fog). In the glimpse the glyphs' bodies (crowns, peaks) and the
+  wash before the glyphs' bodies (`DetailTile.Render`, `DetailTiles.SetGlimpse`). `SetGlimpse` takes a `FogChange` made on the fog's worker (`FogChange.Between`, against the glimpse copy and edge the tiles were drawn under): the 8² fog-pixel blocks where the glimpse alpha, `m_edge` or `m_thin` changed, plus the grown boxes of glyphs, wave strokes and sea marks whose decision flipped. Only tiles whose `DetailTile.FogReach` (scatter area grown by 2x `TileMargin` + 40 px, for the trees `CutByFog` judges) meets a dirty block, or whose region meets a changed mark, are dropped, done, running or queued; without a comparable earlier fog (first fog, other `SheetMarks` or sea marks) every tile is. A tile reads nothing else from the fog (the fog texture is its own layer above the tiles); kept tiles are byte-identical to fresh ones offline (9 runs). In the glimpse the glyphs' bodies (crowns, peaks) and the
   sea illustrations' wash give way to the parchment and the terrain's ink turns greyer
   (`Paper.GlimpseInkColor`); pins keep their red (the user's design). The sheet bakes that into
   its ink texture (`Paper.InkWithMips` takes the glimpse), so `AtlasMap` keeps the sheet's planes

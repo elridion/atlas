@@ -11,6 +11,27 @@ namespace Atlas
     /// </summary>
     internal static class DetailTile
     {
+        // The widest scatter grid a close-up's trees stand on, in sheet pixels (the oaks' 96 m,
+        // the giants' steep grid): a tile visits a cell or two of it past its scatter area.
+        private const float WidestScatterCell = 20f;
+
+        // The sheet rectangle over which a close-up of region at scale reads the fog's planes
+        // (FogChange.Affects): its own pixels for the glimpse, and every tree it scatters, judged
+        // by Paper.CutByFog over its footprint, whose foot stands up to its reach and two scatter
+        // cells past the scatter area (InkPainter.Scatter) and whose crown rises a reach above it;
+        // the scarps, stumps and grass that keep off those trees stand within the same margins.
+        // Generous on purpose: a close-up kept wrongly would show the old fog until it is drawn
+        // again.
+        public static Rect FogReach(InkRecord record, RectInt region, int scale)
+        {
+            float margin = InkPainter.TileMargin(Lod(scale));
+            Rect scatter = InkPainter.ScatterArea(record, region, margin);
+            float grow = 2f * margin + 2f * WidestScatterCell;
+            return Rect.MinMaxRect(scatter.xMin - grow, scatter.yMin - grow, scatter.xMax + grow, scatter.yMax + grow);
+        }
+
+        private static float Lod(int scale) => Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f));
+
         // Worker thread. Returns RGBA rows from south to north, as LoadRawTextureData expects, for
         // the sheet rectangle region at scale pixels per sheet pixel. The ground is sampled every
         // gridPixels tile pixels on up to threads threads. The level of detail grows with the
@@ -24,7 +45,7 @@ namespace Atlas
         {
             int left = region.x, top = region.y, width = region.width, height = region.height;
             int w = width * scale, h = height * scale;
-            float lod = Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f));
+            float lod = Lod(scale);
             // The cache spacing nearest gridPixels tile pixels.
             float metres = gridPixels / scale * InkPainter.MetresPerPixel;
             int level = Mathf.Clamp(Mathf.RoundToInt(Mathf.Log(metres, 2f)), 0, SampleCache.Levels - 1);

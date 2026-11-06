@@ -96,8 +96,7 @@ namespace Atlas
 
         // The glimpse's bare parchment (Paper.Fog's glimpse, RGBA at FogSize), which tiles lay
         // over their wash, and where the drawing stops (Paper.Fog's FogEdge): the trees, glyphs
-        // and wave strokes the band leaves out, which tiles leave out too; null for none. A new
-        // one drops every tile drawn with the old.
+        // and wave strokes the band leaves out, which tiles leave out too; null for none.
         private byte[] m_glimpse;
         private FogEdge m_edge;
         // The record groups of the glyphs m_edge leaves out, for m_record (HiddenGroups).
@@ -105,11 +104,22 @@ namespace Atlas
         private FogEdge m_groupsEdge;
         private InkRecord m_groupsRecord;
 
-        public void SetGlimpse(byte[] glimpse, FogEdge edge)
+        // A new fog. With its change from the fog the tiles were drawn under (FogChange, null when
+        // it could not be compared) only the tiles that read a changed part are dropped, done,
+        // running or queued; the rest draw the same under either fog and stay, so a record that
+        // explores a little more does not redraw every close-up. Without it every tile goes.
+        public void SetGlimpse(byte[] glimpse, FogEdge edge, FogChange change)
         {
+            bool partial = change != null && m_record != null && change.m_fromGlimpse == m_glimpse && change.m_fromEdge == m_edge;
             m_glimpse = glimpse;
             m_edge = edge;
-            DropTiles();
+            if (!partial)
+            {
+                DropTiles();
+                return;
+            }
+            InkRecord record = m_record;
+            DropWhere((level, region) => change.Affects(region, DetailTile.FogReach(record, region, s_scales[level])));
         }
 
         // A new painting of the same world: its tiles are drawn again from the new record (set by
@@ -128,9 +138,16 @@ namespace Atlas
         // one elsewhere are kept too. Those over the pins are dropped, running or done.
         public void NewChecks(InkRecord record, List<RectInt> changed)
         {
+            DropWhere((level, region) => Touches(region, changed));
+            m_record = record;
+        }
+
+        // Drops the tiles, done, running or queued, for which drop (level, sheet region) holds.
+        private void DropWhere(Func<int, RectInt, bool> drop)
+        {
             m_finished.Clear();
             foreach (KeyValuePair<long, Tile> entry in m_tiles)
-                if (Touches(entry.Value.m_region, changed)) m_finished.Add(entry.Key);
+                if (drop(entry.Value.m_level, entry.Value.m_region)) m_finished.Add(entry.Key);
             foreach (long key in m_finished)
             {
                 Destroy(m_tiles[key]);
@@ -138,7 +155,7 @@ namespace Atlas
             }
             m_finished.Clear();
             foreach (KeyValuePair<long, RectInt> entry in m_runningRegion)
-                if (Touches(entry.Value, changed)) m_finished.Add(entry.Key);
+                if (drop((int)(entry.Key >> 40), entry.Value)) m_finished.Add(entry.Key);
             // Left to finish on their worker; their tile is dropped when it comes in.
             foreach (long key in m_finished)
             {
@@ -150,9 +167,8 @@ namespace Atlas
             for (int i = 0; i < ready; i++)
             {
                 Done done = m_ready.Dequeue();
-                if (!Touches(done.m_region, changed)) m_ready.Enqueue(done);
+                if (!drop(done.m_level, done.m_region)) m_ready.Enqueue(done);
             }
-            m_record = record;
         }
 
         private static bool Touches(RectInt region, List<RectInt> changed)

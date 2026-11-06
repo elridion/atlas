@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Atlas
@@ -139,6 +140,110 @@ namespace Atlas
                 groups.Add(group);
             }
             return groups;
+        }
+    }
+
+    /// <summary>
+    /// What a new fog changed for close-ups against the fog laid before it on the same sheet
+    /// marks (Between): where the planes a close-up reads differ (the glimpse's opacity, the
+    /// band's opacity and its thinning), as blocks of BlockPixels fog pixels, and the sheet boxes
+    /// of the marks whose decision changed (glyphs and wave strokes by index, sea illustrations).
+    /// A close-up whose reads miss all of it draws the same under either fog, so it is kept
+    /// (DetailTiles.SetGlimpse). Made on the worker that laid the fog, as comparing the planes
+    /// reads 16 MB; the main thread only tests tiles against it.
+    /// </summary>
+    internal sealed class FogChange
+    {
+        // Fog pixels to a block side: a 256Â² grid of flags, so a change dirties at most 8 fog
+        // pixels (16 sheet pixels) round itself.
+        private const int BlockPixels = 8;
+        private const int Blocks = Paper.FogSize / BlockPixels;
+        // How far a mark's ink in a close-up reaches past its FogMark box, in sheet pixels: a
+        // glyph's outline and the paper its body scrapes round itself; a wave stroke moved onto
+        // the close-up's own coast (InkPainter.TileWaveSearch and its gap, more off an islet);
+        // a sea illustration's washes (SeaWash: Reach and the stand-ins' wedge below the box).
+        private const float GlyphGrow = 12f;
+        private const float WaveGrow = 12f;
+        private const float SeaGrow = 24f;
+
+        // The glimpse and edge it was compared against: a close-up drawn under any other is
+        // dropped regardless.
+        public byte[] m_fromGlimpse;
+        public FogEdge m_fromEdge;
+        // Blocks where a plane changed, rows from the south.
+        private bool[] m_blocks;
+        private readonly List<Rect> m_marks = new List<Rect>();
+
+        // Worker thread. The change from the fog laid as oldGlimpse and oldEdge to glimpse and
+        // edge, or null when they cannot be compared (no earlier fog, other sheet marks or sea
+        // illustrations): then every close-up is drawn again. sameSea is whether both were laid
+        // for the same sea illustrations.
+        public static FogChange Between(byte[] oldGlimpse, FogEdge oldEdge, byte[] glimpse, FogEdge edge, bool sameSea)
+        {
+            if (!sameSea || oldGlimpse == null || oldEdge == null || glimpse == null || edge == null) return null;
+            if (oldEdge.m_marks != edge.m_marks || oldEdge.m_edge == null || oldEdge.m_thin == null) return null;
+            if (!SameLength(oldEdge.m_glyphs, edge.m_glyphs) || !SameLength(oldEdge.m_waves, edge.m_waves)) return null;
+            int n = Paper.FogSize;
+            if (oldGlimpse.Length != n * n * 4 || glimpse.Length != n * n * 4) return null;
+            var change = new FogChange { m_fromGlimpse = oldGlimpse, m_fromEdge = oldEdge, m_blocks = new bool[Blocks * Blocks] };
+            byte[] oldOpacity = oldEdge.m_edge, opacity = edge.m_edge, oldThin = oldEdge.m_thin, thin = edge.m_thin;
+            bool[] blocks = change.m_blocks;
+            // Each block row is written by its own iteration only.
+            Parallel.For(0, Blocks, Workers.LoopOptions(), by =>
+            {
+                for (int y = by * BlockPixels; y < (by + 1) * BlockPixels; y++)
+                {
+                    int row = y * n;
+                    for (int x = 0; x < n; x++)
+                    {
+                        int i = row + x;
+                        if (oldOpacity[i] != opacity[i] || oldThin[i] != thin[i] || oldGlimpse[i * 4 + 3] != glimpse[i * 4 + 3])
+                            blocks[by * Blocks + x / BlockPixels] = true;
+                    }
+                }
+            });
+            SheetMarks marks = edge.m_marks;
+            if (edge.m_glyphs != null)
+            {
+                for (int i = 0; i < edge.m_glyphs.Length; i++)
+                    if (edge.m_glyphs[i] != oldEdge.m_glyphs[i]) change.m_marks.Add(Grown(marks.m_glyphs[i].m_box, GlyphGrow));
+                for (int i = 0; i < edge.m_waves.Length; i++)
+                    if (edge.m_waves[i] != oldEdge.m_waves[i]) change.m_marks.Add(Grown(marks.m_waves[i].m_box, WaveGrow));
+            }
+            AddMissing(edge.m_hiddenSea, oldEdge.m_hiddenSea, change.m_marks);
+            AddMissing(oldEdge.m_hiddenSea, edge.m_hiddenSea, change.m_marks);
+            return change;
+        }
+
+        private static bool SameLength(bool[] a, bool[] b) => a == null ? b == null : b != null && a.Length == b.Length;
+
+        private static Rect Grown(Vector4 box, float grow) => Rect.MinMaxRect(box.x - grow, box.y - grow, box.z + grow, box.w + grow);
+
+        // The sea illustrations hidden in one fog and not the other.
+        private static void AddMissing(List<Vector4> boxes, List<Vector4> other, List<Rect> into)
+        {
+            if (boxes == null) return;
+            foreach (Vector4 box in boxes)
+                if (other == null || !other.Contains(box)) into.Add(Grown(box, SeaGrow));
+        }
+
+        // Whether a close-up of region (sheet pixels) that reads the fog's planes over reads
+        // (DetailTile.FogReach) draws differently under the new fog.
+        public bool Affects(RectInt region, Rect reads)
+        {
+            foreach (Rect mark in m_marks)
+                if (mark.xMin <= region.xMax && region.xMin <= mark.xMax && mark.yMin <= region.yMax && region.yMin <= mark.yMax) return true;
+            // A plane is sampled bilinearly (Paper.PlaneAt, GlimpseAt): a sheet point x reads fog
+            // pixels floor(x * scale - 0.5) and the one after, rows from the south.
+            float scale = Paper.FogSize / (float)InkPainter.CanvasSize, canvas = InkPainter.CanvasSize;
+            int x0 = Mathf.Clamp(Mathf.FloorToInt(reads.xMin * scale - 1.5f), 0, Paper.FogSize - 1);
+            int x1 = Mathf.Clamp(Mathf.CeilToInt(reads.xMax * scale + 0.5f), 0, Paper.FogSize - 1);
+            int y0 = Mathf.Clamp(Mathf.FloorToInt((canvas - reads.yMax) * scale - 1.5f), 0, Paper.FogSize - 1);
+            int y1 = Mathf.Clamp(Mathf.CeilToInt((canvas - reads.yMin) * scale + 0.5f), 0, Paper.FogSize - 1);
+            for (int by = y0 / BlockPixels; by <= y1 / BlockPixels; by++)
+                for (int bx = x0 / BlockPixels; bx <= x1 / BlockPixels; bx++)
+                    if (m_blocks[by * Blocks + bx]) return true;
+            return false;
         }
     }
 }

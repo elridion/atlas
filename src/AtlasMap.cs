@@ -30,6 +30,8 @@ namespace Atlas
         private static InkDensity s_density;
         // Cancelled when the world changes, so a half-finished drawing for the old world stops.
         private static CancellationTokenSource s_cancel = new CancellationTokenSource();
+        // The running paint's own, linked to s_cancel, so newer pins can stop it alone.
+        private static CancellationTokenSource s_paintCancel;
         private static bool s_inkFailed;
         // Why decoding or painting failed, kept while the disk cache is still loading: if the
         // cache then has no sheet either, the atlas has failed rather than still drawing.
@@ -238,6 +240,12 @@ namespace Atlas
             }
             KeepMips();
 
+            // The pins changed while a paint for older pins runs (records in a row): that paint is
+            // stopped and the next starts with the current pins, so a burst of records costs one
+            // paint, not one per record. Not before there is a sheet, which it would provide.
+            if (s_paintTask != null && !s_paintTask.IsCompleted && s_paintKey != s_pinsKey && s_sheet != null && s_paintCancel != null)
+                s_paintCancel.Cancel();
+
             if (s_paintTask == null)
             {
                 if (s_decodeFailed) return;
@@ -290,7 +298,9 @@ namespace Atlas
                 if (!stale && !s_ink) return;
                 if (s_hasFailedKey && s_failedKey == s_pinsKey) return;
                 WorldSource source = s_source;
-                CancellationToken cancel = s_cancel.Token;
+                if (s_paintCancel != null) s_paintCancel.Dispose();
+                s_paintCancel = CancellationTokenSource.CreateLinkedTokenSource(s_cancel.Token);
+                CancellationToken cancel = s_paintCancel.Token;
                 SheetPin[] pins = s_pins;
                 long key = s_pinsKey, cachedKey = s_cachedKey;
                 bool hasCache = s_hasCachedKey;
@@ -314,6 +324,8 @@ namespace Atlas
             if (!s_paintTask.IsCompleted) return;
             Task<PaintResult> painted = s_paintTask;
             s_paintTask = null;
+            // Stopped for newer pins (above): not a failure, the next paint is already due.
+            if (painted.IsCanceled || painted.IsFaulted && painted.Exception.GetBaseException() is OperationCanceledException) return;
             if (painted.IsFaulted)
             {
                 // Without a sheet there is nothing to show; with one, only its new pins and the
@@ -331,6 +343,9 @@ namespace Atlas
                 s_cachedKey = result.m_key;
                 s_hasCachedKey = true;
             }
+            // Finished for pins that changed meanwhile: dropped, sheet and record alike, as the
+            // paint for the current pins follows (the sheet and the close-ups stay a matching pair).
+            if (s_sheet != null && result.m_key != s_pinsKey) return;
             // Close-ups are drawn from the new record from now on.
             s_record = result.m_record;
             s_tiles.NewRecord();

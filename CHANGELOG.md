@@ -8,6 +8,8 @@
   name, and pointing between one and an unchecked pin names the unchecked one.
 - The map can be opened sooner after joining a world you have mapped before, and pointing at a
   pin no longer stutters the first time its name shows.
+- Recording discoveries several times in a row no longer redraws the map once for each record:
+  only the latest pins are drawn.
 
 ## 0.1.0
 

@@ -27,7 +27,13 @@ namespace Atlas
         private static bool s_cacheStarted;
         private static Task<WorldSource> s_decodeTask;
         private static Task<PaintResult> s_paintTask;
+        // Whether s_paintTask only draws ticked pins again (InkPainter.Recheck), well under a second.
+        private static bool s_paintRechecks;
         private static Task<byte[]> s_mipsTask;
+        // Set once this frame uploaded a texture or captured the minimap: the next such step
+        // waits a frame, so two never stack up in one (the ink, 37 ms, and the capture, 11 ms,
+        // made a 50 ms frame at the opening).
+        private static bool s_uploaded;
         private static InkRecord s_record;
         // The sheet's ink density, for placing pin names on clear ground.
         private static InkDensity s_density;
@@ -122,6 +128,11 @@ namespace Atlas
                 Reset();
                 s_worldUid = worldUid;
             }
+            s_uploaded = false;
+            // The world's own work needs no character, so it starts while the world loads and is
+            // mostly done when the character arrives, instead of starting in its first frame
+            // (the worst frame after joining, and the fog's wait began only then).
+            if (Game.m_noMap && ZNet.World != null) StartWorld(worldUid);
             if (!player || !Game.m_noMap)
             {
                 s_view.Hide();
@@ -154,6 +165,7 @@ namespace Atlas
                 s_editing = false;
                 EndEdit(player);
             }
+            StartWorld(worldUid);
             KeepPins();
             KeepInk(worldUid);
             KeepFog();
@@ -243,22 +255,19 @@ namespace Atlas
                 && !PlayerCustomizaton.IsBarberGuiVisible() && !Hud.IsPieceSelectionVisible() && !Hud.InRadial();
         }
 
-        // The sheet comes from the disk cache when there is one, so the atlas is ready at once. The
-        // world is still painted in the background once the atlas is first opened, because only
-        // painting yields the record that detail tiles are drawn from; without a cached sheet,
-        // painting starts at once and also provides the sheet.
-        private static void KeepInk(long worldUid)
+        // Starts the world's work that needs neither the character nor its snapshot, once per
+        // world: the cached sheet and paper, the parchment, the dirt and the edge.
+        private static void StartWorld(long worldUid)
         {
-            if (s_inkFailed) return;
-            if (!s_cacheStarted)
+            int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
+            if (!s_cacheStarted && !s_inkFailed)
             {
                 s_cacheStarted = true;
-                int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
                 // The fog is laid on the parchment, cached beside the sheet: read alongside it, so
                 // the fog can start as soon as the sheet is there.
                 Parchment(seed);
-                // The opening's own work, as are the fog and the ink below (Workers.RunFirst):
-                // queued ahead of the dirt, the edge, the deferred world and the close-ups.
+                // The opening's own work, as are the fog and the ink (Workers.RunFirst): queued
+                // ahead of the dirt, the edge, the deferred world and the close-ups.
                 s_cacheTask = Workers.RunFirst(() =>
                 {
                     byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks, out long key, out SheetMarks sheetMarks);
@@ -270,6 +279,17 @@ namespace Atlas
                     };
                 });
             }
+            if (!s_dirt && s_dirtTask == null) s_dirtTask = Workers.Run(() => Paper.Dirt(seed));
+            if (s_edgeStrips == null && s_edgeStripsTask == null) s_edgeStripsTask = Workers.Run(() => SheetEdge.Build(seed));
+        }
+
+        // The sheet comes from the disk cache when there is one, so the atlas is ready at once. The
+        // world is still painted in the background once the atlas is first opened, because only
+        // painting yields the record that detail tiles are drawn from; without a cached sheet,
+        // painting starts at once and also provides the sheet.
+        private static void KeepInk(long worldUid)
+        {
+            if (s_inkFailed) return;
             if (s_cacheTask != null && s_cacheTask.IsCompleted)
             {
                 if (s_cacheTask.IsFaulted) Jotunn.Logger.LogWarning($"The cached atlas could not be loaded: {s_cacheTask.Exception?.GetBaseException()}");
@@ -308,8 +328,10 @@ namespace Atlas
                 {
                     if (s_decodeTask == null)
                     {
-                        if (!WorldSource.IsReady(Minimap.instance)) return;
+                        // A frame that uploaded already (the ink, at the opening) captures in the next.
+                        if (s_uploaded || !WorldSource.IsReady(Minimap.instance)) return;
                         WorldSource captured = WorldSource.Capture(Minimap.instance);
+                        s_uploaded = true;
                         Func<WorldSource> decode = () =>
                         {
                             captured.Decode();
@@ -394,6 +416,7 @@ namespace Atlas
                 // With no sheet to show the paint is the opening's own work (its loops too), ahead
                 // of the dirt, the edge and the close-ups; behind a shown sheet it waits its turn.
                 s_paintTask = OpeningNeedsPaint() ? Workers.RunFirst(paint) : Workers.Run(paint);
+                s_paintRechecks = recheck;
                 return;
             }
             if (!s_paintTask.IsCompleted) return;
@@ -471,7 +494,7 @@ namespace Atlas
         {
             if (s_mipsTask != null)
             {
-                if (!s_mipsTask.IsCompleted) return;
+                if (!s_mipsTask.IsCompleted || s_uploaded) return;
                 Task<byte[]> done = s_mipsTask;
                 s_mipsTask = null;
                 if (done.IsFaulted)
@@ -492,6 +515,11 @@ namespace Atlas
             // Laid only from the fog laid for this sheet (its sea illustrations), or without one when
             // the fog failed: laid from an earlier fog it was laid twice after login.
             if (s_fogMarks != s_sheetMarks && !s_fogFailed) return;
+            // A shown ink is laid again once for a fog and ticked pins that come together (a
+            // record that ticked pins): laid for each as it came, it was laid twice within a
+            // second. The first ink does not wait, nor does a whole paint, which takes seconds
+            // while the new fog's land would show no ink; the last lay has the same inputs either way.
+            if (s_ink && (s_fogDirty || s_fogTask != null || s_paintTask != null && s_paintRechecks)) return;
             byte[] glimpse = s_glimpseSerial == 0 ? null : s_glimpseCopy;
             // The band's decisions only for the marks of this sheet, as the fog laid for it.
             FogEdge edge = s_glimpseSerial == 0 || s_edge == null || s_edge.m_marks != s_marks ? null : s_edge;
@@ -647,13 +675,14 @@ namespace Atlas
             Paper.ReturnInk(data);
             s_view.SetSheet(s_ink, s_density);
             if (old) UnityEngine.Object.Destroy(old);
+            s_uploaded = true;
         }
 
         private static void KeepFog()
         {
             if (s_fogTask != null)
             {
-                if (!s_fogTask.IsCompleted) return;
+                if (!s_fogTask.IsCompleted || s_uploaded) return;
                 Task<FogLaid> done = s_fogTask;
                 s_fogTask = null;
                 if (done.IsFaulted)
@@ -671,7 +700,9 @@ namespace Atlas
             // The glimpse switched on or off: the fog is laid again, and with it the sheet's ink
             // and the close-ups (UploadFog).
             if (AtlasPlugin.Glimpse.Value != s_fogGlimpse) s_fogDirty = true;
-            if (!s_fogDirty || s_snapshotTask != null) return;
+            // The fog opens a glimpse round the pins' game marks, so it waits for the pins
+            // (KeepPins, earlier in the same frame once the snapshot is decoded).
+            if (!s_fogDirty || s_snapshotTask != null || s_pinsDirty) return;
             // Before the sheet is there the fog would be laid for nothing: the atlas opens only
             // with a fog laid for the sheet's sea illustrations, and the sheet's arrival lays it
             // again. Without a sheet coming, it is laid at once.
@@ -779,7 +810,7 @@ namespace Atlas
                     }
                 }
             }
-            if (s_paper) return;
+            if (s_paper || s_uploaded) return;
             if (s_wash == null && s_washFailed && s_parchment != null) s_wash = Paper.Bare(s_parchment);
             byte[] paper = s_cachedPaper ?? (s_wash != null ? s_wash.m_sheet : null);
             if (paper == null) return;
@@ -793,13 +824,14 @@ namespace Atlas
             s_paper.LoadRawTextureData(paper);
             s_cachedPaper = null;
             s_paper.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+            s_uploaded = true;
         }
 
         // Uploads the bare parchment once the fog has handed it back, for the hovered name's
         // banner, which is drawn on the sheet and left unwashed (NameBanner). About 12 MB.
         private static void KeepBareParchment()
         {
-            if (s_bareParchment || s_parchment == null) return;
+            if (s_bareParchment || s_parchment == null || s_uploaded) return;
             int size = Paper.FogSize;
             s_bareParchment = new Texture2D(size, size, TextureFormat.RGB24, mipChain: false)
             {
@@ -810,6 +842,7 @@ namespace Atlas
             s_bareParchment.LoadRawTextureData(s_parchment);
             s_bareParchment.Apply(updateMipmaps: false, makeNoLongerReadable: true);
             s_view.SetParchment(s_bareParchment);
+            s_uploaded = true;
         }
 
         private static Texture2D s_bareParchment;
@@ -819,13 +852,8 @@ namespace Atlas
         private static void KeepDirt()
         {
             if (s_dirt) return;
-            if (s_dirtTask == null)
-            {
-                int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
-                s_dirtTask = Workers.Run(() => Paper.Dirt(seed));
-                return;
-            }
-            if (!s_dirtTask.IsCompleted) return;
+            // Started by StartWorld.
+            if (s_dirtTask == null || !s_dirtTask.IsCompleted || s_uploaded) return;
             if (s_dirtTask.IsFaulted)
             {
                 Jotunn.Logger.LogWarning($"The atlas could not age its sheet: {s_dirtTask.Exception?.GetBaseException()}");
@@ -844,6 +872,7 @@ namespace Atlas
             s_dirt.Apply(updateMipmaps: false, makeNoLongerReadable: true);
             s_dirtTask = null;
             s_view.SetDirt(s_dirt);
+            s_uploaded = true;
         }
 
         // Makes the sheet's trimmed edge once per world and uploads its strips; until then (or if
@@ -851,13 +880,8 @@ namespace Atlas
         private static void KeepEdge()
         {
             if (s_edgeStrips != null) return;
-            if (s_edgeStripsTask == null)
-            {
-                int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
-                s_edgeStripsTask = Workers.Run(() => SheetEdge.Build(seed));
-                return;
-            }
-            if (!s_edgeStripsTask.IsCompleted) return;
+            // Started by StartWorld.
+            if (s_edgeStripsTask == null || !s_edgeStripsTask.IsCompleted || s_uploaded) return;
             if (s_edgeStripsTask.IsFaulted)
             {
                 Jotunn.Logger.LogWarning($"The atlas could not trim its sheet's edge: {s_edgeStripsTask.Exception?.GetBaseException()}");
@@ -897,6 +921,7 @@ namespace Atlas
             s_edgeStrips = textures;
             s_edgeStripsTask = null;
             s_view.SetEdge(s_edgeStrips);
+            s_uploaded = true;
         }
 
         private static void UploadFog(FogLaid laid)
@@ -932,6 +957,7 @@ namespace Atlas
             s_glimpseSerial++;
             s_tiles.SetGlimpse(s_glimpseCopy, s_edge, laid.m_change);
             if (s_view.IsOpen) s_view.Refresh(s_fog, s_snapshot);
+            s_uploaded = true;
         }
 
         // The glimpse round the explored land and the game's marks out in the unexplored:
@@ -961,6 +987,7 @@ namespace Atlas
             s_cacheStarted = false;
             s_decodeTask = null;
             s_paintTask = null;
+            s_paintRechecks = false;
             s_mipsTask = null;
             s_washTask = null;
             s_washFailed = false;

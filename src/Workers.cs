@@ -11,8 +11,14 @@ namespace Atlas
     /// them) runs here, so it never takes every core from Unity's main and render threads and
     /// Valheim's terrain builder, as the shared ThreadPool did right after login.
     /// Jobs run in the order queued, except those started with RunFirst or ThenFirst (the work the
-    /// atlas needs before it can open), which a free worker takes before any other; a loop run
-    /// inside one (LoopOptions) gets its parts ahead too. Nothing running is ever put aside.
+    /// atlas needs before it can open), which a free worker takes before any other. Nothing running
+    /// is ever put aside.
+    /// A loop's parts (LoopOptions) are only queued for a worker that is idle at that moment, and
+    /// idle workers take them before any job; with none idle a part runs at once on the thread
+    /// that made it. Under Valheim's Mono a Parallel.For waits for every part it queued to start,
+    /// even after its own thread has done all the rows: queued behind long jobs it stalled the
+    /// fog for seconds, and with every worker inside a loop at once none ever started (a deadlock
+    /// measured offline under Valheim's Mono; .NET Framework does not wait so).
     /// Work on these threads must never block on another atlas task: with one worker it would wait
     /// on a task queued behind itself. Chain with ContinueWith instead.
     /// </summary>
@@ -29,10 +35,9 @@ namespace Atlas
         public static TaskScheduler Scheduler => s_pool.m_rest;
 
         // Options for a Parallel.For inside atlas work: it stays on these threads, and inside a
-        // job run first its parts are taken first as well (they are tasks queued on the lane given
-        // here, and a job of the opening waits for its slowest part).
+        // job run first its parts keep that lane (and pass it on to work they start).
         public static ParallelOptions LoopOptions(CancellationToken cancel = default(CancellationToken)) =>
-            new ParallelOptions { MaxDegreeOfParallelism = Count, TaskScheduler = s_first ? s_pool.m_first : s_pool.m_rest, CancellationToken = cancel };
+            new ParallelOptions { MaxDegreeOfParallelism = Count, TaskScheduler = s_first ? s_pool.m_firstParts : s_pool.m_restParts, CancellationToken = cancel };
 
         public static Task<T> Run<T>(Func<T> work, CancellationToken cancel = default(CancellationToken)) =>
             Task.Factory.StartNew(work, cancel, TaskCreationOptions.DenyChildAttach, s_pool.m_rest);
@@ -49,20 +54,34 @@ namespace Atlas
         public static Task<TResult> ThenFirst<T, TResult>(Task<T> first, Func<T, TResult> work) =>
             first.ContinueWith(done => work(done.Result), CancellationToken.None, TaskContinuationOptions.DenyChildAttach, s_pool.m_first);
 
-        // The threads and their two queues. Each lane is a TaskScheduler of its own, since a task
+        // A loop's part waiting for the idle worker it was queued for, with the lane it runs in.
+        private struct Part
+        {
+            public Task m_task;
+            public Lane m_lane;
+        }
+
+        // The threads and their queues. Each lane is a TaskScheduler of its own, since a task
         // may only be run by the scheduler it was queued to.
         private sealed class Pool
         {
             public readonly Lane m_first;
             public readonly Lane m_rest;
+            public readonly Lane m_firstParts;
+            public readonly Lane m_restParts;
             private readonly object m_lock = new object();
             private readonly Queue<Task> m_firstQueue = new Queue<Task>();
             private readonly Queue<Task> m_restQueue = new Queue<Task>();
+            private readonly Queue<Part> m_parts = new Queue<Part>();
+            // Workers waiting for work; each queued part has one of them to itself.
+            private int m_idle;
 
             public Pool(int threads)
             {
-                m_first = new Lane(this, true);
-                m_rest = new Lane(this, false);
+                m_first = new Lane(this, true, false);
+                m_rest = new Lane(this, false, false);
+                m_firstParts = new Lane(this, true, true);
+                m_restParts = new Lane(this, false, true);
                 for (int i = 0; i < threads; i++)
                 {
                     var thread = new Thread(Loop)
@@ -80,13 +99,33 @@ namespace Atlas
                 lock (m_lock)
                 {
                     (first ? m_firstQueue : m_restQueue).Enqueue(task);
-                    Monitor.Pulse(m_lock);
+                    Monitor.PulseAll(m_lock);
                 }
             }
 
-            public Task[] Queued(bool first)
+            // Queues a loop's part only if an idle worker is left for it; false when the caller
+            // must run it itself.
+            public bool AddPart(Task task, Lane lane)
             {
-                lock (m_lock) return (first ? m_firstQueue : m_restQueue).ToArray();
+                lock (m_lock)
+                {
+                    if (m_idle <= m_parts.Count) return false;
+                    m_parts.Enqueue(new Part { m_task = task, m_lane = lane });
+                    Monitor.PulseAll(m_lock);
+                    return true;
+                }
+            }
+
+            public Task[] Queued(Lane lane)
+            {
+                lock (m_lock)
+                {
+                    if (!lane.m_isParts) return (lane.m_isFirst ? m_firstQueue : m_restQueue).ToArray();
+                    var tasks = new List<Task>();
+                    foreach (Part part in m_parts)
+                        if (part.m_lane == lane) tasks.Add(part.m_task);
+                    return tasks.ToArray();
+                }
             }
 
             private void Loop()
@@ -95,14 +134,33 @@ namespace Atlas
                 while (true)
                 {
                     Task task;
-                    bool first;
+                    Lane lane;
                     lock (m_lock)
                     {
-                        while (m_firstQueue.Count == 0 && m_restQueue.Count == 0) Monitor.Wait(m_lock);
-                        first = m_firstQueue.Count > 0;
-                        task = first ? m_firstQueue.Dequeue() : m_restQueue.Dequeue();
+                        while (m_parts.Count == 0 && m_firstQueue.Count == 0 && m_restQueue.Count == 0)
+                        {
+                            m_idle++;
+                            Monitor.Wait(m_lock);
+                            m_idle--;
+                        }
+                        if (m_parts.Count > 0)
+                        {
+                            Part part = m_parts.Dequeue();
+                            task = part.m_task;
+                            lane = part.m_lane;
+                        }
+                        else if (m_firstQueue.Count > 0)
+                        {
+                            task = m_firstQueue.Dequeue();
+                            lane = m_first;
+                        }
+                        else
+                        {
+                            task = m_restQueue.Dequeue();
+                            lane = m_rest;
+                        }
                     }
-                    (first ? m_first : m_rest).Execute(task);
+                    lane.Execute(task);
                 }
             }
         }
@@ -110,12 +168,15 @@ namespace Atlas
         private sealed class Lane : TaskScheduler
         {
             private readonly Pool m_pool;
-            private readonly bool m_isFirst;
+            public readonly bool m_isFirst;
+            // A lane for loops' parts rather than jobs.
+            public readonly bool m_isParts;
 
-            public Lane(Pool pool, bool first)
+            public Lane(Pool pool, bool first, bool parts)
             {
                 m_pool = pool;
                 m_isFirst = first;
+                m_isParts = parts;
             }
 
             public override int MaximumConcurrencyLevel => Count;
@@ -134,10 +195,17 @@ namespace Atlas
                 }
             }
 
-            protected override void QueueTask(Task task) => m_pool.Add(task, m_isFirst);
+            // A part with no idle worker for it runs here and now, on the thread whose loop made
+            // it (it takes the rows that thread would have taken); queued, it could wait behind
+            // jobs that run for seconds, with its loop waiting for it to start.
+            protected override void QueueTask(Task task)
+            {
+                if (!m_isParts) m_pool.Add(task, m_isFirst);
+                else if (!m_pool.AddPart(task, this)) Execute(task);
+            }
 
-            // Parallel.For runs part of its loop on the calling thread, which keeps it from waiting
-            // on its own queued parts; that is allowed on these threads only.
+            // Parallel.For runs part of its loop on the calling thread; that is allowed on these
+            // threads only.
             protected override bool TryExecuteTaskInline(Task task, bool taskWasPreviouslyQueued)
             {
                 if (!s_onWorker || taskWasPreviouslyQueued) return false;
@@ -153,7 +221,7 @@ namespace Atlas
                 }
             }
 
-            protected override IEnumerable<Task> GetScheduledTasks() => m_pool.Queued(m_isFirst);
+            protected override IEnumerable<Task> GetScheduledTasks() => m_pool.Queued(this);
         }
     }
 }

@@ -7,7 +7,7 @@
   into swallowtails, so it reads over woods and mountains. Checked (crossed out) pins show no
   name, and pointing between one and an unchecked pin names the unchecked one.
 - The map can be opened sooner after joining a world you have mapped before, and pointing at a
-  pin no longer stutters the first time its name shows.
+  pin no longer stutters the first time its name shows; its banner is ready almost at once.
 - Recording discoveries several times in a row no longer redraws the map once for each record:
   only the latest pins are drawn.
 - Checking or unchecking a pin at the table now updates the map almost at once instead of

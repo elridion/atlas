@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 using UnityEngine;
 
 namespace Atlas
@@ -153,7 +154,10 @@ namespace Atlas
 
         public void EndGroup() => m_record?.EndGroup();
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private float X(float x) => (x - m_originX) * m_scale;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private float Y(float y) => (y - m_originY) * m_scale;
 
         // When set, every point drawn is moved by it first, and straight strokes and outlines are
@@ -336,7 +340,14 @@ namespace Atlas
         }
 
         // Coverage from the signed distance to the nearest edge segment, inside by the even-odd
-        // rule, so it is exact for concave outlines too.
+        // rule, so it is exact for concave outlines too. Only pixels near an edge need that
+        // distance: further in the coverage is full, further out there is none. So each row
+        // counts its sorted edge crossings for inside, and a pixel measures only the edges filed
+        // in its cell of a grid (each edge in every cell its box, grown by the band, touches).
+        // Testing every edge at every pixel of the box took a long name's banner 0.35 s and more
+        // (NameBanner); this takes about 10 ms. The arithmetic per edge and pixel must stay as it
+        // is (no reordering, no inverse lengths): the sheet is cached, so a pixel that comes out a
+        // bit different needs an InkCache.Version bump.
         private void OutlinePixels(IList<Vector2> sheetPolygon, float grow)
         {
             int count = sheetPolygon.Count;
@@ -368,28 +379,155 @@ namespace Atlas
             float reach = Math.Max(grow, 0f) + 1f;
             int minX = Math.Max(0, (int)(minXf - reach)), maxX = Math.Min(m_width - 1, (int)(maxXf + reach));
             int minY = Math.Max(0, (int)(minYf - reach)), maxY = Math.Min(m_height - 1, (int)(maxYf + reach));
+            if (minX > maxX || minY > maxY) return;
+            LoadEdges(polygon);
+            // Beyond this distance from every edge a pixel's coverage is at least 1 inside and at
+            // most 0 outside, so its exact distance changes nothing (OutlineSlack keeps rounding
+            // well clear of that).
+            float band = Math.Abs(grow) + 0.5f + OutlineSlack;
+            int cellsX = (maxX - minX) / OutlineCell + 1, cellsY = (maxY - minY) / OutlineCell + 1;
+            FileEdges(count, band, minX, minY, cellsX, cellsY);
+            float[] ax = m_edgeAx, ay = m_edgeAy, by = m_edgeBy, ex = m_edgeEx, ey = m_edgeEy, lengthSqr = m_edgeLengthSqr;
+            int[] cellStart = m_cellStart, cellEdges = m_cellEdges;
+            if (m_crossings.Length < count) m_crossings = new float[count];
+            float[] crossings = m_crossings;
             for (int y = minY; y <= maxY; y++)
             {
                 float py = y + 0.5f;
+                // The row's crossings, sorted: a pixel is inside when an odd number lie past it.
+                int crossed = 0;
+                for (int i = 0; i < count; i++)
+                {
+                    if ((ay[i] > py) == (by[i] > py)) continue;
+                    float cross = ax[i] + (py - ay[i]) * ex[i] / ey[i];
+                    // px < NaN is false: a NaN crossing never counts.
+                    if (!float.IsNaN(cross)) crossings[crossed++] = cross;
+                }
+                if (crossed > 1) Array.Sort(crossings, 0, crossed);
+                int passed = 0;
+                int cellRow = (y - minY) / OutlineCell * cellsX;
+                int row = y * m_width;
                 for (int x = minX; x <= maxX; x++)
                 {
                     float px = x + 0.5f;
-                    bool inside = false;
-                    float nearest = float.MaxValue;
-                    for (int i = 0; i < count; i++)
+                    while (passed < crossed && !(px < crossings[passed])) passed++;
+                    bool inside = ((crossed - passed) & 1) != 0;
+                    int cell = cellRow + (x - minX) / OutlineCell;
+                    int from = cellStart[cell], to = cellStart[cell + 1];
+                    if (from == to)
                     {
-                        Vector2 a = polygon[i], b = polygon[(i + 1) % count];
-                        if ((a.y > py) != (b.y > py) && px < a.x + (py - a.y) * (b.x - a.x) / (b.y - a.y)) inside = !inside;
-                        float ex = b.x - a.x, ey = b.y - a.y;
-                        float lengthSqr = ex * ex + ey * ey;
-                        float t = lengthSqr > 0f ? Mathf.Clamp01(((px - a.x) * ex + (py - a.y) * ey) / lengthSqr) : 0f;
-                        float dx = px - (a.x + t * ex), dy = py - (a.y + t * ey);
-                        nearest = Math.Min(nearest, dx * dx + dy * dy);
+                        if (inside) Lighten(row + x, 1f);
+                        continue;
+                    }
+                    float nearest = float.MaxValue;
+                    for (int k = from; k < to; k++)
+                    {
+                        int i = cellEdges[k];
+                        float t = 0f;
+                        if (lengthSqr[i] > 0f)
+                        {
+                            t = ((px - ax[i]) * ex[i] + (py - ay[i]) * ey[i]) / lengthSqr[i];
+                            if (t < 0f) t = 0f;
+                            else if (t > 1f) t = 1f;
+                        }
+                        float dx = px - (ax[i] + t * ex[i]), dy = py - (ay[i] + t * ey[i]);
+                        float d = dx * dx + dy * dy;
+                        // Math.Min's rule, NaN included.
+                        if (!(nearest < d) && !float.IsNaN(nearest)) nearest = d;
                     }
                     float distance = Mathf.Sqrt(nearest);
-                    Lighten(y * m_width + x, (inside ? distance : -distance) + grow + 0.5f);
+                    Lighten(row + x, (inside ? distance : -distance) + grow + 0.5f);
                 }
             }
+        }
+
+        // Grid cells of the outline's edge index, in pixels, and how far past the band of partial
+        // coverage an edge is still filed.
+        private const int OutlineCell = 8;
+        private const float OutlineSlack = 2f;
+
+        // A polygon's edges (corner i to corner i + 1, the last closing the loop) as arrays, so the
+        // pixel loops read no list and take no modulo.
+        private float[] m_edgeAx = new float[16], m_edgeAy = new float[16], m_edgeBx = new float[16], m_edgeBy = new float[16];
+        private float[] m_edgeEx = new float[16], m_edgeEy = new float[16], m_edgeLengthSqr = new float[16];
+        private float[] m_crossings = new float[16];
+        private int[] m_cellStart = new int[16], m_cellEdges = new int[16];
+
+        private void EnsureEdges(int count)
+        {
+            if (m_edgeAx.Length >= count) return;
+            int size = Math.Max(count, m_edgeAx.Length * 2);
+            m_edgeAx = new float[size];
+            m_edgeAy = new float[size];
+            m_edgeBx = new float[size];
+            m_edgeBy = new float[size];
+            m_edgeEx = new float[size];
+            m_edgeEy = new float[size];
+            m_edgeLengthSqr = new float[size];
+        }
+
+        private void LoadEdges(List<Vector2> polygon)
+        {
+            int count = polygon.Count;
+            EnsureEdges(count);
+            for (int i = 0; i < count; i++)
+            {
+                Vector2 a = polygon[i], b = polygon[i + 1 < count ? i + 1 : 0];
+                float ex = b.x - a.x, ey = b.y - a.y;
+                m_edgeAx[i] = a.x;
+                m_edgeAy[i] = a.y;
+                m_edgeBx[i] = b.x;
+                m_edgeBy[i] = b.y;
+                m_edgeEx[i] = ex;
+                m_edgeEy[i] = ey;
+                m_edgeLengthSqr[i] = ex * ex + ey * ey;
+            }
+        }
+
+        // Files each edge in every cell its box grown by band touches (m_cellStart, m_cellEdges,
+        // cells row by row from the pixel box's corner), so every edge within band of a pixel is
+        // in that pixel's cell. An edge with a NaN or infinite end is filed everywhere, as the old
+        // loop measured it everywhere.
+        private void FileEdges(int count, float band, int minX, int minY, int cellsX, int cellsY)
+        {
+            int cells = cellsX * cellsY;
+            if (m_cellStart.Length < cells + 1) m_cellStart = new int[Math.Max(cells + 1, m_cellStart.Length * 2)];
+            int[] start = m_cellStart;
+            Array.Clear(start, 0, cells + 1);
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int c0, c1, r0, r1;
+                    CellSpan(Math.Min(m_edgeAx[i], m_edgeBx[i]) - band, Math.Max(m_edgeAx[i], m_edgeBx[i]) + band, minX, cellsX, out c0, out c1);
+                    CellSpan(Math.Min(m_edgeAy[i], m_edgeBy[i]) - band, Math.Max(m_edgeAy[i], m_edgeBy[i]) + band, minY, cellsY, out r0, out r1);
+                    for (int r = r0; r <= r1; r++)
+                        for (int c = c0; c <= c1; c++)
+                        {
+                            int cell = r * cellsX + c;
+                            if (pass == 0) start[cell + 1]++;
+                            else m_cellEdges[start[cell]++] = i;
+                        }
+                }
+                if (pass == 0)
+                {
+                    for (int cell = 0; cell < cells; cell++) start[cell + 1] += start[cell];
+                    int filed = start[cells];
+                    if (m_cellEdges.Length < filed) m_cellEdges = new int[Math.Max(filed, m_cellEdges.Length * 2)];
+                }
+            }
+            // The second pass moved each cell's start on to the next cell's: shift them back.
+            for (int cell = cells; cell > 0; cell--) start[cell] = start[cell - 1];
+            start[0] = 0;
+        }
+
+        // The cells from..to (pixels from origin) covers, empty (first > last) when it lies off the
+        // grid; NaN spans the whole grid.
+        private static void CellSpan(float from, float to, int origin, int cellCount, out int first, out int last)
+        {
+            float a = (from - origin) / OutlineCell, b = (to - origin) / OutlineCell;
+            first = !(a >= 0f) ? 0 : a >= cellCount ? cellCount : (int)a;
+            last = !(b < cellCount) ? cellCount - 1 : b < 0f ? -1 : (int)b;
         }
 
         // A peak, seen as a cone, meets the ground along the near half of its base ellipse, as
@@ -456,6 +594,19 @@ namespace Atlas
             byte[] mark = BodyMask(m_tintKind);
             if (value > mark[index]) mark[index] = (byte)value;
         }
+
+        // How far (pixels) past the reach of a pen's partial coverage a row still evaluates its
+        // pixels. The rows' spans are worked out in other arithmetic than the pixels' coverage,
+        // so they keep this much clear of where rounding could matter; every pixel left out has
+        // a coverage of 0 or less, which leaves it as it is.
+        private const float SpanSlack = 1f;
+
+        // True when v is neither NaN nor infinite. Spans are worked out only then: a NaN coverage
+        // still changes a pixel (Lighten), so a shape with a NaN or infinite point keeps its
+        // whole box.
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static bool Finite(float v) => v - v == 0f;
+
         private void Capsule(float x0, float y0, float x1, float y1, float width, float strength, bool erase)
         {
             float r = width * 0.5f;
@@ -465,19 +616,65 @@ namespace Atlas
             int maxX = Math.Min(m_width - 1, (int)(Math.Max(x0, x1) + r + 1f));
             int minY = Math.Max(0, (int)(Math.Min(y0, y1) - r - 1f));
             int maxY = Math.Min(m_height - 1, (int)(Math.Max(y0, y1) + r + 1f));
+            // Each row evaluates only the pixels within reach of the part of the segment level with
+            // it, not the whole box: a long slanting stroke's box is mostly empty. A negative or NaN
+            // strength would ink a pixel of negative coverage, so it keeps the box.
+            bool span = (erase || strength > 0f) && Finite(x0 + y0 + x1 + y1 + r);
+            double reach = r + 0.5f + SpanSlack;
             for (int y = minY; y <= maxY; y++)
             {
                 float py = y + 0.5f;
-                for (int x = minX; x <= maxX; x++)
+                int from = minX, to = maxX;
+                if (span)
+                {
+                    double lo, hi;
+                    if (dy != 0f)
+                    {
+                        double t0 = (py - reach - y0) / dy, t1 = (py + reach - y0) / dy;
+                        t0 = t0 < 0.0 ? 0.0 : t0 > 1.0 ? 1.0 : t0;
+                        t1 = t1 < 0.0 ? 0.0 : t1 > 1.0 ? 1.0 : t1;
+                        double xa = x0 + t0 * dx, xb = x0 + t1 * dx;
+                        lo = Math.Min(xa, xb);
+                        hi = Math.Max(xa, xb);
+                    }
+                    else
+                    {
+                        if (Math.Abs(py - (double)y0) > reach) continue;
+                        lo = Math.Min(x0, x1);
+                        hi = Math.Max(x0, x1);
+                    }
+                    if (!Clip(lo - reach - 0.5, hi + reach, minX, maxX, out from, out to)) continue;
+                }
+                int row = y * m_width;
+                for (int x = from; x <= to; x++)
                 {
                     float px = x + 0.5f;
-                    float t = lengthSqr > 0f ? Mathf.Clamp01(((px - x0) * dx + (py - y0) * dy) / lengthSqr) : 0f;
+                    // Mathf.Clamp01 and Mathf.Sqrt written out: Mono calls them per pixel.
+                    float t = 0f;
+                    if (lengthSqr > 0f)
+                    {
+                        t = ((px - x0) * dx + (py - y0) * dy) / lengthSqr;
+                        if (t < 0f) t = 0f;
+                        else if (t > 1f) t = 1f;
+                    }
                     float ex = px - (x0 + t * dx), ey = py - (y0 + t * dy);
-                    float coverage = r + 0.5f - Mathf.Sqrt(ex * ex + ey * ey);
-                    if (erase) Lighten(y * m_width + x, coverage);
-                    else Darken(y * m_width + x, coverage * strength);
+                    float coverage = r + 0.5f - (float)Math.Sqrt(ex * ex + ey * ey);
+                    if (erase) Lighten(row + x, coverage);
+                    else Darken(row + x, coverage * strength);
                 }
             }
+        }
+
+        // The pixels from..to of minX..maxX that cover left..right (pixel indices, a pixel spare
+        // on the right); false when none do.
+        private static bool Clip(double left, double right, int minX, int maxX, out int from, out int to)
+        {
+            from = minX;
+            to = maxX;
+            if (!(left <= maxX) || !(right >= minX)) return false;
+            if (left > minX) from = (int)left;
+            if (right < maxX) to = Math.Min(maxX, (int)right + 1);
+            return from <= to;
         }
 
         private void RingPixels(float cx, float cy, float rx, float ry, float width, float strength)
@@ -488,15 +685,55 @@ namespace Atlas
             int minY = Math.Max(0, (int)(cy - ry - r - 1f));
             int maxY = Math.Min(m_height - 1, (int)(cy + ry + r + 1f));
             float scale = Math.Min(rx, ry);
+            // Each row evaluates only the pixels near the ring, where the normalised radius lies
+            // within (r + 0.5 + SpanSlack) / scale of 1, not the whole box: the frame's rings
+            // spanned the whole sheet.
+            bool span = strength > 0f && rx > 0f && ry > 0f && Finite(cx + cy + rx + ry + r);
+            double band = (r + 0.5f + SpanSlack) / (double)scale;
+            double outer = 1.0 + band, inner = 1.0 - band;
             for (int y = minY; y <= maxY; y++)
             {
-                for (int x = minX; x <= maxX; x++)
+                float ey = (y + 0.5f - cy) / ry;
+                if (!span)
                 {
-                    float ex = (x + 0.5f - cx) / rx, ey = (y + 0.5f - cy) / ry;
-                    // Distance to an ellipse, approximated by the normalised radius; exact for circles.
-                    float distance = Math.Abs(Mathf.Sqrt(ex * ex + ey * ey) - 1f) * scale;
-                    Darken(y * m_width + x, (r + 0.5f - distance) * strength);
+                    RingRow(y, minX, maxX, cx, rx, ey, r, scale, strength);
+                    continue;
                 }
+                double eySqr = (double)ey * ey;
+                if (eySqr >= outer * outer) continue;
+                double far = Math.Sqrt(outer * outer - eySqr) * rx;
+                double near = inner > 0.0 && inner * inner > eySqr ? Math.Sqrt(inner * inner - eySqr) * rx : 0.0;
+                // Pixel centres within near of the centre lie inside the ring's band, beyond far
+                // outside it.
+                int from, to;
+                if (near <= 1.0)
+                {
+                    if (Clip(cx - far - 1.0 - 0.5, cx + far + 1.0, minX, maxX, out from, out to)) RingRow(y, from, to, cx, rx, ey, r, scale, strength);
+                    continue;
+                }
+                int leftEnd = minX - 1;
+                if (Clip(cx - far - 1.0 - 0.5, cx - near + 1.0, minX, maxX, out from, out to))
+                {
+                    RingRow(y, from, to, cx, rx, ey, r, scale, strength);
+                    leftEnd = to;
+                }
+                if (Clip(cx + near - 1.0 - 0.5, cx + far + 1.0, minX, maxX, out from, out to))
+                {
+                    if (from <= leftEnd) from = leftEnd + 1;
+                    if (from <= to) RingRow(y, from, to, cx, rx, ey, r, scale, strength);
+                }
+            }
+        }
+
+        private void RingRow(int y, int from, int to, float cx, float rx, float ey, float r, float scale, float strength)
+        {
+            int row = y * m_width;
+            for (int x = from; x <= to; x++)
+            {
+                float ex = (x + 0.5f - cx) / rx;
+                // Distance to an ellipse, approximated by the normalised radius; exact for circles.
+                float distance = Math.Abs((float)Math.Sqrt(ex * ex + ey * ey) - 1f) * scale;
+                Darken(row + x, (r + 0.5f - distance) * strength);
             }
         }
 
@@ -556,31 +793,71 @@ namespace Atlas
             float winding = Math.Sign(area);
             int minX = Math.Max(0, (int)(minXf - 1f)), maxX = Math.Min(m_width - 1, (int)(maxXf + 1f));
             int minY = Math.Max(0, (int)(minYf - 1f)), maxY = Math.Min(m_height - 1, (int)(maxYf + 1f));
+            // The edges as arrays with their lengths (in the outline's squared-length array),
+            // worked out once rather than per pixel; edges too short to have a direction are left
+            // out. The division by the length stays a division: a multiplied inverse rounds
+            // differently.
+            EnsureEdges(count);
+            float[] ax = m_edgeAx, ay = m_edgeAy, ex = m_edgeEx, ey = m_edgeEy, length = m_edgeLengthSqr;
+            int edges = 0;
+            bool finite = true;
+            for (int i = 0; i < count; i++)
+            {
+                Vector2 a = polygon[i], b = polygon[i + 1 < count ? i + 1 : 0];
+                float edgeX = b.x - a.x, edgeY = b.y - a.y;
+                float edgeLength = (float)Math.Sqrt(edgeX * edgeX + edgeY * edgeY);
+                if (edgeLength < 1e-5f) continue;
+                ax[edges] = a.x;
+                ay[edges] = a.y;
+                ex[edges] = edgeX;
+                ey[edges] = edgeY;
+                length[edges] = edgeLength;
+                finite &= Finite(a.x + a.y + edgeX + edgeY + edgeLength);
+                edges++;
+            }
+            // Each row evaluates only the pixels where no edge line lies more than
+            // 0.5 + SpanSlack outside them (an interval: the polygon grown is convex whatever the
+            // outline), not the whole box. A negative or NaN strength keeps the box, as for strokes.
+            bool span = finite && (erase || m_tintKind != BodyKind.None || strength > 0f);
+            double edge = -0.5 - SpanSlack;
             for (int y = minY; y <= maxY; y++)
             {
                 float py = y + 0.5f;
-                for (int x = minX; x <= maxX; x++)
+                int from = minX, to = maxX;
+                if (span)
+                {
+                    // Along the row an edge's signed distance is d = c + s * px.
+                    double lo = double.NegativeInfinity, hi = double.PositiveInfinity;
+                    for (int i = 0; i < edges; i++)
+                    {
+                        double c = winding * ((double)ex[i] * (py - ay[i]) + (double)ey[i] * ax[i]) / length[i];
+                        double s = -winding * (double)ey[i] / length[i];
+                        if (s > 0.0) lo = Math.Max(lo, (edge - c) / s);
+                        else if (s < 0.0) hi = Math.Min(hi, (edge - c) / s);
+                        else if (c <= edge) hi = double.NegativeInfinity;
+                    }
+                    if (!(lo <= hi) || !Clip(lo - 0.5 - 1.0, hi + 1.0, minX, maxX, out from, out to)) continue;
+                }
+                int row = y * m_width;
+                for (int x = from; x <= to; x++)
                 {
                     float px = x + 0.5f;
                     // Signed distance to the nearest edge line, positive inside.
                     float inside = float.MaxValue;
-                    for (int i = 0; i < count; i++)
+                    for (int i = 0; i < edges; i++)
                     {
-                        Vector2 a = polygon[i], b = polygon[(i + 1) % count];
-                        float ex = b.x - a.x, ey = b.y - a.y;
-                        float length = Mathf.Sqrt(ex * ex + ey * ey);
-                        if (length < 1e-5f) continue;
-                        float d = winding * (ex * (py - a.y) - ey * (px - a.x)) / length;
+                        float d = winding * (ex[i] * (py - ay[i]) - ey[i] * (px - ax[i])) / length[i];
                         if (d < inside) inside = d;
                     }
                     float coverage = inside + 0.5f;
-                    if (m_tintKind != BodyKind.None) TintPixel(y * m_width + x, coverage);
-                    else if (erase) Lighten(y * m_width + x, coverage);
-                    else Darken(y * m_width + x, coverage * strength);
+                    if (m_tintKind != BodyKind.None) TintPixel(row + x, coverage);
+                    else if (erase) Lighten(row + x, coverage);
+                    else Darken(row + x, coverage * strength);
                 }
             }
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void Darken(int index, float coverage)
         {
             if (coverage <= 0f) return;

@@ -222,11 +222,12 @@ namespace Atlas
             }
         }
 
-        // Every peak of the sheet: its foot (x, y) and width (z), so close-ups keep the Mountains'
-        // trees off the peaks' bases as the sheet does (InkPainter.ClearOfPeakBases).
-        private readonly List<Vector3> m_peaks = new List<Vector3>();
+        // Every peak and ridge of the sheet: its foot (x, y), width (z) and height (w), so close-ups
+        // keep the Mountains' trees off the bases and stand them on the lower slopes as the sheet
+        // does (InkPainter.ClearOfPeakBases, SlopeOrder).
+        private readonly List<Vector4> m_peaks = new List<Vector4>();
 
-        public void AddPeak(float x, float y, float width) => m_peaks.Add(new Vector3(x, y, width));
+        public void AddPeak(float x, float y, float width, float height) => m_peaks.Add(new Vector4(x, y, width, height));
 
         // The sheet's sea illustrations, kept with the sheet in the disk cache for the fog.
         public readonly List<SeaMark> m_seaMarks = new List<SeaMark>();
@@ -241,9 +242,9 @@ namespace Atlas
         }
 
         // The peaks whose foot lies in the sheet rectangle.
-        public void Peaks(float left, float top, float right, float bottom, List<Vector3> into)
+        public void Peaks(float left, float top, float right, float bottom, List<Vector4> into)
         {
-            foreach (Vector3 peak in m_peaks)
+            foreach (Vector4 peak in m_peaks)
                 if (peak.x >= left && peak.x <= right && peak.y >= top && peak.y <= bottom) into.Add(peak);
         }
 

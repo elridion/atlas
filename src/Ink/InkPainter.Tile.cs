@@ -64,10 +64,10 @@ namespace Atlas
             // The sheet's peaks near the tile, whose bases the Mountains' trees keep clear of as
             // on the sheet: the tile's trees stand up to GlyphReach beyond it, and a peak's base
             // reaches half its width (51 px at most) from its foot.
-            var peaks = new List<Vector3>();
+            var peaks = new List<Vector4>();
             float reach = GlyphReach + PeakCell;
             record.Peaks(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, peaks);
-            foreach (Vector3 peak in peaks) AddPeakBase(peak);
+            foreach (Vector4 peak in peaks) AddPeakBase(peak);
             // The sheet's other glyphs' footprints, before the trees, so a boulder field's lone
             // pines keep off the hills as on the sheet (ClearOfPlaced).
             var boxes = new List<Vector4>();
@@ -88,7 +88,7 @@ namespace Atlas
             DrawMeadowGrass();
             DrawWoodlessGround();
             m_canvas.m_layer = InkLayer.Tree;
-            m_glyphs.Sort((a, b) => a.m_y.CompareTo(b.m_y));
+            m_glyphs.Sort((a, b) => Order(a).CompareTo(Order(b)));
             // The sheet's other glyphs (peaks, spires, hills) are sorted in with the tile's own
             // trees by their feet and drawn from north to south, so whichever stands in front
             // hides the other, as on the sheet; laid over all the trees, a spire behind a tree
@@ -100,7 +100,7 @@ namespace Atlas
             int next = 0;
             foreach (Glyph glyph in m_glyphs)
             {
-                while (next < groups.Count && groups[next].m_foot <= glyph.m_y) record.Replay(m_canvas, groups[next++]);
+                while (next < groups.Count && groups[next].m_foot <= Order(glyph)) record.Replay(m_canvas, groups[next++]);
                 DrawGlyph(glyph);
             }
             while (next < groups.Count) record.Replay(m_canvas, groups[next++]);

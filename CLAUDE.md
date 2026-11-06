@@ -1022,11 +1022,20 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   within `MountainFirWindow` 2 pixels (60 m) is under 280 m and gentle; per pixel it would draw
   specks of trees among the peaks. Close-ups sample the sheet's own field (`GeneratorSampler`),
   since slope needs neighbours and the generator's finer heights would bring back the specks.
-  Peaks stand on the same ground, so their trees (the conifer rule, salt 24) keep off the peaks'
-  bases (`ClearOfPeakBases`): a tree whose foot is south of a peak's foot, within its height plus
-  `PeakBaseGap` and within `PeakBaseWidth` of the peak's width plus its crown, would be drawn in
-  front of the base and is left out; trees north of a foot are hidden behind the peak. The peaks
-  are recorded (`InkRecord.AddPeak`) so close-ups test the same. The mountain wash is not
+  Peaks and ridges stand on the same ground, and the woods climb their lower slopes (the user's
+  call; `ClearOfPeakBases`, the conifer rule, salt 24): a tree standing in front of a peak's or
+  ridge's lower part or below its foot, within `PeakBaseWidth` of its width plus the crown, is
+  kept only while its whole crown stays within `SlopeTop` 0.35 of the glyph's height over its
+  foot (0.5 covered too much of the low ridges, whose height is about a pine's), so the upper
+  part stays clear and the mountain still reads; a tree whose foot is higher up is hidden
+  behind the glyph. A tree in front of that lower part and inside the glyph's body (narrowing
+  up the slope) is drawn just after the glyph instead of by its own foot (`SlopeOrder`,
+  `Glyph.m_onSlope`, `m_order` `SlopeOrderGap` past the glyph's foot plus `SlopeOrderStep` a
+  pixel further south, so trees on one slope keep their order), so it stands on the slope
+  rather than being scraped away behind it; `Order` gives that order to the sheet's drawing,
+  the close-ups' (their tree sort and the replay of the sheet's groups) and the pins' cover
+  rules. Feet, widths and heights are recorded (`InkRecord.AddPeak`) so close-ups decide the
+  same. The mountain wash is not
   darkened under the woods. The preview's mountain woods sit where the game's do, as no forest
   factor is involved; alt biomes only show offline when forced (`--alt`, below).
 - **Alt biomes** (Valheim 1.0's per-patch variants, chosen once per world from the seed) only

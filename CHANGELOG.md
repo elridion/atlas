@@ -48,8 +48,9 @@
   small leafy trees, each a little crown with a three-lobed top, with only a rare big one among them, and those where it grows more (wolf Mountains, tree-filled
   Mistlands) get denser woods.
 - The Mountains' fir woods are drawn too, as dark pine woods on the gentler slopes where the game
-  grows its firs, from the lush woods at the mountains' feet up between the peaks, which stand
-  in front of them; the ground under the trees keeps the mountains' grey.
+  grows its firs, from the lush woods at the mountains' feet up between the peaks and onto the
+  lower slopes of the peaks and ridges, whose tops stay clear; the ground under the trees keeps
+  the mountains' grey.
 - Coastlines are drawn with a fine pen. Groups of up to seven level wave strokes mark the
   bays and headlands, and now and then a long straight coast: each starts right at the shore and
   runs out to sea, long and short strokes in turn, and a headland pointing north or south may

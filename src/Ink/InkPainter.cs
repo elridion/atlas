@@ -308,6 +308,13 @@ namespace Atlas
         private const float PeakBaseGap = 2.5f;
         private const float PeakCrownWidth = 0.3f;
         private const float PeakCell = 64f;
+        // Mountain trees may stand on a peak's or ridge's lower slopes, their crowns within
+        // SlopeTop of its height over its foot (ClearOfPeakBases), drawn just after it: SlopeOrderGap
+        // after its foot, plus SlopeOrderStep per pixel further south, so trees on one slope keep
+        // their own order (SlopeOrder).
+        private const float SlopeTop = 0.35f;
+        private const float SlopeOrderGap = 0.02f;
+        private const float SlopeOrderStep = 0.001f;
 
         // Terrain thresholds: metres above the water and height change per metre of slope.
         private const float PeakHeight = 50f;
@@ -789,7 +796,7 @@ namespace Atlas
                 for (int i = first; i < m_glyphs.Count; i++)
                 {
                     Glyph g = m_glyphs[i];
-                    if (!IsTree(g.m_kind) || g.m_y <= mark.m_order || dropped.Contains(i)) continue;
+                    if (!IsTree(g.m_kind) || Order(g) <= mark.m_order || dropped.Contains(i)) continue;
                     if (Overlap(GlyphBox(g), pin) > 0f) candidates.Add(i);
                 }
                 candidates.Sort((a, b) =>
@@ -827,7 +834,7 @@ namespace Atlas
                 for (int i = first; i < m_glyphs.Count; i++)
                 {
                     Glyph g = m_glyphs[i];
-                    if (!IsTree(g.m_kind) || g.m_y > mark.m_order || dropped.Contains(i)) continue;
+                    if (!IsTree(g.m_kind) || Order(g) > mark.m_order || dropped.Contains(i)) continue;
                     if (Overlap(GlyphBox(g), pin) <= 0f) continue;
                     int shown = 0;
                     for (int k = 0; k < HiddenSamples; k++)
@@ -899,7 +906,7 @@ namespace Atlas
             kind == Kind.Peak || kind == Kind.Ridge || kind == Kind.Hill || kind == Kind.Spire || kind == Kind.Thorn;
 
         // The order glyphs are drawn in, north to south: a glyph's foot, a mark's m_order.
-        private static float Order(Glyph g) => IsMark(g.m_kind) ? g.m_order : g.m_y;
+        private static float Order(Glyph g) => IsMark(g.m_kind) || g.m_onSlope ? g.m_order : g.m_y;
 
         // Relief in front of a pin may cover it up to MarkCover of its box too, but is never left
         // out: the relief drawn after the pin that overlaps it is taken north first, each adding
@@ -977,6 +984,8 @@ namespace Atlas
             // its box the relief in front of it covers (OrderMarks).
             public float m_order;
             public bool[] m_cover;
+            // A tree standing on a peak's or ridge's lower slope, drawn at m_order (SlopeOrder).
+            public bool m_onSlope;
         }
 
         // Everything a scatter rule needs to know about one canvas point.
@@ -2557,44 +2566,74 @@ namespace Atlas
             return false;
         }
 
-        // The peaks' feet (x, y) and widths (z), filed in PeakCell squares of the sheet, which the
-        // Mountains' trees keep clear of: on the sheet the peaks placed before the trees, in a
-        // close-up the sheet's peaks from the record.
-        private readonly Dictionary<int, List<Vector3>> m_peakBases = new Dictionary<int, List<Vector3>>();
+        // The peaks' and ridges' feet (x, y), widths (z) and heights (w), filed in PeakCell squares
+        // of the sheet, which the Mountains' trees keep clear of or stand on: on the sheet the
+        // ones placed before the trees, in a close-up the sheet's from the record.
+        private readonly Dictionary<int, List<Vector4>> m_peakBases = new Dictionary<int, List<Vector4>>();
 
-        private void AddPeakBase(Vector3 peak)
+        private void AddPeakBase(Vector4 peak)
         {
             int key = PeakCellKey((int)Math.Floor(peak.x / PeakCell), (int)Math.Floor(peak.y / PeakCell));
-            if (!m_peakBases.TryGetValue(key, out List<Vector3> cell)) m_peakBases[key] = cell = new List<Vector3>(8);
+            if (!m_peakBases.TryGetValue(key, out List<Vector4> cell)) m_peakBases[key] = cell = new List<Vector4>(8);
             cell.Add(peak);
         }
 
         private static int PeakCellKey(int cx, int cy) => (cy + 64) * 4096 + cx + 64;
 
-        // Whether a Mountain tree of the given height standing at (x, y) keeps clear of every
-        // peak's base. A tree whose foot is south of a peak's foot is drawn after it and would
-        // stand in front of the base, so it is left out when its crown reaches the base
-        // (PeakBaseGap below the foot, the peak's skirt, the base PeakBaseWidth of its width
-        // either side plus the crown's half width). A tree north of the foot is hidden behind
-        // the peak, which stays in front. The test reads only the peaks' positions, the same on
-        // the sheet and in every close-up, though trees there are smaller and so come closer.
+        // Whether a Mountain tree of the given height standing at (x, y) may stand there among the
+        // peaks and ridges: woods climb a mountain's lower slopes (the user's call), so a tree
+        // standing in front of a peak's or ridge's lower half, or below its foot, is kept as long
+        // as its whole crown stays in that lower half (SlopeTop of the glyph's height over its
+        // foot), across the base PeakBaseWidth of its width either side plus the crown's half
+        // width; drawn after the glyph (SlopeOrder), it stands on the slope. A tree whose foot is
+        // in the upper half is hidden behind the glyph. The upper half stays clear, so the
+        // mountain still reads. The test reads only the glyphs' positions, the same on the sheet
+        // and in every close-up, though trees there are smaller and so climb higher.
         private bool ClearOfPeakBases(float x, float y, float height)
         {
             float crown = PeakCrownWidth * height;
             int cx = (int)Math.Floor(x / PeakCell), cy = (int)Math.Floor(y / PeakCell);
-            for (int dy = -1; dy <= 0; dy++)
+            for (int dy = -1; dy <= 1; dy++)
             {
                 for (int dx = -1; dx <= 1; dx++)
                 {
-                    if (!m_peakBases.TryGetValue(PeakCellKey(cx + dx, cy + dy), out List<Vector3> cell)) continue;
-                    foreach (Vector3 peak in cell)
+                    if (!m_peakBases.TryGetValue(PeakCellKey(cx + dx, cy + dy), out List<Vector4> cell)) continue;
+                    foreach (Vector4 peak in cell)
                     {
-                        if (y <= peak.y || y - height >= peak.y + PeakBaseGap) continue;
+                        float line = peak.y - peak.w * SlopeTop;
+                        if (y < line || y - height >= peak.y + PeakBaseGap) continue;
+                        if (y - height >= line) continue;
                         if (Math.Abs(x - peak.x) < PeakBaseWidth * peak.z + crown) return false;
                     }
                 }
             }
             return true;
+        }
+
+        // A tree standing in front of a peak's or ridge's lower half, inside its body, is drawn
+        // just after the glyph rather than by its own foot, so it stands on the slope instead of
+        // being scraped away behind it; among such trees the one further south still comes later.
+        private void SlopeOrder(ref Glyph tree)
+        {
+            int cx = (int)Math.Floor(tree.m_x / PeakCell), cy = (int)Math.Floor(tree.m_y / PeakCell);
+            float order = float.MinValue;
+            for (int dy = 0; dy <= 1; dy++)
+            {
+                for (int dx = -1; dx <= 1; dx++)
+                {
+                    if (!m_peakBases.TryGetValue(PeakCellKey(cx + dx, cy + dy), out List<Vector4> cell)) continue;
+                    foreach (Vector4 peak in cell)
+                    {
+                        float rise = peak.y - tree.m_y;
+                        if (rise <= 0f || rise > peak.w * SlopeTop) continue;
+                        if (Math.Abs(tree.m_x - peak.x) >= 0.5f * peak.z * (1f - rise / peak.w)) continue;
+                        order = Math.Max(order, peak.y + SlopeOrderGap + (peak.w - rise) * SlopeOrderStep);
+                    }
+                }
+            }
+            if (order == float.MinValue) return;
+            tree.m_onSlope = true;
+            tree.m_order = order;
         }
 
         // Woods, one tree family per biome, only inside the woods, so every wood is one clearly
@@ -2615,9 +2654,17 @@ namespace Atlas
             // mass on the map. Mountain firs keep off the peaks' bases (ClearOfPeakBases), the
             // Black Forest's off steep ground.
             float pine = 11f * m_t;
+            int conifers = m_glyphs.Count;
             ScatterTrees(5.5f * m_t, 24, 0.95f, Kind.Conifer, s => (InWood(s, Land.BlackForest, pine) && !SteepGround(s))
                 || InWood(s, Land.DeepNorth, pine)
                 || (InWood(s, Land.Mountain, pine) && ClearOfPeakBases(s.m_x, s.m_y, pine)));
+            for (int i = conifers; i < m_glyphs.Count; i++)
+            {
+                Glyph tree = m_glyphs[i];
+                if (tree.m_kind != Kind.Conifer) continue;
+                SlopeOrder(ref tree);
+                m_glyphs[i] = tree;
+            }
             // A boulder field keeps only a few lone big pines (vanilla's firtree_blackforest2,
             // 1-2 a zone), standing on its open ground clear of the hills on its hilltops.
             if (m_world.HasGrove(Grove.Rocky))
@@ -2869,8 +2916,9 @@ namespace Atlas
             foreach (Glyph glyph in m_glyphs)
             {
                 if (glyph.m_kind != Kind.Peak && glyph.m_kind != Kind.Ridge) continue;
-                AddPeakBase(new Vector3(glyph.m_x, glyph.m_y, glyph.m_size));
-                m_record?.AddPeak(glyph.m_x, glyph.m_y, glyph.m_size);
+                float height = glyph.m_kind == Kind.Peak ? PeakHeightOf(glyph.m_size, glyph.m_seed) : RidgeHeightOf(glyph.m_size, glyph.m_seed);
+                AddPeakBase(new Vector4(glyph.m_x, glyph.m_y, glyph.m_size, height));
+                m_record?.AddPeak(glyph.m_x, glyph.m_y, glyph.m_size, height);
             }
             PlaceTrees();
             PlaceMist();

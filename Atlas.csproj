@@ -40,7 +40,7 @@
 
   <!-- Thunderstore/Hexium package: dotnet build -c Release -t:Package -->
   <PropertyGroup>
-    <PackageDescription>Worlds without a map get a hand-inked atlas in the style of a classic fantasy novel. Record your discoveries at a cartography table and press the map key to unroll it.</PackageDescription>
+    <PackageDescription>Nomap worlds get a hand-inked map in the style of a classic fantasy novel. Record your discoveries at a cartography table, then press the map key to unroll it.</PackageDescription>
     <PackageWebsite>https://github.com/elridion/atlas</PackageWebsite>
     <PackageDependencies>"ValheimModding-Jotunn-2.30.2"</PackageDependencies>
     <PackageStagingDir>$(BaseIntermediateOutputPath)package\</PackageStagingDir>

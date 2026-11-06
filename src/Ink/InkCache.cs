@@ -18,8 +18,7 @@ namespace Atlas
     internal static class InkCache
     {
         private const int Magic = 0x534C5441; // "ATLS"
-        // The development sheets used 23 to 26: the count jumped from 22 to 27.
-        private const int Version = 40;
+        private const int Version = 1;
         // A file never holds more sea illustrations than this; more means it is damaged.
         private const int MostSeaMarks = 256;
         // Nor more marks of a kind (trees, glyphs, wave strokes) than this.

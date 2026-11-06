@@ -280,16 +280,15 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   pure math (`Mathf`, `Vector2`); `Mathf.HalfToFloat` is native, hence `WorldSource.HalfToFloat`.
 - **Deterministic drawing.** Glyph placement hashes the world seed, a per-rule salt and the grid
   cell (`Noise`), never a shared `System.Random`, so tuning one rule never moves another's glyphs.
-  Any change to the drawing bumps `InkCache.Version`, or players keep the old cached sheet;
-  it counts up from 1 (the first release's version). Only the exact version is read, so any
-  other, the development sheets' 23 to 26 included, is drawn again.
+  Any change to the drawing bumps `InkCache.Version` by one, or players keep the old cached
+  sheet. Only the exact version is read, so any other is drawn again.
 - **Persisted config.** Section and key names (`Pins`, `PlayerPins`, `BedPin`, `DeathPin`,
   `BossPins`, `TraderPins`, `HildirPins`, `PlacePins`, `UnexploredPins`; `Fog`, `Glimpse`):
   renaming one resets players' settings.
 - **Docs follow code.** `package/README.md` keeps the settings table in sync with
-  `AtlasPlugin.Awake`, and the table behaviour, controls and pen mark tables
-  in sync with `TablePatches`, `AtlasView` and the scatter rules in `InkPainter.PlaceGlyphs` and
-  `DrawBackground` (and `DrawIllustrations`).
+  `AtlasPlugin.Awake` and the controls with `AtlasView`. It stays short (the user's call): its
+  first line matches `<PackageDescription>`, then a short feature list, install notes and the
+  settings. Drawing details belong in the changelog and this file, not the store page.
 
 ## The drawing
 

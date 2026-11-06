@@ -102,6 +102,9 @@ namespace Atlas
             public Vector2 m_at;
             public float m_half;
             public string m_name;
+            // A checked (crossed out) pin: it shows no name and never takes the hover from an
+            // unchecked pin beside it (the user's call).
+            public bool m_checked;
         }
 
         // With dev commands on (Terminal.m_cheat) only: where the player stands and looks, in
@@ -380,6 +383,7 @@ namespace Atlas
                 for (int i = 0; i < m_hoverPins.Count; i++)
                 {
                     HoverPin pin = m_hoverPins[i];
+                    if (pin.m_checked) continue;
                     Vector2 offset = local - (m_position + pin.m_at * m_scale);
                     float reach = Mathf.Max(pin.m_half * m_scale, HoverMin);
                     if (Mathf.Abs(offset.x) > reach || Mathf.Abs(offset.y) > reach) continue;
@@ -843,9 +847,9 @@ namespace Atlas
                 float lift = PinGlyphs.Lift(glyph) * pinSize;
                 string label = Localization.instance.Localize(pin.m_name);
                 // Pins drawn into the sheet are hovered as markers are.
-                m_hoverPins.Add(new HoverPin { m_at = place + new Vector2(0f, lift), m_half = pinSize * 0.5f, m_name = label });
+                m_hoverPins.Add(new HoverPin { m_at = place + new Vector2(0f, lift), m_half = pinSize * 0.5f, m_name = label, m_checked = pin.m_checked });
                 // Its banner is drawn ahead on the workers, so pointing at it shows it at once.
-                if (m_hoverText && !string.IsNullOrEmpty(label)) NameBanner.Prepare(BannerSize(m_hoverText.GetPreferredValues(label)), ShoreWidth);
+                if (m_hoverText && !pin.m_checked && !string.IsNullOrEmpty(label)) NameBanner.Prepare(BannerSize(m_hoverText.GetPreferredValues(label)), ShoreWidth);
                 if (InSheet(snapshot, pin, glyph)) continue;
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);

@@ -178,7 +178,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   login does not lay it twice. A second texture split from the ink would cost as much in video
   memory, and no custom shader is possible without asset bundles. The always-on name
   layout is left off (`s_showNames`); instead the hovered pin's name shows centred above it,
-  `HoverDrop` half a line down over the glyph's top (the user's call). Names show only while the
+  `HoverDrop` half a line down over the glyph's top (the user's call). Checked (crossed out) pins show no name and are skipped when finding the hovered pin, so an unchecked pin beside one always wins (`HoverPin.m_checked`, the user's call). Names show only while the
   close-ups are shown (`AtlasView.DetailShown`, set by `DetailTiles`) and are fixed on the sheet as
   the pins are, sized for the finest drawing: the label constants are canvas units at the deepest
   zoom (`LabelZoom` = `MaxScale`), the name hung in the sheet at 1 / `LabelZoom` (the user's call:

@@ -1,6 +1,8 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.IO;
+using System.IO.Compression;
 using HarmonyLib;
 using UnityEngine;
 
@@ -111,16 +113,28 @@ namespace Atlas
             player.m_customData[PinsKey + worldUid] = Convert.ToBase64String(pins.GetArray());
         }
 
-        // Null when this character never updated the atlas in this world.
-        public static Snapshot Load(Player player, long worldUid)
+        // Main thread: the saved snapshot's text, read out of the character for Decode. False
+        // when this character never updated the atlas in this world.
+        public static bool Saved(Player player, long worldUid, out string explored, out string pins)
         {
-            if (!player.m_customData.TryGetValue(ExploredKey + worldUid, out string explored)) return null;
+            pins = null;
+            if (!player.m_customData.TryGetValue(ExploredKey + worldUid, out explored)) return false;
+            player.m_customData.TryGetValue(PinsKey + worldUid, out pins);
+            return true;
+        }
+
+        // Any thread: the snapshot from Saved's text, null when it cannot be read. ZPackage's
+        // reads touch nothing of Unity's but Vector3's fields; Utils.Decompress is not called, as
+        // the first use of Utils runs its static constructor, which asks Unity for
+        // Application.persistentDataPath (main thread only).
+        public static Snapshot Decode(long worldUid, string explored, string pins)
+        {
             try
             {
                 var package = new ZPackage(Convert.FromBase64String(explored));
                 var snapshot = new Snapshot { m_size = package.ReadInt(), m_pixelSize = package.ReadSingle() };
-                snapshot.m_explored = new BitArray(Utils.Decompress(package.ReadByteArray())) { Length = snapshot.m_size * snapshot.m_size };
-                if (player.m_customData.TryGetValue(PinsKey + worldUid, out string pins))
+                snapshot.m_explored = new BitArray(Decompress(package.ReadByteArray())) { Length = snapshot.m_size * snapshot.m_size };
+                if (pins != null)
                 {
                     package = new ZPackage(Convert.FromBase64String(pins));
                     if (package.ReadInt() == PinsVersion)
@@ -145,6 +159,18 @@ namespace Atlas
             {
                 Jotunn.Logger.LogWarning($"The saved atlas for world {worldUid} could not be read and starts blank: {e.Message}");
                 return null;
+            }
+        }
+
+        // Utils.Compress's gzip undone, as Utils.Decompress does it.
+        private static byte[] Decompress(byte[] data)
+        {
+            using (var input = new MemoryStream(data))
+            using (var zip = new GZipStream(input, CompressionMode.Decompress))
+            using (var output = new MemoryStream())
+            {
+                zip.CopyTo(output);
+                return output.ToArray();
             }
         }
     }

@@ -20,6 +20,9 @@ namespace Atlas
         private static long s_playerId;
 
         private static Snapshot s_snapshot;
+        // The saved snapshot being decoded on a worker (Snapshot.Decode); until it is there the
+        // pins are not chosen, nor the fog laid or the world painted for them.
+        private static Task<Snapshot> s_snapshotTask;
         private static Task<CachedSheet> s_cacheTask;
         private static bool s_cacheStarted;
         private static Task<WorldSource> s_decodeTask;
@@ -128,7 +131,19 @@ namespace Atlas
             if (player.GetPlayerID() != s_playerId)
             {
                 s_playerId = player.GetPlayerID();
-                s_snapshot = Snapshot.Load(player, worldUid);
+                s_snapshot = null;
+                s_snapshotTask = null;
+                // Only the text is read here; decoding it took the worst frame after joining.
+                if (Snapshot.Saved(player, worldUid, out string explored, out string savedPins))
+                    s_snapshotTask = Workers.RunFirst(() => Snapshot.Decode(worldUid, explored, savedPins));
+                s_fogDirty = true;
+                s_pinsDirty = true;
+            }
+            if (s_snapshotTask != null && s_snapshotTask.IsCompleted)
+            {
+                // Decode logs and returns null itself when the text cannot be read.
+                s_snapshot = s_snapshotTask.IsFaulted ? null : s_snapshotTask.Result;
+                s_snapshotTask = null;
                 s_fogDirty = true;
                 s_pinsDirty = true;
             }
@@ -140,6 +155,8 @@ namespace Atlas
             KeepBareParchment();
             KeepDirt();
             KeepEdge();
+            // Close-ups drawn ahead while the atlas is closed wait for a new fog and ink to be laid.
+            s_tiles.HoldWhileClosed = s_fogDirty || s_fogTask != null || s_mipsTask != null;
             if (!s_tiles.Ready && s_record != null && s_wash != null && s_samples != null)
                 s_tiles.SetSource(s_record, s_wash, s_source, s_samples);
             s_tiles.Update(s_view);
@@ -160,6 +177,8 @@ namespace Atlas
             Minimap minimap = Minimap.instance;
             if (!player || !minimap || !ZNet.instance) return;
             s_snapshot = Snapshot.Take(minimap);
+            // A saved snapshot still being decoded is older than this one.
+            s_snapshotTask = null;
             s_snapshot.Save(player, ZNet.instance.GetWorldUID());
             s_fogDirty = true;
             s_pinsDirty = true;
@@ -171,7 +190,7 @@ namespace Atlas
         {
             if (s_snapshot == null)
             {
-                player.Message(MessageHud.MessageType.Center, "$atlas_blank");
+                player.Message(MessageHud.MessageType.Center, s_snapshotTask != null ? "$atlas_drawing" : "$atlas_blank");
                 return;
             }
             if (!s_ink || !s_paper || !s_fog || s_fogMarks != s_seaMarks)
@@ -211,6 +230,9 @@ namespace Atlas
             {
                 s_cacheStarted = true;
                 int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
+                // The fog is laid on the parchment, cached beside the sheet: read alongside it, so
+                // the fog can start as soon as the sheet is there.
+                Parchment(seed);
                 // The opening's own work, as are the fog and the ink below (Workers.RunFirst):
                 // queued ahead of the dirt, the edge, the deferred world and the close-ups.
                 s_cacheTask = Workers.RunFirst(() =>
@@ -241,6 +263,8 @@ namespace Atlas
                 if (s_sheet == null && s_paintError != null) Fail(s_paintError);
             }
             KeepMips();
+            // Painting is for the current pins, chosen once the saved snapshot is decoded.
+            if (s_snapshotTask != null || s_pinsDirty) return;
 
             // The pins changed while a paint for older pins runs (records in a row): that paint is
             // stopped and the next starts with the current pins, so a burst of records costs one
@@ -268,7 +292,7 @@ namespace Atlas
                             return captured;
                         };
                         // Without a cached washed paper the world's wash is the opening's paper.
-                        s_decodeTask = OpeningNeedsWash() ? Workers.RunFirst(decode) : Workers.Run(decode);
+                        s_decodeTask = OpeningNeedsWash() || OpeningNeedsPaint() ? Workers.RunFirst(decode) : Workers.Run(decode);
                         return;
                     }
                     if (!s_decodeTask.IsCompleted) return;
@@ -320,7 +344,7 @@ namespace Atlas
                 InkRecord sheetRecord = recheck ? s_record : null;
                 byte[] sheetInk = s_sheet;
                 InkDensity sheetDensity = s_sheetDensity;
-                s_paintTask = Workers.Run(() =>
+                Func<PaintResult> paint = () =>
                 {
                     InkRecord record = null;
                     byte[] ink = null;
@@ -338,16 +362,14 @@ namespace Atlas
                     }
                     // A sheet drawn without the alt biomes' groves is not cached: the cache is keyed
                     // by seed, so it would stand in for the variants in every later session.
-                    bool saved = false;
-                    if ((!hasCache || cachedKey != key) && source.m_grove != null)
-                    {
-                        InkCache.Save(worldUid, source.m_seed, ink, record.m_seaMarks, key, record.m_marks);
-                        saved = true;
-                    }
+                    bool save = (!hasCache || cachedKey != key) && source.m_grove != null;
                     // A tick leaves the terrain's ink, which the density is taken from, as it was.
                     InkDensity density = changed != null ? sheetDensity : InkDensity.FromSheet(ink);
-                    return new PaintResult { m_ink = ink, m_record = record, m_density = density, m_key = key, m_saved = saved, m_changed = changed };
-                });
+                    return new PaintResult { m_ink = ink, m_record = record, m_density = density, m_key = key, m_saved = save, m_changed = changed, m_seed = source.m_seed };
+                };
+                // With no sheet to show the paint is the opening's own work (its loops too), ahead
+                // of the dirt, the edge and the close-ups; behind a shown sheet it waits its turn.
+                s_paintTask = OpeningNeedsPaint() ? Workers.RunFirst(paint) : Workers.Run(paint);
                 return;
             }
             if (!s_paintTask.IsCompleted) return;
@@ -369,6 +391,16 @@ namespace Atlas
             PaintResult result = painted.Result;
             if (result.m_saved)
             {
+                // Saved after the paint rather than in it: writing about 100 MB through gzip
+                // delayed the first sheet of a world without a cache. The sheet's planes and
+                // marks are never written after painting, so the copy on disk is the same.
+                long savedUid = s_worldUid;
+                InkRecord savedRecord = result.m_record;
+                Workers.Run(() =>
+                {
+                    InkCache.Save(savedUid, result.m_seed, result.m_ink, savedRecord.m_seaMarks, result.m_key, savedRecord.m_marks);
+                    return true;
+                });
                 s_cachedKey = result.m_key;
                 s_hasCachedKey = true;
             }
@@ -474,7 +506,9 @@ namespace Atlas
             public InkRecord m_record;
             public InkDensity m_density;
             public long m_key;
+            // Whether the sheet is to be cached (InkCache.Save), and the seed it is cached for.
             public bool m_saved;
+            public int m_seed;
             // The pixels of the pins drawn again when only ticks changed (InkPainter.Recheck), or
             // null for a whole paint.
             public System.Collections.Generic.List<RectInt> m_changed;
@@ -517,7 +551,7 @@ namespace Atlas
         // The Sacrificial Stones are the game's location pin there, like any other place.
         private static void KeepPins()
         {
-            if (!s_pinsDirty) return;
+            if (!s_pinsDirty || s_snapshotTask != null) return;
             Minimap minimap = Minimap.instance;
             if (!minimap) return;
             s_pinsDirty = false;
@@ -613,7 +647,7 @@ namespace Atlas
             // The glimpse switched on or off: the fog is laid again, and with it the sheet's ink
             // and the close-ups (UploadFog).
             if (AtlasPlugin.Glimpse.Value != s_fogGlimpse) s_fogDirty = true;
-            if (!s_fogDirty) return;
+            if (!s_fogDirty || s_snapshotTask != null) return;
             // Before the sheet is there the fog would be laid for nothing: the atlas opens only
             // with a fog laid for the sheet's sea illustrations, and the sheet's arrival lays it
             // again. Without a sheet coming, it is laid at once.
@@ -662,7 +696,22 @@ namespace Atlas
         // The fog is laid on it, so it is the opening's work too.
         private static Task<byte[]> Parchment(int seed)
         {
-            if (s_parchmentTask == null) s_parchmentTask = Workers.RunFirst(() => Paper.Parchment(seed));
+            if (s_parchmentTask != null) return s_parchmentTask;
+            long worldUid = s_worldUid;
+            s_parchmentTask = Workers.RunFirst(() =>
+            {
+                byte[] cached = InkCache.LoadParchment(worldUid, seed);
+                if (cached != null) return cached;
+                byte[] made = Paper.Parchment(seed);
+                // Kept for the next session, behind the opening's work. Nothing writes the
+                // parchment once made, so it may be saved while the fog is laid on it.
+                Workers.Run(() =>
+                {
+                    InkCache.SaveParchment(worldUid, seed, made);
+                    return true;
+                });
+                return made;
+            });
             return s_parchmentTask;
         }
 
@@ -670,6 +719,11 @@ namespace Atlas
         // cached on disk. Then reading the world and its wash are the opening's work; otherwise
         // they only serve the close-ups and keep their place in the queue.
         private static bool OpeningNeedsWash() => !s_paper && !s_paperCached;
+
+        // Whether the atlas waits for the world to be painted to open: the cache had no sheet
+        // (or one that failed to load), so there is none to show. Then reading the world and
+        // painting it are the opening's work; a paint for new pins behind a shown sheet is not.
+        private static bool OpeningNeedsPaint() => s_sheet == null;
 
         // Uploads the sheet's paper once the wash is done, or the bare parchment if it failed.
         private static void KeepPaper()
@@ -877,6 +931,7 @@ namespace Atlas
             s_worldUid = 0L;
             s_playerId = 0L;
             s_snapshot = null;
+            s_snapshotTask = null;
             s_cacheTask = null;
             s_cacheStarted = false;
             s_decodeTask = null;

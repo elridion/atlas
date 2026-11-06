@@ -13,7 +13,7 @@ namespace Atlas
     /// seed and the drawing version, and carry the key of the pins drawn in; bump Version whenever the drawing changes, so old sheets are drawn again. The sea's
     /// marks, figures and stand-ins (their boxes, for the fog, and the glyph drawn, for its wash) and the marks
     /// the fog's edge shows or leaves out whole (SheetMarks) are kept in the header, ahead of the
-    /// sheet.
+    /// sheet. Beside it lie the washed paper and the bare parchment, under the same checks.
     /// </summary>
     internal static class InkCache
     {
@@ -133,49 +133,64 @@ namespace Atlas
         }
 
         private const int PaperMagic = 0x50544C41; // "ALTP"
+        private const int ParchmentMagic = 0x48434150; // "PACH"
 
         private static string PaperPath(long worldUid) =>
             Path.Combine(Paths.CachePath, AtlasPlugin.PluginGuid, $"{worldUid}.paper");
 
+        private static string ParchmentPath(long worldUid) =>
+            Path.Combine(Paths.CachePath, AtlasPlugin.PluginGuid, $"{worldUid}.parchment");
+
         // Worker thread. The sheet's washed paper (Paper.Wash.m_sheet, FogSize² RGB), so a cached
         // atlas opens without waiting for the world to be read and washed; null when there is
         // none for this seed and drawing version.
-        public static byte[] LoadPaper(long worldUid, int seed)
+        public static byte[] LoadPaper(long worldUid, int seed) => LoadSheet(PaperPath(worldUid), PaperMagic, seed, "paper, washing it again");
+
+        // Worker thread.
+        public static void SavePaper(long worldUid, int seed, byte[] paper) => SaveSheet(PaperPath(worldUid), PaperMagic, seed, paper, "paper; it will be washed again");
+
+        // Worker thread. The bare parchment (Paper.Parchment, FogSize² RGB) the fog and the wash
+        // are laid on, so a cached atlas lays its fog at once instead of making the parchment
+        // first; null when there is none for this seed and drawing version.
+        public static byte[] LoadParchment(long worldUid, int seed) => LoadSheet(ParchmentPath(worldUid), ParchmentMagic, seed, "parchment, making it again");
+
+        // Worker thread.
+        public static void SaveParchment(long worldUid, int seed, byte[] parchment) => SaveSheet(ParchmentPath(worldUid), ParchmentMagic, seed, parchment, "parchment; it will be made again");
+
+        // A FogSize² RGB sheet: magic, version, seed and size, then the pixels gzipped.
+        internal static byte[] LoadSheet(string path, int magic, int seed, string what)
         {
-            string path = PaperPath(worldUid);
             if (!File.Exists(path)) return null;
             try
             {
                 using (var file = File.OpenRead(path))
                 using (var reader = new BinaryReader(file))
                 {
-                    if (reader.ReadInt32() != PaperMagic || reader.ReadInt32() != Version) return null;
+                    if (reader.ReadInt32() != magic || reader.ReadInt32() != Version) return null;
                     if (reader.ReadInt32() != seed || reader.ReadInt32() != Paper.FogSize) return null;
-                    var paper = new byte[Paper.FogSize * Paper.FogSize * 3];
+                    var pixels = new byte[Paper.FogSize * Paper.FogSize * 3];
                     using (var zip = new GZipStream(file, CompressionMode.Decompress))
                     {
                         int done = 0;
-                        while (done < paper.Length)
+                        while (done < pixels.Length)
                         {
-                            int got = zip.Read(paper, done, paper.Length - done);
+                            int got = zip.Read(pixels, done, pixels.Length - done);
                             if (got <= 0) return null;
                             done += got;
                         }
                     }
-                    return paper;
+                    return pixels;
                 }
             }
             catch (Exception e)
             {
-                Jotunn.Logger.LogWarning($"Could not read the cached atlas paper {path}, washing it again: {e.Message}");
+                Jotunn.Logger.LogWarning($"Could not read the cached atlas {what}: {path}: {e.Message}");
                 return null;
             }
         }
 
-        // Worker thread.
-        public static void SavePaper(long worldUid, int seed, byte[] paper)
+        internal static void SaveSheet(string path, int magic, int seed, byte[] pixels, string what)
         {
-            string path = PaperPath(worldUid);
             try
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(path));
@@ -184,23 +199,22 @@ namespace Atlas
                 {
                     using (var writer = new BinaryWriter(file, System.Text.Encoding.UTF8, leaveOpen: true))
                     {
-                        writer.Write(PaperMagic);
+                        writer.Write(magic);
                         writer.Write(Version);
                         writer.Write(seed);
                         writer.Write(Paper.FogSize);
                     }
                     using (var zip = new GZipStream(file, System.IO.Compression.CompressionLevel.Fastest))
-                        zip.Write(paper, 0, paper.Length);
+                        zip.Write(pixels, 0, pixels.Length);
                 }
                 if (File.Exists(path)) File.Delete(path);
                 File.Move(temporary, path);
             }
             catch (Exception e)
             {
-                Jotunn.Logger.LogWarning($"Could not cache the atlas paper at {path}; it will be washed again next time: {e.Message}");
+                Jotunn.Logger.LogWarning($"Could not cache the atlas {what} next time: {path}: {e.Message}");
             }
         }
-
         // A list of marks: its count, then each one's footprint, order, shape and whether it is
         // thinned. The record group is not kept: close-ups take it from their own record.
         private static void WriteMarks(BinaryWriter writer, List<FogMark> marks)

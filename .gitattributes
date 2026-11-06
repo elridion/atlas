@@ -1,0 +1,2 @@
+# Patches must keep their exact bytes to apply.
+*.patch -text

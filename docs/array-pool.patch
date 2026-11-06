@@ -1,4 +1,4 @@
-﻿diff --git a/src/Ink/DistanceField.cs b/src/Ink/DistanceField.cs
+diff --git a/src/Ink/DistanceField.cs b/src/Ink/DistanceField.cs
 index ff89eac..d6284ac 100644
 --- a/src/Ink/DistanceField.cs
 +++ b/src/Ink/DistanceField.cs

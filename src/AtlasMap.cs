@@ -834,6 +834,8 @@ namespace Atlas
             s_cancel.Cancel();
             s_cancel.Dispose();
             s_cancel = new CancellationTokenSource();
+            // The last paint's groundwork belongs to the old world.
+            InkPainter.ClearGroundwork();
             s_view.Clear();
             s_worldUid = 0L;
             s_playerId = 0L;

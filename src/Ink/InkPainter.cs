@@ -1064,10 +1064,16 @@ namespace Atlas
 
         private void Run()
         {
-            BuildCoastHeights();
-            m_cancel.ThrowIfCancellationRequested();
-            BuildFields();
-            m_cancel.ThrowIfCancellationRequested();
+            // The coast and the fields do not depend on the pins: a repaint for new pins takes
+            // them from the last paint of the same world (Groundwork).
+            if (!TakeGroundwork())
+            {
+                BuildCoastHeights();
+                m_cancel.ThrowIfCancellationRequested();
+                BuildFields();
+                m_cancel.ThrowIfCancellationRequested();
+                KeepGroundwork();
+            }
             FindMist();
             m_canvas.m_layer = InkLayer.Background;
             DrawBackground();
@@ -1121,8 +1127,14 @@ namespace Atlas
                 if (!tree) m_canvas.EndGroup();
             }
             DrawGrassOverMarks();
-            MarkWideLakes();
-            List<ContourLines.Line> waterLines = TraceWaterLines();
+            // Taken only here, as Lined reads the wide lakes once they are marked.
+            List<ContourLines.Line> waterLines = TakeWaterwork();
+            if (waterLines == null)
+            {
+                MarkWideLakes();
+                waterLines = TraceWaterLines();
+                KeepWaterwork(waterLines);
+            }
             // The waterline itself is not drawn; the waves find the coast's bends on its trace.
             m_canvas.m_layer = InkLayer.Ripple;
             DrawWaves(waterLines);
@@ -1258,7 +1270,9 @@ namespace Atlas
             m_wood = new byte[n * n];
             float edgeSqr = EdgeRadius * EdgeRadius;
             int size = m_world.m_size;
-            for (int y = 0; y < n; y++)
+            // Row by row on the workers: every pixel is decided on its own, so the masks are the
+            // serial ones byte for byte.
+            System.Threading.Tasks.Parallel.For(0, n, Workers.LoopOptions(m_cancel), y =>
             {
                 float wz = HalfExtent - (y + 0.5f) * MetresPerPixel;
                 for (int x = 0; x < n; x++)
@@ -1285,26 +1299,26 @@ namespace Atlas
                     int i = sz * size + sx;
                     if (m_seaCell[i] || m_seaCell[i + 1] || m_seaCell[i + size] || m_seaCell[i + size + 1]) m_sea[pixel] = 1;
                 }
-            }
+            });
 
             var field = new DistanceField(n);
             m_waterDistance = new byte[n * n];
             m_landDistance = new byte[n * n];
-            field.Compute(i => m_land[i] != 0, m_waterDistance, DistanceScale);
+            field.ComputeParallel(i => m_land[i] != 0, m_waterDistance, DistanceScale, m_cancel);
             m_cancel.ThrowIfCancellationRequested();
-            field.Compute(i => m_land[i] == 0, m_landDistance, 1f);
+            field.ComputeParallel(i => m_land[i] == 0, m_landDistance, 1f, m_cancel);
             m_cancel.ThrowIfCancellationRequested();
             m_woodDistance = new byte[n * n];
-            field.Compute(i => m_wood[i] != 0, m_woodDistance, 1f);
+            field.ComputeParallel(i => m_wood[i] != 0, m_woodDistance, 1f, m_cancel);
             m_cancel.ThrowIfCancellationRequested();
             bool[] major = MajorLand(m_world.m_waterLevel, size);
             m_majorDistance = new byte[n * n];
-            field.Compute(i =>
+            field.ComputeParallel(i =>
             {
                 if (m_land[i] == 0) return false;
                 float wx = (i % n + 0.5f) * MetresPerPixel - HalfExtent, wz = HalfExtent - (i / n + 0.5f) * MetresPerPixel;
                 return major[m_world.Index(wx, wz)];
-            }, m_majorDistance, DistanceScale);
+            }, m_majorDistance, DistanceScale, m_cancel);
         }
 
         // The map pixels of land masses of at least MajorLandCells (four-way connected), which get
@@ -4203,11 +4217,11 @@ namespace Atlas
             var field = new DistanceField(n);
             byte[] lineLand = m_lineLand = LineLand();
             var landDistance = new byte[n * n];
-            field.Compute(i => lineLand[i] != 0, landDistance, DistanceScale);
+            field.ComputeParallel(i => lineLand[i] != 0, landDistance, DistanceScale, m_cancel);
             m_cancel.ThrowIfCancellationRequested();
             var open = new byte[n * n];
             float wide = WideWater * DistanceScale;
-            field.Compute(i => landDistance[i] >= wide, open, 1f);
+            field.ComputeParallel(i => landDistance[i] >= wide, open, 1f, m_cancel);
             m_noLine = new byte[n * n];
             // A small lake has no water WideWater from land, so as a channel it would have no trace
             // and its shore no bends.
@@ -4215,7 +4229,7 @@ namespace Atlas
                 if (m_land[i] == 0 && ((open[i] > ChannelReach && m_lakeTier[i] != SmallLake) || !Lined(i))) m_noLine[i] = 1;
             m_cancel.ThrowIfCancellationRequested();
             m_lineDistance = new byte[n * n];
-            field.Compute(i => lineLand[i] != 0 || m_noLine[i] != 0, m_lineDistance, DistanceScale);
+            field.ComputeParallel(i => lineLand[i] != 0 || m_noLine[i] != 0, m_lineDistance, DistanceScale, m_cancel);
             m_cancel.ThrowIfCancellationRequested();
             var contour = new ContourLines();
             DistanceField.Contour(n,

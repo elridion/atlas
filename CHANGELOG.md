@@ -11,7 +11,7 @@
 - Recording discoveries several times in a row no longer redraws the map once for each record:
   only the latest pins are drawn.
 - Checking or unchecking a pin at the table now updates the map almost at once instead of
-  redrawing the whole world.
+  redrawing the whole world, and other pin changes redraw it in well under half the time.
 
 ## 0.1.0
 

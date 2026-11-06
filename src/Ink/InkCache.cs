@@ -132,6 +132,75 @@ namespace Atlas
             }
         }
 
+        private const int PaperMagic = 0x50544C41; // "ALTP"
+
+        private static string PaperPath(long worldUid) =>
+            Path.Combine(Paths.CachePath, AtlasPlugin.PluginGuid, $"{worldUid}.paper");
+
+        // Worker thread. The sheet's washed paper (Paper.Wash.m_sheet, FogSize² RGB), so a cached
+        // atlas opens without waiting for the world to be read and washed; null when there is
+        // none for this seed and drawing version.
+        public static byte[] LoadPaper(long worldUid, int seed)
+        {
+            string path = PaperPath(worldUid);
+            if (!File.Exists(path)) return null;
+            try
+            {
+                using (var file = File.OpenRead(path))
+                using (var reader = new BinaryReader(file))
+                {
+                    if (reader.ReadInt32() != PaperMagic || reader.ReadInt32() != Version) return null;
+                    if (reader.ReadInt32() != seed || reader.ReadInt32() != Paper.FogSize) return null;
+                    var paper = new byte[Paper.FogSize * Paper.FogSize * 3];
+                    using (var zip = new GZipStream(file, CompressionMode.Decompress))
+                    {
+                        int done = 0;
+                        while (done < paper.Length)
+                        {
+                            int got = zip.Read(paper, done, paper.Length - done);
+                            if (got <= 0) return null;
+                            done += got;
+                        }
+                    }
+                    return paper;
+                }
+            }
+            catch (Exception e)
+            {
+                Jotunn.Logger.LogWarning($"Could not read the cached atlas paper {path}, washing it again: {e.Message}");
+                return null;
+            }
+        }
+
+        // Worker thread.
+        public static void SavePaper(long worldUid, int seed, byte[] paper)
+        {
+            string path = PaperPath(worldUid);
+            try
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(path));
+                string temporary = path + ".tmp";
+                using (var file = File.Create(temporary))
+                {
+                    using (var writer = new BinaryWriter(file, System.Text.Encoding.UTF8, leaveOpen: true))
+                    {
+                        writer.Write(PaperMagic);
+                        writer.Write(Version);
+                        writer.Write(seed);
+                        writer.Write(Paper.FogSize);
+                    }
+                    using (var zip = new GZipStream(file, System.IO.Compression.CompressionLevel.Fastest))
+                        zip.Write(paper, 0, paper.Length);
+                }
+                if (File.Exists(path)) File.Delete(path);
+                File.Move(temporary, path);
+            }
+            catch (Exception e)
+            {
+                Jotunn.Logger.LogWarning($"Could not cache the atlas paper at {path}; it will be washed again next time: {e.Message}");
+            }
+        }
+
         // A list of marks: its count, then each one's footprint, order, shape and whether it is
         // thinned. The record group is not kept: close-ups take it from their own record.
         private static void WriteMarks(BinaryWriter writer, List<FogMark> marks)

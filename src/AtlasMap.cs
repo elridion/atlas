@@ -212,7 +212,12 @@ namespace Atlas
                 s_cacheTask = Workers.Run(() =>
                 {
                     byte[] ink = InkCache.Load(worldUid, seed, out SeaMark[] marks, out long key, out SheetMarks sheetMarks);
-                    return ink == null ? null : new CachedSheet { m_sheet = ink, m_marks = marks, m_sheetMarks = sheetMarks, m_density = InkDensity.FromSheet(ink), m_key = key };
+                    if (ink == null) return null;
+                    return new CachedSheet
+                    {
+                        m_sheet = ink, m_marks = marks, m_sheetMarks = sheetMarks, m_density = InkDensity.FromSheet(ink), m_key = key,
+                        m_paper = InkCache.LoadPaper(worldUid, seed),
+                    };
                 });
             }
             if (s_cacheTask != null && s_cacheTask.IsCompleted)
@@ -224,6 +229,8 @@ namespace Atlas
                     SetSheet(cached.m_sheet, cached.m_marks, cached.m_sheetMarks, cached.m_density, cached.m_key);
                     s_cachedKey = cached.m_key;
                     s_hasCachedKey = true;
+                    s_cachedPaper = cached.m_paper;
+                    s_paperCached = s_cachedPaper != null;
                 }
                 s_cacheTask = null;
                 // Painting failed while the cache was loading, and the cache had no sheet either.
@@ -234,6 +241,11 @@ namespace Atlas
             if (s_paintTask == null)
             {
                 if (s_decodeFailed) return;
+                // With a cached sheet for the current pins and its washed paper, reading the world,
+                // its wash and the painting only serve the close-ups, so they wait until the atlas
+                // can open and its own work has every worker (the user's call: shared, the last
+                // step before opening took 6.8 s instead of under one in the timing build).
+                if (s_source == null && s_decodeTask == null && WaitsForOpening()) return;
                 if (s_source == null)
                 {
                     if (s_decodeTask == null)
@@ -274,6 +286,8 @@ namespace Atlas
                 if (s_cacheTask != null) return;
                 bool stale = s_sheet == null || s_rawKey != s_pinsKey;
                 if (!stale && s_record != null) return;
+                // Painting only for the close-ups waits until the atlas can open, as above.
+                if (!stale && !s_ink) return;
                 if (s_hasFailedKey && s_failedKey == s_pinsKey) return;
                 WorldSource source = s_source;
                 CancellationToken cancel = s_cancel.Token;
@@ -414,8 +428,20 @@ namespace Atlas
             public FogEdge m_edge;
         }
 
+        // Whether reading the world waits for the atlas to open: while the cache is still being
+        // read (it may hold all the opening needs), or when it held the sheet for the current
+        // pins and the washed paper and the ink is not laid yet.
+        private static bool WaitsForOpening() =>
+            s_cacheTask != null || s_sheet != null && s_rawKey == s_pinsKey && s_paperCached && !s_ink;
+
+        // The washed paper from the disk cache (InkCache.LoadPaper), uploaded before any wash and
+        // then let go; s_paperCached stays set for the session, so it is not saved again.
+        private static byte[] s_cachedPaper;
+        private static bool s_paperCached;
+
         private sealed class CachedSheet
         {
+            public byte[] m_paper;
             public byte[] m_sheet;
             public SeaMark[] m_marks;
             public SheetMarks m_sheetMarks;
@@ -570,11 +596,28 @@ namespace Atlas
                     Jotunn.Logger.LogWarning($"The atlas could not lay its colour wash: {done.Exception?.GetBaseException()}");
                     s_washFailed = true;
                 }
-                else s_wash = done.Result;
+                else
+                {
+                    s_wash = done.Result;
+                    // Kept for the next session, as the sheet is, unless it already came from
+                    // there; like the sheet, not without the alt biomes' groves.
+                    if (!s_paperCached && s_source != null && s_source.m_grove != null)
+                    {
+                        long worldUid = s_worldUid;
+                        int seed = s_source.m_seed;
+                        byte[] sheet = s_wash.m_sheet;
+                        Workers.Run(() =>
+                        {
+                            InkCache.SavePaper(worldUid, seed, sheet);
+                            return true;
+                        });
+                    }
+                }
             }
             if (s_paper) return;
             if (s_wash == null && s_washFailed && s_parchment != null) s_wash = Paper.Bare(s_parchment);
-            if (s_wash == null) return;
+            byte[] paper = s_cachedPaper ?? (s_wash != null ? s_wash.m_sheet : null);
+            if (paper == null) return;
             int size = Paper.FogSize;
             s_paper = new Texture2D(size, size, TextureFormat.RGB24, mipChain: false)
             {
@@ -582,7 +625,8 @@ namespace Atlas
                 wrapMode = TextureWrapMode.Clamp,
                 filterMode = FilterMode.Bilinear,
             };
-            s_paper.LoadRawTextureData(s_wash.m_sheet);
+            s_paper.LoadRawTextureData(paper);
+            s_cachedPaper = null;
             s_paper.Apply(updateMipmaps: false, makeNoLongerReadable: true);
         }
 
@@ -773,6 +817,8 @@ namespace Atlas
             s_parchment = null;
             s_parchmentTask = null;
             s_dirtTask = null;
+            s_paperCached = false;
+            s_cachedPaper = null;
             s_fogPixels = null;
             s_seaMarks = null;
             s_fogMarks = null;

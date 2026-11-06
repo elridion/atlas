@@ -5,6 +5,8 @@
 - Zoomed in close, a pin's name now shows centred above the pin you point at, in larger,
   heavier lettering on a ribbon banner drawn in pen on the bare parchment, its ends folded back
   into swallowtails, so it reads over woods and mountains.
+- The map can be opened sooner after joining a world you have mapped before, and pointing at a
+  pin no longer stutters the first time its name shows.
 
 ## 0.1.0
 

@@ -290,6 +290,9 @@ namespace Atlas
                 if (Mathf.Abs(zoom) > 0.2f) ZoomAround(Vector2.zero, Mathf.Pow(StickZoom, zoom * dt));
             }
             Apply();
+            // A banner drawn on the workers is uploaded, at most one a frame, and shown at once if
+            // it is the hovered name's.
+            if (NameBanner.Update() && m_hovered >= 0) SetBanner();
             UpdateHover(pointer, camera);
             UpdatePlayerMarker();
         }
@@ -405,7 +408,8 @@ namespace Atlas
         }
 
         // The banner for the hovered name's size. Without its textures or the bare parchment the
-        // name shows bare, as before the banner.
+        // name shows bare, as before the banner; so it does while the banner is being drawn, for
+        // a moment the first time a name of its width shows (NameBanner.For).
         private void SetBanner()
         {
             if (!m_hoverFill || !m_hoverInk) return;
@@ -840,6 +844,8 @@ namespace Atlas
                 string label = Localization.instance.Localize(pin.m_name);
                 // Pins drawn into the sheet are hovered as markers are.
                 m_hoverPins.Add(new HoverPin { m_at = place + new Vector2(0f, lift), m_half = pinSize * 0.5f, m_name = label });
+                // Its banner is drawn ahead on the workers, so pointing at it shows it at once.
+                if (m_hoverText && !string.IsNullOrEmpty(label)) NameBanner.Prepare(BannerSize(m_hoverText.GetPreferredValues(label)), ShoreWidth);
                 if (InSheet(snapshot, pin, glyph)) continue;
                 var holder = NewRect("Pin", m_pinLayer);
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);

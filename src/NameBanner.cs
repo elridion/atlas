@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Atlas
@@ -110,25 +111,87 @@ namespace Atlas
         public static Vector2 Fit(Vector2 size) =>
             new Vector2(Mathf.Ceil(size.x / SizeStep) * SizeStep, Mathf.Ceil(size.y / SizeStep) * SizeStep);
 
+        // A banner drawn on a worker, waiting to be uploaded.
+        private sealed class Drawn
+        {
+            public Color32[] m_fill;
+            public Color32[] m_ink;
+            public int m_width;
+            public int m_height;
+        }
+
+        // Banners being drawn, and those that could not be (not tried again this session).
+        private static readonly Dictionary<long, Task<Drawn>> s_drawing = new Dictionary<long, Task<Drawn>>();
+        private static readonly HashSet<long> s_failed = new HashSet<long>();
+        private static readonly List<long> s_done = new List<long>();
+
         // Main thread. The textures for a strip of a Fit size, covering the strip and its Margin,
-        // kept for the session; null when they could not be made.
+        // kept for the session; null while they are being drawn or when they could not be. A long
+        // name's banner takes a few hundred ms to draw, so it is drawn on the atlas's workers
+        // (Prepare) and uploaded by Update, never drawn here: drawn on the main thread it stalled
+        // the frame the name first showed.
         public static Banner For(Vector2 strip, float outline)
         {
             long key = Key(strip, outline);
-            if (s_banners.TryGetValue(key, out Banner cached) && (cached == null || cached.m_fill && cached.m_ink)) return cached;
-            Banner made = null;
-            try
+            if (s_banners.TryGetValue(key, out Banner cached) && cached.m_fill && cached.m_ink) return cached;
+            Prepare(strip, outline);
+            return null;
+        }
+
+        // Main thread. Starts drawing a strip's banner on the workers, unless it is drawn, being
+        // drawn or failed.
+        public static void Prepare(Vector2 strip, float outline)
+        {
+            long key = Key(strip, outline);
+            if (s_drawing.ContainsKey(key) || s_failed.Contains(key)) return;
+            if (s_banners.TryGetValue(key, out Banner cached) && cached.m_fill && cached.m_ink) return;
+            var size = new Vector2(Mathf.RoundToInt(strip.x), Mathf.RoundToInt(strip.y));
+            float pen = PenStep(outline) * PenQuantum;
+            s_drawing[key] = Workers.Run(() =>
             {
-                var size = new Vector2(Mathf.RoundToInt(strip.x), Mathf.RoundToInt(strip.y));
-                Pixels(size, PenStep(outline) * PenQuantum, out Color32[] fill, out Color32[] ink, out int w, out int h);
-                made = new Banner { m_fill = Upload(fill, w, h, "Atlas name banner fill"), m_ink = Upload(ink, w, h, "Atlas name banner ink") };
-            }
-            catch (Exception e)
+                Pixels(size, pen, out Color32[] fill, out Color32[] ink, out int w, out int h);
+                return new Drawn { m_fill = fill, m_ink = ink, m_width = w, m_height = h };
+            });
+        }
+
+        // Main thread, every frame the atlas is open: uploads at most one finished banner, so a
+        // burst of them never stalls a frame. Returns whether one was uploaded.
+        public static bool Update()
+        {
+            if (s_drawing.Count == 0) return false;
+            s_done.Clear();
+            bool uploaded = false;
+            foreach (KeyValuePair<long, Task<Drawn>> drawing in s_drawing)
             {
-                Jotunn.Logger.LogWarning($"The atlas could not draw a name banner: {e.Message}");
+                Task<Drawn> task = drawing.Value;
+                if (!task.IsCompleted) continue;
+                if (task.IsFaulted || task.IsCanceled)
+                {
+                    s_done.Add(drawing.Key);
+                    s_failed.Add(drawing.Key);
+                    Jotunn.Logger.LogWarning($"The atlas could not draw a name banner: {task.Exception?.GetBaseException().Message}");
+                    continue;
+                }
+                if (uploaded) continue;
+                s_done.Add(drawing.Key);
+                Drawn drawn = task.Result;
+                try
+                {
+                    s_banners[drawing.Key] = new Banner
+                    {
+                        m_fill = Upload(drawn.m_fill, drawn.m_width, drawn.m_height, "Atlas name banner fill"),
+                        m_ink = Upload(drawn.m_ink, drawn.m_width, drawn.m_height, "Atlas name banner ink"),
+                    };
+                    uploaded = true;
+                }
+                catch (Exception e)
+                {
+                    s_failed.Add(drawing.Key);
+                    Jotunn.Logger.LogWarning($"The atlas could not upload a name banner: {e.Message}");
+                }
             }
-            s_banners[key] = made;
-            return made;
+            foreach (long key in s_done) s_drawing.Remove(key);
+            return uploaded;
         }
 
         private static long Key(Vector2 strip, float outline) =>

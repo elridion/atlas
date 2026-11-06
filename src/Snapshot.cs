@@ -69,6 +69,36 @@ namespace Atlas
                 m_explored = new BitArray(s_explored(minimap)),
             };
             snapshot.m_explored.Or(s_exploredOthers(minimap));
+            TakePins(minimap, snapshot.m_pins);
+            return snapshot;
+        }
+
+        // This snapshot's explored land with the pins the player has now: pins edited on a
+        // table's map reach the atlas when that map closes, while the land still waits for
+        // "Record discoveries" (AtlasMap.EndEdit). The explored bits are shared, never changed.
+        public Snapshot WithPins(Minimap minimap)
+        {
+            var snapshot = new Snapshot { m_size = m_size, m_pixelSize = m_pixelSize, m_explored = m_explored };
+            TakePins(minimap, snapshot.m_pins);
+            return snapshot;
+        }
+
+        // Whether two snapshots hold the same pins in the same order.
+        public bool SamePins(Snapshot other)
+        {
+            if (other == null || other.m_pins.Count != m_pins.Count) return false;
+            for (int i = 0; i < m_pins.Count; i++)
+            {
+                Pin a = m_pins[i], b = other.m_pins[i];
+                if (a.m_position != b.m_position || a.m_name != b.m_name || a.m_type != b.m_type || a.m_icon != b.m_icon || a.m_checked != b.m_checked) return false;
+            }
+            return true;
+        }
+
+        // The pins the atlas records: the saved ones, the game's location pins and the profile's
+        // bed and death, each with an icon.
+        private static void TakePins(Minimap minimap, List<Pin> into)
+        {
             var locations = new HashSet<Minimap.PinData>();
             Dictionary<Vector3, Minimap.PinData> located = s_locationPins(minimap);
             if (located != null) locations.UnionWith(located.Values);
@@ -77,7 +107,7 @@ namespace Atlas
             foreach (Minimap.PinData pin in s_pins(minimap))
             {
                 if (pin == null || !pin.m_icon || !(pin.m_save || locations.Contains(pin))) continue;
-                snapshot.m_pins.Add(new Pin
+                into.Add(new Pin
                 {
                     m_position = pin.m_pos,
                     m_name = pin.m_name ?? "",
@@ -86,7 +116,6 @@ namespace Atlas
                     m_checked = pin.m_checked,
                 });
             }
-            return snapshot;
         }
 
         public void Save(Player player, long worldUid)

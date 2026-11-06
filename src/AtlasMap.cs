@@ -148,6 +148,12 @@ namespace Atlas
                 s_pinsDirty = true;
             }
 
+            // The table's map was closed: the pins edited there reach the atlas now.
+            if (s_editing && !Minimap.IsOpen())
+            {
+                s_editing = false;
+                EndEdit(player);
+            }
             KeepPins();
             KeepInk(worldUid);
             KeepFog();
@@ -169,6 +175,24 @@ namespace Atlas
             s_view.Update();
         }
 
+        // The table's map is open for editing pins (InteractiveMap.Show).
+        private static bool s_editing;
+
+        public static void BeginEdit() => s_editing = true;
+
+        // Pins edited on the table's map reach the atlas when it closes, without "Record
+        // discoveries" (the user's call): only the pins are taken, the explored land still waits
+        // for a record. Nothing before the first record, when the atlas is still blank.
+        private static void EndEdit(Player player)
+        {
+            Minimap minimap = Minimap.instance;
+            if (s_snapshot == null || !minimap || !ZNet.instance) return;
+            Snapshot edited = s_snapshot.WithPins(minimap);
+            if (edited.SamePins(s_snapshot)) return;
+            s_snapshot = edited;
+            s_snapshot.Save(player, ZNet.instance.GetWorldUID());
+            s_pinsDirty = true;
+        }
         // A cartography table recorded the player's discoveries: the atlas now shows them, and
         // the table sparkles until the atlas has caught up.
         public static void Record(MapTable table)
@@ -931,6 +955,7 @@ namespace Atlas
             s_worldUid = 0L;
             s_playerId = 0L;
             s_snapshot = null;
+            s_editing = false;
             s_snapshotTask = null;
             s_cacheTask = null;
             s_cacheStarted = false;

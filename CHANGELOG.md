@@ -13,6 +13,8 @@
   only the latest pins are drawn.
 - Background work no longer stalls, or locks up, waiting on itself, which could hold up the map
   after recording at a table.
+- Pins placed, moved, removed or checked on the map you read at a table show on your atlas as
+  soon as you close that map; newly explored land still needs "Record discoveries".
 - Checking or unchecking a pin at the table now updates the map almost at once instead of
   redrawing the whole world, and other pin changes redraw it in well under half the time.
 - After recording discoveries, close-up detail is kept where nothing changed instead of being

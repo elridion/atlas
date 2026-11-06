@@ -27,6 +27,7 @@ namespace Atlas
                 Game.m_noMap = false;
                 s_inputDelay(minimap) = InputDelay;
                 minimap.SetMapMode(Minimap.MapMode.Large);
+                AtlasMap.BeginEdit();
             }
             finally
             {

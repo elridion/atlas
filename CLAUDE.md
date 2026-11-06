@@ -244,7 +244,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   children, hence a holder per pin. The preview's `pins` views draw test pins with a stand-in
   font; traced sprites and the masks are only seen in game.
 - `src/TablePatches.cs` the `MapTable.OnRead`/`OnWrite` postfixes and the `Minimap.IsOpen` postfix.
-- `src/InteractiveMap.cs` opens vanilla's large map in a nomap world.
+- `src/InteractiveMap.cs` opens vanilla's large map in a nomap world. Pins edited there reach the atlas when that map closes (`AtlasMap.BeginEdit`/`EndEdit`, `Snapshot.WithPins`: the snapshot's explored land with the player's current pins, saved; the user's call), without "Record discoveries"; the explored land still waits for a record. Nothing before the first record.
 - `src/TableSparkles.cs` golden motes over the table while the atlas updates after "Record
   discoveries", bursting and fading once it is done (vanilla's scribble and chime play before
   the atlas has caught up). A local particle system with a mote texture made in code on a copy

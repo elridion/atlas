@@ -1,0 +1,508 @@
+﻿diff --git a/src/Ink/DistanceField.cs b/src/Ink/DistanceField.cs
+index ff89eac..d6284ac 100644
+--- a/src/Ink/DistanceField.cs
++++ b/src/Ink/DistanceField.cs
+@@ -39,10 +39,16 @@ namespace Atlas
+             }
+         }
+ 
+-        public DistanceField(int size)
++        public DistanceField(int size) : this(size, new float[size * size])
++        {
++        }
++
++        // A field working in columns, size² floats lent by its caller: every Compute writes all
++        // of them before it reads one, so they need not be cleared.
++        public DistanceField(int size, float[] columns)
+         {
+             m_size = size;
+-            m_columns = new float[size * size];
++            m_columns = columns;
+             m_scratch = new Scratch(size);
+         }
+ 
+diff --git a/src/Ink/InkCanvas.cs b/src/Ink/InkCanvas.cs
+index 1d195c7..7e021d2 100644
+--- a/src/Ink/InkCanvas.cs
++++ b/src/Ink/InkCanvas.cs
+@@ -83,15 +83,30 @@ namespace Atlas
+         // A canvas of width x height pixels showing the sheet from (originX, originY) at scale
+         // pixels per sheet pixel.
+         public InkCanvas(int width, int height, float originX, float originY, float scale)
++            : this(width, height, originX, originY, scale, new byte[width * height], new byte[width * height], new byte[width * height],
++                new byte[width * height], new byte[width * height], new byte[width * height])
++        {
++        }
++
++        // A canvas of size x size pixels over the whole sheet drawing into the planes given, each
++        // size² bytes and all zero, so a paint can lend it planes an earlier paint gave back
++        // (InkPainter.Scratch).
++        public InkCanvas(int size, byte[] ink, byte[] body, byte[] bodyNorth, byte[] bodyMist, byte[] bodyWood, byte[] pinInk)
++            : this(size, size, 0f, 0f, 1f, ink, body, bodyNorth, bodyMist, bodyWood, pinInk)
++        {
++        }
++
++        private InkCanvas(int width, int height, float originX, float originY, float scale, byte[] ink, byte[] body,
++            byte[] bodyNorth, byte[] bodyMist, byte[] bodyWood, byte[] pinInk)
+         {
+             m_width = width;
+             m_height = height;
+-            m_ink = new byte[width * height];
+-            m_body = new byte[width * height];
+-            m_bodyNorth = new byte[width * height];
+-            m_bodyMist = new byte[width * height];
+-            m_bodyWood = new byte[width * height];
+-            m_pinInk = new byte[width * height];
++            m_ink = ink;
++            m_body = body;
++            m_bodyNorth = bodyNorth;
++            m_bodyMist = bodyMist;
++            m_bodyWood = bodyWood;
++            m_pinInk = pinInk;
+             m_originX = originX;
+             m_originY = originY;
+             m_scale = scale;
+diff --git a/src/Ink/InkPainter.Groundwork.cs b/src/Ink/InkPainter.Groundwork.cs
+index 1288ad7..b84a483 100644
+--- a/src/Ink/InkPainter.Groundwork.cs
++++ b/src/Ink/InkPainter.Groundwork.cs
+@@ -48,10 +48,12 @@ namespace Atlas
+         // The groundwork this painter built or took, so it keeps its water lines with the right one.
+         private Groundwork m_groundwork;
+ 
+-        // Drops the kept groundwork (about 128 MB), when the player leaves the world.
++        // Drops the kept groundwork (about 128 MB) and the planes kept for the next paint (about
++        // 208 MB, Scratch), when the player leaves the world.
+         public static void ClearGroundwork()
+         {
+             lock (s_groundLock) s_groundwork = null;
++            ClearSpares();
+         }
+ 
+         // Takes the coast and the fields from the last paint of this world; false when there is none.
+@@ -69,9 +71,11 @@ namespace Atlas
+             m_isletCell = kept.m_isletCell;
+             m_islets.AddRange(kept.m_islets);
+             int n = CanvasSize;
+-            m_land = new byte[n * n];
+-            m_sea = new byte[n * n];
+-            m_wood = new byte[n * n];
++            // Unpacked into the painter's own masks, every pixel written, so lent ones need no
++            // clearing (Scratch).
++            m_land = m_scratch.Bytes(n * n, false);
++            m_sea = m_scratch.Bytes(n * n, false);
++            m_wood = m_scratch.Bytes(n * n, false);
+             byte[] masks = kept.m_masks;
+             Parallel.For(0, n, Workers.LoopOptions(m_cancel), y =>
+             {
+@@ -118,9 +122,9 @@ namespace Atlas
+             Waterwork water = m_groundwork?.m_water;
+             if (water == null) return null;
+             int n = CanvasSize;
+-            m_wideLake = new byte[n * n];
+-            m_lakeTier = new byte[n * n];
+-            m_lineLand = new byte[n * n];
++            m_wideLake = m_scratch.Bytes(n * n, false);
++            m_lakeTier = m_scratch.Bytes(n * n, false);
++            m_lineLand = m_scratch.Bytes(n * n, false);
+             byte[] masks = water.m_masks;
+             Parallel.For(0, n, Workers.LoopOptions(m_cancel), y =>
+             {
+diff --git a/src/Ink/InkPainter.Massifs.cs b/src/Ink/InkPainter.Massifs.cs
+index ef7d9bc..af859f7 100644
+--- a/src/Ink/InkPainter.Massifs.cs
++++ b/src/Ink/InkPainter.Massifs.cs
+@@ -116,7 +116,7 @@ namespace Atlas
+             }
+ 
+             // The massifs: each root, its top and its area.
+-            m_massifOf = new int[h.Length];
++            m_massifOf = m_scratch.Ints(h.Length);
+             for (int i = 0; i < m_massifOf.Length; i++) m_massifOf[i] = -1;
+             var roots = new Dictionary<int, int>();
+             var tops = new List<int>();
+@@ -214,6 +214,7 @@ namespace Atlas
+                 if (RidgeHidesSummit(s.m_x, s.m_y, width, height)) return;
+                 Add(s, Kind.Ridge, width);
+             });
++            m_scratch.Give(m_massifOf);
+             m_massifOf = null;
+         }
+ 
+diff --git a/src/Ink/InkPainter.Scratch.cs b/src/Ink/InkPainter.Scratch.cs
+new file mode 100644
+index 0000000..1a7e7ab
+--- /dev/null
++++ b/src/Ink/InkPainter.Scratch.cs
+@@ -0,0 +1,131 @@
++using System;
++using System.Collections.Generic;
++
++namespace Atlas
++{
++    internal sealed partial class InkPainter
++    {
++        /// <summary>
++        /// The large working arrays of one paint (masks, flood-fill queues, distance-field
++        /// buffers, the canvas's planes), lent out and given back as its stages finish, so a later
++        /// stage reuses an earlier one's instead of allocating its own. Under Valheim's Mono every
++        /// large allocation can start a stop-the-world collection of the whole heap (100-160 ms
++        /// with the game loaded), and a first paint used to allocate about 900 MB.
++        /// The sheet-sized byte planes a repaint needs again (SpareSheets) are kept for the
++        /// session and lent to the next paint, until ClearGroundwork; the rest is dropped with
++        /// the painter. Only arrays nothing outlives the paint with go back: never the kept
++        /// groundwork's (Groundwork), the record's or the returned sheet. A lent array may hold
++        /// an earlier stage's values unless asked for cleared. Not thread-safe: lent and given back
++        /// only between a painter's stages, never inside its parallel loops.
++        /// </summary>
++        private sealed class Scratch
++        {
++            private readonly List<byte[]> m_bytes = new List<byte[]>();
++            private readonly List<bool[]> m_bools = new List<bool[]>();
++            private readonly List<int[]> m_ints = new List<int[]>();
++            private readonly List<float[]> m_floats = new List<float[]>();
++            // The session pool's serial when this paint began: a paint still running for a world
++            // the player left keeps its arrays out of the next world's pool.
++            private readonly int m_serial;
++
++            public Scratch()
++            {
++                lock (s_spareLock) m_serial = s_spareSerial;
++            }
++
++            public byte[] Bytes(int length, bool clear)
++            {
++                byte[] array = Take(m_bytes, length);
++                if (array == null && length == CanvasSize * CanvasSize)
++                    lock (s_spareLock)
++                        if (m_serial == s_spareSerial) array = Take(s_spareSheets, length);
++                if (array == null) return new byte[length];
++                if (clear) Array.Clear(array, 0, length);
++                return array;
++            }
++
++            public bool[] Bools(int length, bool clear)
++            {
++                bool[] array = Take(m_bools, length);
++                if (array == null) return new bool[length];
++                if (clear) Array.Clear(array, 0, length);
++                return array;
++            }
++
++            // Never cleared: every caller writes before it reads.
++            public int[] Ints(int length) => Take(m_ints, length) ?? new int[length];
++
++            public float[] Floats(int length) => Take(m_floats, length) ?? new float[length];
++
++            public void Give(byte[] array)
++            {
++                if (array != null) m_bytes.Add(array);
++            }
++
++            public void Give(bool[] array)
++            {
++                if (array != null) m_bools.Add(array);
++            }
++
++            public void Give(int[] array)
++            {
++                if (array != null) m_ints.Add(array);
++            }
++
++            public void Give(float[] array)
++            {
++                if (array != null) m_floats.Add(array);
++            }
++
++            // Once the paint is done: up to SpareSheets sheet-sized byte planes wait for the next
++            // paint; everything else is dropped.
++            public void KeepForNextPaint()
++            {
++                lock (s_spareLock)
++                {
++                    if (m_serial != s_spareSerial) return;
++                    foreach (byte[] array in m_bytes)
++                        if (array.Length == CanvasSize * CanvasSize && s_spareSheets.Count < SpareSheets) s_spareSheets.Add(array);
++                }
++                m_bytes.Clear();
++                m_bools.Clear();
++                m_ints.Clear();
++                m_floats.Clear();
++            }
++
++            private static T[] Take<T>(List<T[]> list, int length)
++            {
++                for (int i = list.Count - 1; i >= 0; i--)
++                {
++                    T[] array = list[i];
++                    if (array.Length != length) continue;
++                    list[i] = list[list.Count - 1];
++                    list.RemoveAt(list.Count - 1);
++                    return array;
++                }
++                return null;
++            }
++        }
++
++        // The sheet-sized planes a repaint takes again: the canvas's six, the land, sea and wood
++        // masks, the wide lakes, lake tiers and line land, and the river courses. About 208 MB
++        // kept between paints.
++        private const int SpareSheets = 13;
++
++        private static readonly object s_spareLock = new object();
++        private static readonly List<byte[]> s_spareSheets = new List<byte[]>();
++        private static int s_spareSerial;
++
++        // Drops the planes kept for the next paint, when the player leaves the world.
++        private static void ClearSpares()
++        {
++            lock (s_spareLock)
++            {
++                s_spareSheets.Clear();
++                s_spareSerial++;
++            }
++        }
++
++        private readonly Scratch m_scratch = new Scratch();
++    }
++}
+diff --git a/src/Ink/InkPainter.cs b/src/Ink/InkPainter.cs
+index aed73ae..b5be990 100644
+--- a/src/Ink/InkPainter.cs
++++ b/src/Ink/InkPainter.cs
+@@ -1010,7 +1010,9 @@ namespace Atlas
+         {
+             m_world = world;
+             m_cancel = cancel;
+-            m_canvas = new InkCanvas(CanvasSize);
++            int n = CanvasSize * CanvasSize;
++            m_canvas = new InkCanvas(CanvasSize, m_scratch.Bytes(n, true), m_scratch.Bytes(n, true), m_scratch.Bytes(n, true),
++                m_scratch.Bytes(n, true), m_scratch.Bytes(n, true), m_scratch.Bytes(n, true));
+             m_right = m_bottom = CanvasSize;
+         }
+ 
+@@ -1059,9 +1061,31 @@ namespace Atlas
+             Buffer.BlockCopy(painter.m_canvas.m_bodyMist, 0, sheet, 3 * n, n);
+             Buffer.BlockCopy(painter.m_canvas.m_bodyWood, 0, sheet, 4 * n, n);
+             Buffer.BlockCopy(painter.m_canvas.m_pinInk, 0, sheet, 5 * n, n);
++            painter.GiveBackPlanes();
+             return sheet;
+         }
+ 
++        // Once the sheet is copied out: the canvas's planes and the painter's own masks go to the
++        // next paint (Scratch). Not the groundwork's distance fields and heights, which stay kept.
++        private void GiveBackPlanes()
++        {
++            m_scratch.Give(m_canvas.m_ink);
++            m_scratch.Give(m_canvas.m_body);
++            m_scratch.Give(m_canvas.m_bodyNorth);
++            m_scratch.Give(m_canvas.m_bodyMist);
++            m_scratch.Give(m_canvas.m_bodyWood);
++            m_scratch.Give(m_canvas.m_pinInk);
++            m_scratch.Give(m_land);
++            m_scratch.Give(m_sea);
++            m_scratch.Give(m_wood);
++            m_scratch.Give(m_wideLake);
++            m_scratch.Give(m_lakeTier);
++            m_scratch.Give(m_lineLand);
++            m_scratch.Give(m_riverMask);
++            m_land = m_sea = m_wood = m_wideLake = m_lakeTier = m_lineLand = m_riverMask = null;
++            m_scratch.KeepForNextPaint();
++        }
++
+         private void Run()
+         {
+             // The coast and the fields do not depend on the pins: a repaint for new pins takes
+@@ -1198,8 +1222,8 @@ namespace Atlas
+         private void RemoveSpecks(float water, bool land, int minCells)
+         {
+             int size = m_world.m_size;
+-            var seen = new bool[size * size];
+-            var queue = new int[size * size];
++            bool[] seen = m_scratch.Bools(size * size, true);
++            int[] queue = m_scratch.Ints(size * size);
+             for (int start = 0; start < seen.Length; start++)
+             {
+                 if (seen[start] || (m_coast[start] > water) != land) continue;
+@@ -1228,14 +1252,16 @@ namespace Atlas
+                     queue[tail++] = j;
+                 }
+             }
++            m_scratch.Give(seen);
++            m_scratch.Give(queue);
+         }
+ 
+         // Flood fills the water connected to the edge of the map (four-way, so a river mouth joined
+         // only at a corner stays a lake) into m_seaCell.
+         private void MarkSea(float water, int size)
+         {
+-            m_seaCell = new bool[size * size];
+-            var queue = new int[size * size];
++            m_seaCell = m_scratch.Bools(size * size, true);
++            int[] queue = m_scratch.Ints(size * size);
+             int head = 0, tail = 0;
+             for (int i = 0; i < size; i++)
+             {
+@@ -1253,6 +1279,7 @@ namespace Atlas
+                 if (z > 0) Seed(i - size);
+                 if (z < size - 1) Seed(i + size);
+             }
++            m_scratch.Give(queue);
+ 
+             void Seed(int j)
+             {
+@@ -1265,9 +1292,9 @@ namespace Atlas
+         private void BuildFields()
+         {
+             int n = CanvasSize;
+-            m_land = new byte[n * n];
+-            m_sea = new byte[n * n];
+-            m_wood = new byte[n * n];
++            m_land = m_scratch.Bytes(n * n, true);
++            m_sea = m_scratch.Bytes(n * n, true);
++            m_wood = m_scratch.Bytes(n * n, true);
+             float edgeSqr = EdgeRadius * EdgeRadius;
+             int size = m_world.m_size;
+             // Row by row on the workers: every pixel is decided on its own, so the masks are the
+@@ -1301,7 +1328,12 @@ namespace Atlas
+                 }
+             });
+ 
+-            var field = new DistanceField(n);
++            m_scratch.Give(m_seaCell);
++            m_seaCell = null;
++            // The fields are kept with the groundwork, so they are never lent: only the field's
++            // own working columns are.
++            float[] columns = m_scratch.Floats(n * n);
++            var field = new DistanceField(n, columns);
+             m_waterDistance = new byte[n * n];
+             m_landDistance = new byte[n * n];
+             field.ComputeParallel(i => m_land[i] != 0, m_waterDistance, DistanceScale, m_cancel);
+@@ -1319,6 +1351,8 @@ namespace Atlas
+                 float wx = (i % n + 0.5f) * MetresPerPixel - HalfExtent, wz = HalfExtent - (i / n + 0.5f) * MetresPerPixel;
+                 return major[m_world.Index(wx, wz)];
+             }, m_majorDistance, DistanceScale, m_cancel);
++            m_scratch.Give(major);
++            m_scratch.Give(columns);
+         }
+ 
+         // The map pixels of land masses of at least MajorLandCells (four-way connected), which get
+@@ -1327,10 +1361,11 @@ namespace Atlas
+         // bare; they still hide any stroke that crosses them.
+         private bool[] MajorLand(float water, int size)
+         {
+-            var major = new bool[size * size];
++            bool[] major = m_scratch.Bools(size * size, true);
++            // Kept with the groundwork, so never lent.
+             m_isletCell = new int[size * size];
+-            var seen = new bool[size * size];
+-            var queue = new int[size * size];
++            bool[] seen = m_scratch.Bools(size * size, true);
++            int[] queue = m_scratch.Ints(size * size);
+             for (int start = 0; start < seen.Length; start++)
+             {
+                 if (seen[start] || !(m_coast[start] > water)) continue;
+@@ -1386,6 +1421,8 @@ namespace Atlas
+                     queue[tail++] = j;
+                 }
+             }
++            m_scratch.Give(seen);
++            m_scratch.Give(queue);
+             return major;
+         }
+ 
+@@ -3195,7 +3232,7 @@ namespace Atlas
+         // Marks the canvas pixels within radius of a point on a river's course, which trees keep off.
+         private void MarkRiver(Vector2 at, float radius)
+         {
+-            if (m_riverMask == null) m_riverMask = new byte[CanvasSize * CanvasSize];
++            if (m_riverMask == null) m_riverMask = m_scratch.Bytes(CanvasSize * CanvasSize, true);
+             int x0 = Mathf.Clamp((int)(at.x - radius), 0, CanvasSize - 1), x1 = Mathf.Clamp((int)(at.x + radius), 0, CanvasSize - 1);
+             int y0 = Mathf.Clamp((int)(at.y - radius), 0, CanvasSize - 1), y1 = Mathf.Clamp((int)(at.y + radius), 0, CanvasSize - 1);
+             for (int y = y0; y <= y1; y++)
+@@ -4214,22 +4251,29 @@ namespace Atlas
+         private List<ContourLines.Line> TraceWaterLines()
+         {
+             int n = CanvasSize;
+-            var field = new DistanceField(n);
++            float[] columns = m_scratch.Floats(n * n);
++            var field = new DistanceField(n, columns);
+             byte[] lineLand = m_lineLand = LineLand();
+-            var landDistance = new byte[n * n];
++            // Distance fields write every pixel, so their outputs need no clearing.
++            byte[] landDistance = m_scratch.Bytes(n * n, false);
+             field.ComputeParallel(i => lineLand[i] != 0, landDistance, DistanceScale, m_cancel);
+             m_cancel.ThrowIfCancellationRequested();
+-            var open = new byte[n * n];
++            byte[] open = m_scratch.Bytes(n * n, false);
+             float wide = WideWater * DistanceScale;
+             field.ComputeParallel(i => landDistance[i] >= wide, open, 1f, m_cancel);
+-            m_noLine = new byte[n * n];
++            m_scratch.Give(landDistance);
++            m_noLine = m_scratch.Bytes(n * n, true);
+             // A small lake has no water WideWater from land, so as a channel it would have no trace
+             // and its shore no bends.
+             for (int i = 0; i < n * n; i++)
+                 if (m_land[i] == 0 && ((open[i] > ChannelReach && m_lakeTier[i] != SmallLake) || !Lined(i))) m_noLine[i] = 1;
++            m_scratch.Give(open);
+             m_cancel.ThrowIfCancellationRequested();
+-            m_lineDistance = new byte[n * n];
++            m_lineDistance = m_scratch.Bytes(n * n, false);
+             field.ComputeParallel(i => lineLand[i] != 0 || m_noLine[i] != 0, m_lineDistance, DistanceScale, m_cancel);
++            m_scratch.Give(columns);
++            m_scratch.Give(m_noLine);
++            m_noLine = null;
+             m_cancel.ThrowIfCancellationRequested();
+             var contour = new ContourLines();
+             DistanceField.Contour(n,
+@@ -4239,6 +4283,8 @@ namespace Atlas
+                 // level can cross it.
+                 (x, y) => Math.Abs(m_lineDistance[y * n + x] / DistanceScale - WaterLine) > 1.5f,
+                 (a, b) => contour.Add(a + new Vector2(0.5f, 0.5f), b + new Vector2(0.5f, 0.5f)));
++            m_scratch.Give(m_lineDistance);
++            m_lineDistance = null;
+             m_cancel.ThrowIfCancellationRequested();
+             return SmoothLines(contour);
+         }
+@@ -4251,7 +4297,7 @@ namespace Atlas
+         {
+             int n = CanvasSize;
+             // 0 unseen, 1 in a small islet, 2 in large land.
+-            var state = new byte[n * n];
++            byte[] state = m_scratch.Bytes(n * n, true);
+             var patch = new List<int>(64);
+             for (int start = 0; start < n * n; start++)
+             {
+@@ -4272,9 +4318,10 @@ namespace Atlas
+                 }
+                 if (large) foreach (int i in patch) state[i] = 2;
+             }
+-            var land = new byte[n * n];
++            byte[] land = m_scratch.Bytes(n * n, true);
+             for (int i = 0; i < n * n; i++)
+                 if (state[i] == 2) land[i] = 1;
++            m_scratch.Give(state);
+             return land;
+ 
+             // Adds an unseen land pixel to the patch; true when it touches land already found large.
+@@ -4321,9 +4368,9 @@ namespace Atlas
+         private void MarkWideLakes()
+         {
+             int n = CanvasSize;
+-            m_wideLake = new byte[n * n];
+-            m_lakeTier = new byte[n * n];
+-            var seen = new bool[n * n];
++            m_wideLake = m_scratch.Bytes(n * n, true);
++            m_lakeTier = m_scratch.Bytes(n * n, true);
++            bool[] seen = m_scratch.Bools(n * n, true);
+             var patch = new List<int>();
+             var queue = new Queue<int>();
+             for (int start = 0; start < n * n; start++)
+@@ -4360,6 +4407,7 @@ namespace Atlas
+                     m_lakeTier[i] = tier;
+                 }
+             }
++            m_scratch.Give(seen);
+         }
+ 
+         // The pixel farthest from the shore of every lined lake: one group goes beside it when

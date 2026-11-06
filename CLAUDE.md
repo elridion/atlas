@@ -280,6 +280,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `DetailTile.cs` composites one, `InkPainter.Tile.cs` draws it, `TileGrid.cs` the ground sampled
   for it, `SampleCache.cs` the shared samples, `WorldSampler.cs` the world generator and minimap
   samplers.
+- `docs/performance.md` the performance work: measurements, what was changed and ruled out, and what is open (with the parked `docs/array-pool.patch`). `tools/timing/` makes a timing build (`Apply.ps1`, `Timing.cs`; never commit its result).
 - `assets/translations/<Language>.json` (`atlas_*` keys); `tools/make_icon.ps1` generates
   `package/icon.png`; `hexium.json` Hexium listing metadata.
 

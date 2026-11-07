@@ -252,8 +252,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   ones that mark places: location pins (`m_locationPins`), `m_spawnPointPin` and `m_deathPin`,
   which a saved-only filter leaves off the atlas. Daymark's dungeon and deposit pins are
   ordinary Icon2 and Icon3 pins. `Preview --pincat` renders the glyph table
-  (`screenshots/atlas-sample-28-pin-catalogue.png`); `Preview --pinref` shows where each
-  glyph's place lies on it (`atlas-sample-29-pin-reference.png`, below). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
+  (`screenshots/atlas-sample-30-pin-catalogue.png`); `Preview --pinref` shows where each
+  glyph's place lies on it (`atlas-sample-31-pin-reference.png`, below). Names: bold (the regular weight was hard to read in game), letter-spacing, bare
   ink over a gap of their own letters grown a little (a TextMeshPro underlay used only as a
   `Mask`, paper behind it), placed by `PinLayout` at the clearest of the eight classic positions
   by the sheet's ink density (`InkDensity`, a summed-area table built before the sheet is
@@ -1334,11 +1334,12 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   `InkPainter` by reflection; painting the whole world takes about 2.5 s. It is a separate
   project, never shipped: `Atlas.csproj` removes `tools\**` from its items and the package holds
   only the DLL. `run.ps1 -World <name> -Views ...` renders into `tools/preview/img/` (ignored);
-  `samples.ps1 -Publish` refreshes the 40 samples in `screenshots/` (committed): 01-03 the world,
+  `samples.ps1 -Publish` refreshes the 42 samples in `screenshots/` (committed): 01-03 the world,
   region and start island, then each biome's close and wide view followed by its variants that the
   atlas draws differently, forced over the biome's own wide view with `-Alt` (one run per set of
-  variants of different biomes; Bog and Hut Swamp in separate runs), 26-27 pins, 28 the pin
-  catalogue, 29 the pin reference, 30 the sea mark catalogue
+  variants of different biomes; Bog and Hut Swamp in separate runs), 26-29 pins (the start island,
+  the mountains, the meadows and the plains, so every game pin's glyph stands in its biome), 30 the pin
+  catalogue, 31 the pin reference, 32 the sea mark catalogue
   (`Preview --seacat`). Pin places: `Preview --pinref <png>` draws every pen-drawn glyph (all
   `PinGlyphs` kinds but `Traced`) on plain parchment with a 1 px cyan crosshair on its place:
   the sheet 1:1, its pixels 8x, a 4x and an 8x close-up, whose cross carries a ruler in the

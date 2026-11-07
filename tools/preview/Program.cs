@@ -184,6 +184,11 @@ internal static class Program
             pinType.GetField("m_glyph").SetValue(pin, Enum.Parse(glyphType, glyphName));
             pinType.GetField("m_checked").SetValue(pin, t.Length > at + 2);
             sheetPins.Add(pin);
+            // The biome under it, to check a game pin stands where the game places it (s_pinRows).
+            float pwx = float.Parse(t[at]), pwz = float.Parse(t[at + 1]);
+            object ground = wsType.GetMethod("LandAt", All).Invoke(source, new object[] { pwx, pwz });
+            bool wet = (bool)wsType.GetMethod("IsWaterAt", All).Invoke(source, new object[] { pwx, pwz });
+            System.Console.WriteLine($"PIN {glyphName} {pwx}:{pwz} {ground}{(wet ? " water" : "")}");
         }
         Array pinArray = Array.CreateInstance(pinType, sheetPins.Count);
         for (int k = 0; k < sheetPins.Count; k++) pinArray.SetValue(sheetPins[k], k);
@@ -577,26 +582,36 @@ internal static class Program
         return 0;
     }
 
+    // Every land biome, for the game's pins that can stand anywhere on land.
+    const string AnyLand = "Meadows BlackForest Swamp Mountain Plains Mistlands Ashlands DeepNorth";
+
     // Every pen-drawn pin glyph (PinGlyph but Traced, which stays a marker traced from its
-    // sprite in game): glyph, the vanilla pin and what it is drawn as.
+    // sprite in game): glyph, the vanilla pin, what it is drawn as, and the biomes (Land names)
+    // the game places it in, null for the player's own pins, which may stand anywhere, water too.
+    // The game's places, from the Valheim Wiki (valheim.weirdgloop.org/w/<page>): a bed wherever
+    // a player can build (Bed lists no biome limit); Vegvisirs reveal an altar in every land
+    // biome (Vegvisir, Bosses: Eikthyr to Fader, and the Deep North's Aesir Passage); Hildir's
+    // chests in the Smouldering Tomb (Black Forest), Howling Cavern (Mountain) and Sealed Tower
+    // (Plains) (Hildir); Sacrificial_Stones Meadows; Haldor Black Forest; Hildir Meadows;
+    // Bog_Witch Swamp; Forge_of_Potential Mountain ("within Mountain biomes away from their edges").
     static readonly string[][] s_pinRows =
     {
-        new[] { "Fire", "Fire (Icon0)", "campfire" },
-        new[] { "House", "House (Icon1)", "longhouse" },
-        new[] { "Hammer", "Hammer (Icon2)", "Mjolnir pendant" },
-        new[] { "Point", "Circle (Icon3)", "dot" },
-        new[] { "Portal", "Portal (Icon4)", "stone portal" },
-        new[] { "Death", "Death (tombstone)", "two steles on a plinth" },
-        new[] { "Bed", "Bed (spawn point)", "game's pin: bed" },
-        new[] { "Boss", "Boss (Vegvisir)", "game's pin: horned skull" },
-        new[] { "Tomb", "Hildir 1", "Smouldering Tombs: barrow" },
-        new[] { "Cavern", "Hildir 2", "Howling Caverns: cave mouth" },
-        new[] { "Tower", "Hildir 3", "Sealed Towers: tower" },
-        new[] { "StoneCircle", "Sacrificial Stones", "location: stone circle" },
-        new[] { "Trader", "Haldor", "location: bag" },
-        new[] { "Tent", "Hildir's camp", "location: tent" },
-        new[] { "Cauldron", "The Bog Witch", "location: cauldron" },
-        new[] { "Forge", "Forge of Potential", "location: crowned pillar" },
+        new[] { "Fire", "Fire (Icon0)", "campfire", null },
+        new[] { "House", "House (Icon1)", "longhouse", null },
+        new[] { "Hammer", "Hammer (Icon2)", "Mjolnir pendant", null },
+        new[] { "Point", "Circle (Icon3)", "dot", null },
+        new[] { "Portal", "Portal (Icon4)", "stone portal", null },
+        new[] { "Death", "Death (tombstone)", "two steles on a plinth", null },
+        new[] { "Bed", "Bed (spawn point)", "game's pin: bed", AnyLand },
+        new[] { "Boss", "Boss (Vegvisir)", "game's pin: horned skull", AnyLand },
+        new[] { "Tomb", "Hildir 1", "Smouldering Tombs: barrow", "BlackForest" },
+        new[] { "Cavern", "Hildir 2", "Howling Caverns: cave mouth", "Mountain" },
+        new[] { "Tower", "Hildir 3", "Sealed Towers: tower", "Plains" },
+        new[] { "StoneCircle", "Sacrificial Stones", "location: stone circle", "Meadows" },
+        new[] { "Trader", "Haldor", "location: bag", "BlackForest" },
+        new[] { "Tent", "Hildir's camp", "location: tent", "Meadows" },
+        new[] { "Cauldron", "The Bog Witch", "location: cauldron", "Swamp" },
+        new[] { "Forge", "Forge of Potential", "location: crowned pillar", "Mountain" },
     };
 
     // The pin location mark (--pinref, --pincross): a cyan that no ink or wash of the map uses.
@@ -951,7 +966,8 @@ internal static class Program
 
     // --pincat <png>: every pen-drawn pin as the map draws it (InkCanvas.Pin), as a table. Each
     // row is one glyph, with its vanilla pin and its box on the sheet, the glyph as a 4x close-up
-    // draws it on paper, plain and checked (scraped, PinGlyphs.Abrade), then as a 2x close-up draws it in every biome, over a dense hatching
+    // draws it on paper, plain and checked (scraped, PinGlyphs.Abrade), then as a 2x close-up draws it in every biome the game
+    // places it in (s_pinRows; a dash elsewhere), over a dense hatching
     // that stands for woods, so the body's fill and its break in the terrain ink show. Both with
     // the map's own pen (thinned by the close-up's level of detail, as every line) and the
     // hand-drawn waver. A last row notes what is drawn otherwise.
@@ -1048,16 +1064,27 @@ internal static class Program
                 Stamp(glyph, box, nameWidth + bigCell / 2, top + rowHeight / 2, bigScale, paperColor, false);
                 // The same close-up checked, its ink scraped away in part.
                 Stamp(glyph, box, nameWidth + bigCell + bigCell / 2, top + rowHeight / 2, bigScale, paperColor, true);
-                // The game's own pins stand on land: beds, altars, dungeons, traders and the
-                // Stones never lie in water. The player's pins and deaths can.
-                bool onWater = row < 6;
+                // The game's own pins only where the game places them (s_pinRows): beds, altars,
+                // dungeons, traders and the Stones never lie in water, and most stand in one biome.
+                // The player's pins and deaths can be anywhere.
+                string[] where = rows[row][3]?.Split(' ');
                 for (int c = 0; c < lands.Length; c++)
                 {
                     bool water = lands[c] == "Ocean";
-                    if (water && !onWater) continue;
+                    int x0 = biomes + c * cell, y0 = top + (rowHeight - cell) / 2;
+                    if (where != null && Array.IndexOf(where, lands[c]) < 0)
+                    {
+                        // Bare parchment with a faint dash, so the empty cell reads as "never here".
+                        int mx = x0 + (cell - 4) / 2, my = y0 + (cell - 4) / 2;
+                        using (var dash = new Pen(System.Drawing.Color.FromArgb(90, inkColor), 1.4f))
+                        {
+                            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+                            g.DrawLine(dash, mx - 6, my, mx + 6, my);
+                        }
+                        continue;
+                    }
                     var colour = (Color32)bodyColor.Invoke(null, new object[] { Enum.Parse(land, lands[c]), water });
                     var fill = System.Drawing.Color.FromArgb(colour.r, colour.g, colour.b);
-                    int x0 = biomes + c * cell, y0 = top + (rowHeight - cell) / 2;
                     using (var ground = new SolidBrush(fill)) g.FillRectangle(ground, x0, y0, cell - 4, cell - 4);
                     // Woods: dense short strokes, as a pine wood's ink would lie under the pin.
                     using (var pen = new Pen(inkColor, 1.4f))
@@ -1073,6 +1100,7 @@ internal static class Program
             int foot = header + rowHeight * rows.Length + 10;
             g.DrawString("Locations other mods mark (vanilla marks only the five above) and other mods' pins:", small, ink, 8, foot);
             g.DrawString("traced from their own sprites in game, as markers over the map (not shown offline).", small, ink, 8, foot + 18);
+            g.DrawString("A dash: the game never places that pin in that biome (Valheim Wiki).", small, ink, 8, foot + 36);
             bitmap.Save(path, ImageFormat.Png);
         }
         return 0;

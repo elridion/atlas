@@ -21,8 +21,11 @@ $biomes = 'Meadows','BlackForest','Swamp','Mountain','Plains','Mistlands','Ashla
 $variantSpot = @{ Mountain = '-7500:3000' }
 function VariantSpot($biome) { if ($variantSpot.ContainsKey($biome)) { $variantSpot[$biome] } else { $spot[$biome] } }
 # Velen's start island with the Sacrificial Stones and a set of pins drawn into the sheet, one in
-# the mountains to its south (the preview has no location icons or snapshot of its own).
-$pins = 'House:205:-119','Fire:158:-158','Bed:-210:0','Portal:-527:316','Hammer:738:-527','Point:-1265:422:x','Death:0:-1001','Boss:120:-1180','Tower:-240:359','Trader:-60:-120','Forge:-80:-1110'
+# the mountains to its south (the preview has no location icons or snapshot of its own). The
+# game's pins stand in a biome the game places them in (the preview prints each pin's biome):
+# Haldor in the Black Forest, the Forge and Hildir's Howling Cavern in the mountains (Velen has
+# no Plains in either pins view for a Sealed Tower).
+$pins = 'House:205:-119','Fire:158:-158','Bed:-210:0','Portal:-527:316','Hammer:738:-527','Point:-1265:422:x','Death:0:-1001','Boss:120:-1180','Cavern:-300:-1900','Trader:850:-650','Forge:-80:-1110'
 # The region and the start island at scale 1 are the sheet itself, as the game shows it there
 # (a tile render at scale 1 samples every 16 m and breaks narrow channels into beads).
 $views = @('overview','wide:0:0:1000:1:sheet','start:0:0:600:1:sheet') + ($biomes | ForEach-Object { "tilesb${_}4:$($spot[$_]):4", "tilesb${_}2:$($spot[$_]):2" }) + @('tilesPinsStart4:0:60:4','tilesPinsMountain2:60:-1090:2')

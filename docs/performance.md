@@ -26,13 +26,16 @@ threads, so `Workers.Count` is 4); in-game numbers from timing builds on the sam
 
 Velen with its cache, successive timing builds:
 
-| | First | Second | Third | Fourth |
-| --- | --- | --- | --- | --- |
-| Atlas can open | 13.4 s | 8.8 s | 6.4 s | 5.2 s |
-| Background repaint | 16.5 s | 16.5 s | 9.2 s | 9.2 s |
-| Close-ups ready | 21.6 s | 27.8 s | 18.2 s | 16.9 s |
-| Worst main-thread frame | 102 ms | 37 ms | 82 ms | 50 ms |
-| Record that ticks pins, to ink laid | - | - | stalled | 1.3 s |
+| | First | Second | Third | Fourth | Fifth (`b0a26e1`) |
+| --- | --- | --- | --- | --- | --- |
+| Atlas can open | 13.4 s | 8.8 s | 6.4 s | 5.2 s | 3.4 s |
+| Background repaint | 16.5 s | 16.5 s | 9.2 s | 9.2 s | 9.2 s |
+| Close-ups ready | 21.6 s | 27.8 s | 18.2 s | 16.9 s | 15.2 s |
+| Worst main-thread frame | 102 ms | 37 ms | 82 ms | 50 ms | 42 ms |
+| Record that ticks pins, to ink laid | - | - | stalled | 1.3 s | - |
+| Pin change (repaint), to ink laid | - | - | - | - | 7.5 s |
+
+In the fifth run the atlas's work started 0.02 s after joining, before the character arrived (1.9 s); the fog started 0.1 s after the cached sheet, read from the parchment cache, and took 0.37 s; each pin change was painted in about 5.8 s and its ink laid once. On the second world (cached) the atlas could open at 4.4 s, against 8.6 s in the fourth run. The 77 ms frame on the character's arrival did not recur.
 
 Without a usable cache the atlas waits for the first full paint (about 11 s in game before the
 latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5 ms a frame.
@@ -53,7 +56,7 @@ latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5
 | `618863a` | `Workers` queues a loop's parts only for idle workers | Fixes stalls and a deadlock under Mono (reproduced in Valheim's Mono) |
 | `ced7325` | Parchment cached; snapshot decoded on a worker; the first paint without a cache in the priority lane | No parchment wait before the fog; no 95 ms frame reading the snapshot |
 | `c5e2a20` | Closing the table's map takes the current pins into the snapshot | Pin edits reach the atlas without a record |
-| `b0a26e1` | Cached files start while the world loads; the ink is laid once per record; at most one upload or minimap capture per frame | Untested in game |
+| `b0a26e1` | Cached files start while the world loads; the ink is laid once per record; at most one upload or minimap capture per frame | Fifth timing run: ready at 3.4 s; work starts before the character arrives; one ink lay per change |
 
 ## Why painting was slower in game than offline
 
@@ -95,16 +98,22 @@ pins are built, in 5-17 ms under Mono.
 
 ## Open
 
-1. Test `b0a26e1` in game with a timing build: work starting while the world loads (needs
-   `ZNet.World` before the character arrives), the fog starting at once now that the parchment
-   cache exists, one ink lay per record, the cause of a 77 ms frame on the character's arrival
-   (the frame breakdown shows it), and the pin update when the table's map closes.
-2. A per-painter array pool (`docs/array-pool.patch`, applies to `b0a26e1`): cut a paint's
+1. The minimap capture (`WorldSource.Capture`) is now the worst hitch: 38 ms on Velen and 72 ms
+   on the second world, each frame with a garbage collection. It reads three large textures at
+   once; spreading it over three frames and reusing its buffers should shrink it.
+2. Browsing close-ups churns memory: collections rose from 18 to 75 in 25 s (about two a second)
+   with a 20-27 ms frame every few seconds in the tiles' update or the view. Each tile allocates
+   its buffers; reusing them and measuring the upload cost is the next step.
+3. The first opening costs 38-40 ms on one world and 6 ms on another (`AtlasView.Show`, likely
+   building pins and their textures the first time).
+4. Whether the pin update on closing the table's map works was not singled out in the log (two
+   pin changes were painted and inked, source unrecorded).
+5. A per-painter array pool (`docs/array-pool.patch`, applies to `b0a26e1`): cut a paint's
    allocations 21 % (first) and 46 % (repaint) and collections over nine Mono paints from 16 to
    11, byte-identical, but holds about 208 MB more between paints and changed no measured time.
    Take it only if the timing shows collections still hurt.
-3. The ink upload costs 23-37 ms of one frame (Unity uploads the whole texture with its mips at
+6. The ink upload costs about 25 ms of one frame (Unity uploads the whole texture with its mips at
    once); uploading mip levels separately would need checking.
-4. The background repaint takes about 9 s in game (Mono, collections); it no longer blocks
+7. The background repaint takes about 9 s in game (Mono, collections); it no longer blocks
    opening.
-5. Close-ups took about 85 ms each in game before the rasterizer change; not re-measured.
+8. Close-ups took about 85 ms each in game before the rasterizer change; not re-measured.

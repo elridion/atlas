@@ -37,7 +37,10 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   rule (their altar is the footprint's middle). Emblems put their mass centre on the place: the
   dot, and the boss's horned skull (`BossCentre`, its measured ink centroid). Traced sprites stay
   centred (`StandOf`'s `Traced` case; without it they took `StandBias`). Glyphs still sort by
-  their foot (`Sink`).
+  their foot (`Sink`), the bottom of their drawing, emblems included: the skull by its jaw, the
+  dot by the bottom of its disc (`FootOf` `PointRadius` below its centre). Sorted by its centre,
+  a dot just south of a standing glyph's place went behind it, scraped to a crescent under its
+  foot.
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, a
   two-tongued flame a line of paper in front of two long low crossed logs with square ends sawn a
   little off square (the user's design; round caps read as crossed bones), house: longhouse, a
@@ -105,7 +108,16 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   hand-drawn waver (`PinGlyphs.Waver`: every
   point moved by a smooth noise seeded by the pin's place, straight lines and outlines cut
   into short pieces so they bend; `InkCanvas.m_warp`). Its body scrapes the ink and body masks
-  so the ground's own wash shows round it. A checked pin (vanilla's `PinData.m_checked`, which
+  so the ground's own wash shows round it. Pins stand over the decoration drawn after the
+  glyphs: waves and lake lines, floes, sea illustrations and their stand-ins (the user's call;
+  those are not kept away from pins). `InkCanvas.m_pinShield`, the most of every pin's body
+  (filled by `Pin`, not recorded), scales the coverage of every write on the Ripple, Floe and
+  Illustration layers (`Shield`, in `Darken`, `Lighten` and `TintPixel`), so such a mark is
+  scraped round the pin as by a glyph in front and never scrapes its red. `InkRecord.Replay`
+  sets the canvas's layer per call, so close-ups and the tick re-check hold it off alike (a
+  close-up sets the Ripple layer for its own waves), and `Paper.InkWithMips`' sea-wash pass lays
+  the pins' red over the washes, under black ink. A pin over a sea figure shows the figure's
+  grey wash in its body, as a pin on land shows the ground's (the user's call). A checked pin (vanilla's `PinData.m_checked`, which
   the player toggles) looks as if someone tried to scrape its paint away (`PinGlyphs.Abrade`,
   called by `InkCanvas.Pin` when struck): the whole glyph keeps `AbradeRubbed` 0.72 of its ink,
   then one ragged swath along a scraping direction 20-40 degrees up to the east lifts it in

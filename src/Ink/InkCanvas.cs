@@ -288,6 +288,7 @@ namespace Atlas
             PinMark mark = PinGlyphs.Draw(glyph, pixels, pen, seed);
             if (struck) PinGlyphs.Abrade(mark, pen, seed);
             int x0 = Mathf.RoundToInt(X(left)), y0 = Mathf.RoundToInt(Y(top));
+            if (m_pinShield == null) m_pinShield = new byte[m_width * m_height];
             for (int y = 0; y < pixels; y++)
             {
                 int py = y0 + y;
@@ -297,6 +298,7 @@ namespace Atlas
                     int px = x0 + x;
                     if (px < 0 || px >= m_width) continue;
                     int i = py * m_width + px, j = y * pixels + x;
+                    if (mark.m_body[j] > m_pinShield[i]) m_pinShield[i] = mark.m_body[j];
                     float keep = 1f - mark.m_body[j] / 255f;
                     if (keep < 1f)
                     {
@@ -589,8 +591,26 @@ namespace Atlas
             return keep * keep * (3f - 2f * keep);
         }
 
+        // The pins' bodies (the most of any pin's at each pixel), filled by Pin. Ink drawn on the
+        // layers laid after the glyphs (waves and lake lines, floes, the sea's illustrations and
+        // stand-ins) is held off them, so a pin stands over that decoration, scraping it as a
+        // glyph in front would, and it never scrapes the pin's red. Not recorded: a replay of the
+        // pins fills it again, so close-ups and the tick re-check hold their ink off alike. Null
+        // until a pin is drawn, so a canvas without pins draws exactly as before.
+        private byte[] m_pinShield;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private float Shield(int index, float coverage)
+        {
+            byte[] shield = m_pinShield;
+            if (shield == null || shield[index] == 0) return coverage;
+            if (m_layer != InkLayer.Ripple && m_layer != InkLayer.Floe && m_layer != InkLayer.Illustration) return coverage;
+            return coverage * (1f - shield[index] / 255f);
+        }
+
         private void TintPixel(int index, float coverage)
         {
+            coverage = Shield(index, coverage);
             if (coverage <= 0f) return;
             int value = (int)(Math.Min(coverage, 1f) * BaseKeep(index) * 255f + 0.5f);
             byte[] mark = BodyMask(m_tintKind);
@@ -862,6 +882,7 @@ namespace Atlas
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private void Darken(int index, float coverage)
         {
+            coverage = Shield(index, coverage);
             if (coverage <= 0f) return;
             int value = (int)(Math.Min(coverage, 1f) * 255f + 0.5f);
             if (value > m_ink[index]) m_ink[index] = (byte)value;
@@ -869,6 +890,7 @@ namespace Atlas
 
         private void Lighten(int index, float coverage)
         {
+            coverage = Shield(index, coverage);
             if (coverage <= 0f) return;
             float keep = 1f - Math.Min(coverage, 1f);
             BodyKind marking = m_erasingPolygon ? m_markBody : BodyKind.None;

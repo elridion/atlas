@@ -354,14 +354,19 @@ namespace Atlas
             Func<Vector2, Vector2, bool> keepStroke)
         {
             var polygon = new List<Vector2>(16);
+            InkLayer was = canvas.m_layer;
             foreach (int i in Picked(left, top, right, bottom))
             {
                 Call c = m_calls[i];
                 if ((layers & (1 << (int)c.m_layer)) == 0) continue;
                 if (keepStroke != null && (c.m_op == Op.Stroke || c.m_op == Op.Scrape)
                     && !keepStroke(new Vector2(c.m_a, c.m_b), new Vector2(c.m_c, c.m_d))) continue;
+                // Each call on its own layer, as the sheet drew it: the canvas holds the later
+                // layers' ink off the pins by it (InkCanvas.Shield).
+                canvas.m_layer = c.m_layer;
                 Draw(canvas, c, polygon);
             }
+            canvas.m_layer = was;
         }
 
         // The glyphs of a layer with any call touching the sheet rectangle, each with all its
@@ -388,7 +393,13 @@ namespace Atlas
         public void Replay(InkCanvas canvas, Group group)
         {
             var polygon = new List<Vector2>(16);
-            foreach (int i in group.m_calls) Draw(canvas, m_calls[i], polygon);
+            InkLayer was = canvas.m_layer;
+            foreach (int i in group.m_calls)
+            {
+                canvas.m_layer = m_calls[i].m_layer;
+                Draw(canvas, m_calls[i], polygon);
+            }
+            canvas.m_layer = was;
         }
 
         // The calls touching the sheet rectangle, once each, in their original order.

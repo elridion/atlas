@@ -252,6 +252,11 @@ namespace Atlas
                 case PinGlyph.Cauldron: return 22.2f;
                 case PinGlyph.Forge: return 22.2f;
                 case PinGlyph.StoneCircle: return StonesFoot;
+                // The dot is centred on its place but sorted by the bottom of its disc, as every
+                // glyph is by the bottom of its drawing (the skull by its jaw): by its centre a dot
+                // just south of a standing glyph's place went behind it, scraped to a crescent
+                // under its foot.
+                case PinGlyph.Point: return PinUnits * 0.5f + PointRadius;
                 default: return PinUnits * 0.5f;
             }
         }
@@ -555,11 +560,13 @@ namespace Atlas
             return circle;
         }
 
-        // A dot; its body is the paper round it.
+        // A dot; its body is the paper round it. PointRadius is also its foot (FootOf).
+        private const float PointRadius = 4.8f;
+
         private static void Point(InkCanvas ink, InkCanvas body)
         {
             body.EraseEllipse(13f, 13f, 5.8f, 5.8f);
-            Solid(ink, Circle(13f, 13f, 4.8f));
+            Solid(ink, Circle(13f, 13f, PointRadius));
         }
 
         // The portal, for the rune icon players set on portals (the user's design): a ring of six

@@ -7,6 +7,9 @@
 - Markers and pin names match the smaller pins drawn at the closest zoom, and overlapping
   markers in unexplored land stack with the southern one in front.
 - Checked pins are scraped alike at every zoom.
+- A dot just south of another pin is drawn in front of it instead of as a sliver behind it.
+- Pins are drawn over waves, ice floes and sea creatures. Your map is drawn again once after
+  updating.
 
 ## 0.1.1
 

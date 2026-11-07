@@ -106,6 +106,8 @@ namespace Atlas
             while (next < groups.Count) record.Replay(m_canvas, groups[next++]);
             DrawGrassOverMarks();
             m_cancel.ThrowIfCancellationRequested();
+            // The waves on their own layer, as on the sheet, so they are held off the pins.
+            m_canvas.m_layer = InkLayer.Ripple;
             DrawTileWaves(record);
             record.Replay(m_canvas, m_left, m_top, m_right, m_bottom, Layers(InkLayer.Floe), null);
             // The sea's illustrations whole, each as one group, so one reaching into the tile

@@ -952,14 +952,18 @@ namespace Atlas
                             float pg = wedgeG * wu + bodyG * bu * (1f - wu);
                             float pb = wedgeB * wu + bodyB * bu * (1f - wu);
                             float su = wu + bu * (1f - wu);
+                            // A pin's red (pins stand over the sea marks) lies over the washes and
+                            // under black ink, as in the main pass; this pass rewrites the pixel.
+                            float red = pinInkAt >= 0 ? sheet[pinInkAt + from + x] / 255f * (1f - a) : 0f;
+                            float under = 1f - red;
                             float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
                             float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
                             float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
                             int o = (y * n + x) * 4;
-                            data[o] = ToByte(pr + inkR * a);
-                            data[o + 1] = ToByte(pg + inkG * a);
-                            data[o + 2] = ToByte(pb + inkB * a);
-                            data[o + 3] = ToByte(Math.Min(1f, su + a) * 255f);
+                            data[o] = ToByte(pr * under + PinInkColor.r * red + inkR * a);
+                            data[o + 1] = ToByte(pg * under + PinInkColor.g * red + inkG * a);
+                            data[o + 2] = ToByte(pb * under + PinInkColor.b * red + inkB * a);
+                            data[o + 3] = ToByte(Math.Min(1f, su * under + red + a) * 255f);
                         }
                     }
                 }

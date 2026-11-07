@@ -268,6 +268,9 @@ namespace Atlas
         public void Pin(PinGlyph glyph, float left, float top, float size, bool struck)
         {
             m_record?.Pin(m_layer, glyph, left, top, size, struck);
+            // The waver and the scrape are seeded by the pin's sheet box, before a close-up
+            // rescales it, so every close-up wavers and scrapes the pin as the sheet does.
+            int seed = Noise.HashInt(Mathf.RoundToInt(left * 4f), Mathf.RoundToInt(top * 4f), 7411) | 1;
             // A close-up draws its pins smaller by its level of detail, as it draws its trees, so a
             // pin keeps its size beside the trees at every zoom; it stays on its place (its foot,
             // the Stones' centre: PinGlyphs.Lift).
@@ -280,9 +283,8 @@ namespace Atlas
             }
             int pixels = Mathf.Max(4, Mathf.RoundToInt(size * m_scale));
             // The map's own pen (1 sheet pixel, thinned in close-ups as every line is) in pin
-            // units, and a waver seeded by the pin's place, the same on the sheet and in tiles.
+            // units.
             float pen = m_penScale * PinGlyphs.PinUnits / size;
-            int seed = Noise.HashInt(Mathf.RoundToInt(left * 4f), Mathf.RoundToInt(top * 4f), 7411) | 1;
             PinMark mark = PinGlyphs.Draw(glyph, pixels, pen, seed);
             if (struck) PinGlyphs.Abrade(mark, pen, seed);
             int x0 = Mathf.RoundToInt(X(left)), y0 = Mathf.RoundToInt(Y(top));

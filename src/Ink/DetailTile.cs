@@ -30,7 +30,7 @@ namespace Atlas
             return Rect.MinMaxRect(scatter.xMin - grow, scatter.yMin - grow, scatter.xMax + grow, scatter.yMax + grow);
         }
 
-        private static float Lod(int scale) => Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f));
+        internal static float Lod(int scale) => Mathf.Sqrt(Mathf.Max(1f, scale * 0.5f));
 
         // Worker thread. Returns RGBA rows from south to north, as LoadRawTextureData expects, for
         // the sheet rectangle region at scale pixels per sheet pixel. The ground is sampled every

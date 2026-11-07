@@ -6,7 +6,7 @@
     <RootNamespace>Atlas</RootNamespace>
     <LangVersion>latest</LangVersion>
     <Nullable>disable</Nullable>
-    <Version>0.1.1</Version>
+    <Version>0.1.2</Version>
     <GenerateAssemblyInfo>true</GenerateAssemblyInfo>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>

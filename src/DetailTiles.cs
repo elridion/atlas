@@ -279,6 +279,7 @@ namespace Atlas
             bool open = view.IsOpen;
             Upload(open);
             view.DetailShown = false;
+            view.DetailLod = 1f;
             if (!open) m_tracking = false;
             if (!m_parent || !Ready) return;
             RectInt visible;
@@ -318,6 +319,9 @@ namespace Atlas
             if (open)
             {
                 view.DetailShown = detail;
+                // The shown level draws its pins smaller by its level of detail (InkCanvas.Pin);
+                // markers, hover and names follow it.
+                view.DetailLod = detail ? DetailTile.Lod(s_scales[level]) : 1f;
                 Show(detail ? level : -1, visible);
                 Fade();
                 Track(visible, detail);

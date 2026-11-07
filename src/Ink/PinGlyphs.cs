@@ -198,6 +198,8 @@ namespace Atlas
             switch (glyph)
             {
                 case PinGlyph.Point: return PinUnits * 0.5f;
+                // A traced sprite is centred on its place, not a standing glyph.
+                case PinGlyph.Traced: return PinUnits * 0.5f;
                 case PinGlyph.Boss: return BossCentre;
                 case PinGlyph.StoneCircle: return StonesCentreY - StandBias;
                 default: return FootOf(glyph) - PlanHalfDepth(glyph) * GroundTilt - StandBias;

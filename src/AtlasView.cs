@@ -64,9 +64,9 @@ namespace Atlas
         // as the red; centred HoverGap above the pin's box. Vanilla's pin font has hairline strokes that were hard to
         // read at 18 in game, so the name is larger and its strokes are thickened by HoverDilate
         // (TextMeshPro's face dilate, 0 to 1), spaced HoverSpacing apart so the heavier letters do
-        // not run together. A pin is hovered within its sheet box (which holds the smaller pin a
-        // close-up draws, scaled about its foot) or HoverMin of its centre on screen, so small
-        // pins at the opening zoom can still be found. Canvas units.
+        // not run together. A pin is hovered on its drawn body (UnderPointer; at the 4x close-ups'
+        // smaller size, PinLod) or, while smaller on screen than that, within HoverMin of its
+        // centre, so small pins at the opening zoom can still be found. Canvas units.
         private const float HoverFontSize = 22f;
         private const float HoverDilate = 0.2f;
         private const float HoverSpacing = 2f;
@@ -95,12 +95,17 @@ namespace Atlas
         private Vector2 m_hoverSize;
         private int m_hovered = -1;
 
-        // A shown pin as hover finds it: its glyph's centre on the sheet (canvas units from the
-        // sheet's centre, y up, lift included), half its box, and its name.
+        // A shown pin as hover finds it: its place on the sheet (canvas units from the sheet's
+        // centre, y up), how far its glyph's centre stands above it and its foot below it, half
+        // its box (all at the sheet's pin size; a 4x close-up draws them smaller, PinLod), its
+        // glyph and its name.
         private struct HoverPin
         {
-            public Vector2 m_at;
+            public Vector2 m_place;
+            public float m_lift;
+            public float m_sink;
             public float m_half;
+            public PinGlyph m_glyph;
             public string m_name;
             // A checked (crossed out) pin: it shows no name and never takes the hover from an
             // unchecked pin beside it (the user's call).
@@ -140,6 +145,8 @@ namespace Atlas
         private readonly List<RectTransform> m_pins = new List<RectTransform>();
         // Each pin's lift (PinGlyphs.Lift), parallel to m_pins.
         private readonly List<float> m_pinLifts = new List<float>();
+        // The level of detail the markers are drawn at (PinLod), applied to their holders.
+        private float m_appliedPinLod = 1f;
         private Snapshot m_pinSnapshot;
         private Canvas m_canvas;
 
@@ -293,6 +300,7 @@ namespace Atlas
                 if (Mathf.Abs(zoom) > 0.2f) ZoomAround(Vector2.zero, Mathf.Pow(StickZoom, zoom * dt));
             }
             Apply();
+            ApplyPinLod();
             // A banner drawn on the workers is uploaded, at most one a frame, and shown at once if
             // it is the hovered name's.
             if (NameBanner.Update() && m_hovered >= 0) SetBanner();
@@ -379,21 +387,27 @@ namespace Atlas
             if (DetailShown && !ZInput.IsGamepadActive() && RectTransformUtility.RectangleContainsScreenPoint(m_viewport, pointer, camera)
                 && RectTransformUtility.ScreenPointToLocalPointInRectangle(m_viewport, pointer, camera, out Vector2 local))
             {
-                float best = float.MaxValue;
+                // The pin in front under the pointer: of the pins whose drawn shape lies under it,
+                // the one with the southernmost foot, as the sheet draws it last (pins sort by
+                // their feet); then the nearest centre. Pins without a name are skipped as
+                // checked ones are, so an unnamed dot never hides a named pin's name (the user's
+                // call).
+                float lod = PinLod;
+                float best = float.MaxValue, bestFoot = float.MaxValue;
                 for (int i = 0; i < m_hoverPins.Count; i++)
                 {
                     HoverPin pin = m_hoverPins[i];
-                    if (pin.m_checked) continue;
-                    Vector2 offset = local - (m_position + pin.m_at * m_scale);
-                    float reach = Mathf.Max(pin.m_half * m_scale, HoverMin);
-                    if (Mathf.Abs(offset.x) > reach || Mathf.Abs(offset.y) > reach) continue;
+                    if (pin.m_checked || string.IsNullOrEmpty(pin.m_name)) continue;
+                    Vector2 offset = local - (m_position + (pin.m_place + new Vector2(0f, pin.m_lift / lod)) * m_scale);
+                    if (!UnderPointer(pin, offset, pin.m_half / lod * m_scale)) continue;
+                    float foot = pin.m_place.y - pin.m_sink / lod;
                     float distance = offset.sqrMagnitude;
-                    if (distance >= best) continue;
+                    if (foot > bestFoot || foot == bestFoot && distance >= best) continue;
+                    bestFoot = foot;
                     best = distance;
                     hovered = i;
                 }
             }
-            if (hovered >= 0 && string.IsNullOrEmpty(m_hoverPins[hovered].m_name)) hovered = -1;
             if (hovered != m_hovered)
             {
                 m_hovered = hovered;
@@ -409,6 +423,43 @@ namespace Atlas
                 m_hoverRect.gameObject.SetActive(hovered >= 0);
             }
             if (hovered >= 0) PlaceHover(m_hoverPins[hovered]);
+        }
+
+        // Whether the pointer, offset from a pin's glyph centre (canvas units, y up), lies on its
+        // drawn shape: its body (InkPainter.PinBodyOf, the glyph's body sampled over its box,
+        // reach on screen either side). A pin smaller on screen than HoverMin is found within
+        // HoverMin of its centre, and the dot and traced icons within their box.
+        private static bool UnderPointer(HoverPin pin, Vector2 offset, float reach)
+        {
+            if (reach < HoverMin) return Mathf.Abs(offset.x) <= HoverMin && Mathf.Abs(offset.y) <= HoverMin;
+            if (Mathf.Abs(offset.x) > reach || Mathf.Abs(offset.y) > reach) return false;
+            if (pin.m_glyph == PinGlyph.Point || pin.m_glyph == PinGlyph.Traced) return true;
+            bool[] body = InkPainter.PinBodyOf(pin.m_glyph);
+            int n = InkPainter.CoverSamples;
+            // The body's rows run south, the pointer's y up.
+            int x = Mathf.Clamp((int)((offset.x / reach + 1f) * 0.5f * n), 0, n - 1);
+            int y = Mathf.Clamp((int)((1f - offset.y / reach) * 0.5f * n), 0, n - 1);
+            return body[y * n + x];
+        }
+
+        // How much smaller than on the sheet the shown pins are drawn: the close-ups' level of
+        // detail while they are shown (DetailTiles sets DetailLod; the 4x close-ups draw their
+        // pins smaller by it, InkCanvas.Pin), so markers, hover and names follow the drawn pins.
+        private float PinLod => DetailShown && DetailLod > 0f ? DetailLod : 1f;
+
+        // Markers scale about their place, as InkCanvas.Pin scales a close-up's pin about it: the
+        // holder sits on the place and its images are lifted inside it.
+        private void ApplyPinLod()
+        {
+            float lod = PinLod;
+            if (lod == m_appliedPinLod) return;
+            m_appliedPinLod = lod;
+            var scale = new Vector3(1f / lod, 1f / lod, 1f);
+            foreach (RectTransform pin in m_pins)
+                if (pin) pin.localScale = scale;
+            // Names inside the holders keep their screen size (Apply).
+            m_appliedScale = -1f;
+            Apply();
         }
 
         // The banner for the hovered name's size. Without its textures or the bare parchment the
@@ -441,6 +492,9 @@ namespace Atlas
         // finest drawing, for which they are sized (the user's call).
         public bool DetailShown { get; set; }
 
+        // The shown close-ups' level of detail (DetailTile.Lod), set with DetailShown.
+        public float DetailLod { get; set; } = 1f;
+
         // The banner's outline in label units: the finest close-ups' coast (their base pen,
         // InkPainter.DrawTileCoast) at the deepest zoom, so it matches the coast there.
         private static float ShoreWidth => DetailTiles.FinestCoastPixels * LabelZoom;
@@ -457,8 +511,9 @@ namespace Atlas
         // in the sheet scaled down by LabelZoom, so the name grows and shrinks with the map.
         private void PlaceHover(HoverPin pin)
         {
-            Vector2 centre = pin.m_at * LabelZoom;
-            float reach = pin.m_half * LabelZoom + HoverGap;
+            float lod = PinLod;
+            Vector2 centre = (pin.m_place + new Vector2(0f, pin.m_lift / lod)) * LabelZoom;
+            float reach = pin.m_half / lod * LabelZoom + HoverGap;
             // Half a line closer to the pin than its box would put it, so the name reads as the
             // pin's own (the user's call): it reaches down over the glyph's top.
             float drop = m_hoverLine * HoverDrop;
@@ -569,7 +624,7 @@ namespace Atlas
             // keep their size on screen.
             if (s_showNames)
             {
-                var counter = new Vector3(1f / m_scale, 1f / m_scale, 1f);
+                var counter = new Vector3(m_appliedPinLod / m_scale, m_appliedPinLod / m_scale, 1f);
                 foreach (PinLabel label in m_labels)
                     if (label.m_rect) label.m_rect.localScale = counter;
             }
@@ -855,6 +910,7 @@ namespace Atlas
             SetHoverFont(font);
             float half = InkPainter.HalfExtent;
             float size = InkPainter.CanvasSize;
+            var shown = new List<ShownPin>(snapshot.m_pins.Count);
             foreach (Snapshot.Pin pin in snapshot.m_pins)
             {
                 PinTextures textures;
@@ -864,6 +920,19 @@ namespace Atlas
                 else continue;
                 if (textures == null || !Shown(snapshot, pin, glyph)) continue;
                 var place = new Vector2(pin.m_position.x / (2f * half) * size, pin.m_position.z / (2f * half) * size);
+                float foot = place.y - PinGlyphs.Sink(glyph) * InkPainter.PinSheetSize(glyph);
+                shown.Add(new ShownPin { m_pin = pin, m_glyph = glyph, m_textures = textures, m_place = place, m_foot = foot, m_index = shown.Count });
+            }
+            // Markers are made north first by their feet, as the sheet sorts its pins, so of two
+            // overlapping markers the southern one is in front (a UI sibling made later draws
+            // over the earlier), not the one made later.
+            shown.Sort((a, b) => a.m_foot != b.m_foot ? b.m_foot.CompareTo(a.m_foot) : a.m_index.CompareTo(b.m_index));
+            foreach (ShownPin entry in shown)
+            {
+                Snapshot.Pin pin = entry.m_pin;
+                PinGlyph glyph = entry.m_glyph;
+                PinTextures textures = entry.m_textures;
+                Vector2 place = entry.m_place;
                 // A marker has the size the pin has drawn into the sheet (InkPainter.PinSheetSize),
                 // in sheet units, so it keeps its size on the map at every zoom as the sheet's
                 // pins do.
@@ -872,7 +941,11 @@ namespace Atlas
                 float lift = PinGlyphs.Lift(glyph) * pinSize;
                 string label = Localization.instance.Localize(pin.m_name);
                 // Pins drawn into the sheet are hovered as markers are.
-                m_hoverPins.Add(new HoverPin { m_at = place + new Vector2(0f, lift), m_half = pinSize * 0.5f, m_name = label, m_checked = pin.m_checked });
+                m_hoverPins.Add(new HoverPin
+                {
+                    m_place = place, m_lift = lift, m_sink = PinGlyphs.Sink(glyph) * pinSize, m_half = pinSize * 0.5f,
+                    m_glyph = glyph, m_name = label, m_checked = pin.m_checked,
+                });
                 // Its banner is drawn ahead on the workers, so pointing at it shows it at once.
                 if (m_hoverText && !pin.m_checked && !string.IsNullOrEmpty(label)) NameBanner.Prepare(BannerSize(m_hoverText.GetPreferredValues(label)), ShoreWidth);
                 if (InSheet(snapshot, pin, glyph)) continue;
@@ -880,6 +953,7 @@ namespace Atlas
                 holder.anchorMin = holder.anchorMax = new Vector2(0.5f, 0.5f);
                 holder.anchoredPosition = place;
                 holder.sizeDelta = new Vector2(pinSize, pinSize);
+                holder.localScale = new Vector3(1f / m_appliedPinLod, 1f / m_appliedPinLod, 1f);
                 AddBody(holder, textures.m_body, pin.m_position, lift, pinSize);
                 // A checked pin's ink is scraped away in part, as the sheet's are.
                 PinTextures scraped = pin.m_checked ? Textures(glyph, glyph == PinGlyph.Traced ? sprites[pin.m_icon] : null, true) : null;
@@ -898,6 +972,18 @@ namespace Atlas
             }
             m_labels.Sort((a, b) => a.m_priority.CompareTo(b.m_priority));
             m_layoutScale = -1f;
+        }
+
+        // A pin SetPins shows: its glyph and textures, its place (canvas units, y up), its foot
+        // (PinGlyphs.Sink) and its index in the snapshot, which keeps ties in order.
+        private struct ShownPin
+        {
+            public Snapshot.Pin m_pin;
+            public PinGlyph m_glyph;
+            public PinTextures m_textures;
+            public Vector2 m_place;
+            public float m_foot;
+            public int m_index;
         }
 
         // One pin's name: where it may go and where it went last, so it does not hop needlessly.

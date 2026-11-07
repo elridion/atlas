@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- Pointing at pins that overlap names the one in front, and a pin without a name no longer
+  hides the name of a named pin beside it.
+- Markers and pin names match the smaller pins drawn at the closest zoom, and overlapping
+  markers in unexplored land stack with the southern one in front.
+- Checked pins are scraped alike at every zoom.
+
 ## 0.1.1
 
 - Zoomed in close, a pin's name now shows centred above the pin you point at, in larger,

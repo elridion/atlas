@@ -689,7 +689,7 @@ namespace Atlas
         // A pin's cover is measured on CoverSamples x CoverSamples points over its box: a point is
         // covered when the drawn shape of a glyph in front lies over it (Covers), and the cover is
         // the share of points any glyph in front covers, so crowns over each other count once.
-        private const int CoverSamples = 12;
+        internal const int CoverSamples = 12;
 
         private static Vector2 CoverPoint(Vector4 box, int k) =>
             new Vector2(box.x + (k % CoverSamples + 0.5f) / CoverSamples * (box.z - box.x),
@@ -747,9 +747,13 @@ namespace Atlas
             new System.Collections.Concurrent.ConcurrentDictionary<int, bool[]>();
 
         // The points of a pin's box its whole body takes, gap included.
-        private static bool[] PinBody(Glyph mark) => s_pinBodies.GetOrAdd(mark.m_seed & 0xFF, glyph =>
+        private static bool[] PinBody(Glyph mark) => PinBodyOf((PinGlyph)(mark.m_seed & 0xFF));
+
+        // A glyph's body on CoverSamples x CoverSamples points of its box, rows running south;
+        // also where AtlasView's hover finds a pin's drawn shape.
+        internal static bool[] PinBodyOf(PinGlyph glyph) => s_pinBodies.GetOrAdd((int)glyph, key =>
         {
-            PinMark drawn = PinGlyphs.Draw((PinGlyph)glyph, CoverSamples);
+            PinMark drawn = PinGlyphs.Draw((PinGlyph)key, CoverSamples);
             var body = new bool[CoverSamples * CoverSamples];
             for (int k = 0; k < body.Length; k++) body[k] = drawn.m_body[k] > 127;
             return body;

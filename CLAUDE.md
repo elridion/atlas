@@ -36,7 +36,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   user's call on the Stones). No glyph has a raise of its own; the Stones fall out of the same
   rule (their altar is the footprint's middle). Emblems put their mass centre on the place: the
   dot, and the boss's horned skull (`BossCentre`, its measured ink centroid). Traced sprites stay
-  centred. Glyphs still sort by their foot (`Sink`).
+  centred (`StandOf`'s `Traced` case; without it they took `StandBias`). Glyphs still sort by
+  their foot (`Sink`).
   `src/Ink/PinGlyphs.cs` draws the vanilla pin icons in pen, every glyph inked solid with its details cut back to paper (the user's call): fire: campfire, a
   two-tongued flame a line of paper in front of two long low crossed logs with square ends sawn a
   little off square (the user's design; round caps read as crossed bones), house: longhouse, a
@@ -114,7 +115,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   so the pen rule below does not apply: the rubbed-back glyph keeps checked pins paler at the
   opening zoom, where the streaks average out. The swath and streaks are in pin units and pens
   (streaks about a pen across, so at least a pixel on the sheet), through the pin's waver and
-  seeded by its place, so sheet and close-ups scrape alike. Markers take the same look per
+  seeded by its place, so sheet and close-ups scrape alike (waver and scrape are seeded by the
+  sheet box before a close-up rescales it; seeded after, the 4x close-ups scraped elsewhere).
+  Markers take the same look per
   glyph (`AtlasView.Textures` with `isChecked`: the body shared, the pen of a sheet pin of
   their size, a seed from the glyph's key). Recorded as `Op.Pin`, so
   close-ups redraw it sharp. Pins are sorted in with the trees and glyphs by their feet, so
@@ -147,7 +150,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   are (`AtlasView.InSheet`, `IsGameMark`); out in unexplored land the fog opens a glimpse round
   them (`Glimpsed`, `AtlasMap.s_glimpses`). The player's own pins in unexplored land and traced
   icons (other mods') stay markers in `AtlasView`, sized as the sheet's pins in sheet units
-  (`InkPainter.PinSheetSize`), scaling with the map, not kept at a screen size.
+  (`InkPainter.PinSheetSize`), scaling with the map, not kept at a screen size. While the 4x
+  close-ups are shown, markers, hover and the name banner follow their smaller pins
+  (`AtlasView.PinLod`, from `DetailLod`, which `DetailTiles` sets with `DetailShown`; a holder
+  scales about its place as `InkCanvas.Pin` scales a pin). Markers are made north first by their
+  feet (`Sink`), so of two overlapping markers the southern one is in front, as on the sheet.
   **Dev commands player marker** (a debugging aid, the user's request): the atlas otherwise
   never shows where the player stands. With `Terminal.m_cheat` set (vanilla's `devcommands`
   toggle, a public static bool; read live every frame, never cached, as it can be toggled with
@@ -177,7 +184,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   login does not lay it twice. A second texture split from the ink would cost as much in video
   memory, and no custom shader is possible without asset bundles. The always-on name
   layout is left off (`s_showNames`); instead the hovered pin's name shows centred above it,
-  `HoverDrop` half a line down over the glyph's top (the user's call). Checked (crossed out) pins show no name and are skipped when finding the hovered pin, so an unchecked pin beside one always wins (`HoverPin.m_checked`, the user's call). Names show only while the
+  `HoverDrop` half a line down over the glyph's top (the user's call). The hovered pin is the one in front under the pointer (`AtlasView.UpdateHover`, `UnderPointer`): of the pins whose drawn body lies under it (`InkPainter.PinBodyOf`, the 12 x 12 body over the box; the dot and traced icons their box; a pin smaller on screen than `HoverMin` within that of its centre), the one with the southernmost foot, as the sheet draws it last, then the nearest centre. Checked (crossed out) and unnamed pins show no name and are skipped, so an unchecked, named pin beside one always wins (`HoverPin.m_checked`, the user's call; an unnamed dot by a named Mjolnir showed no name at all). Names show only while the
   close-ups are shown (`AtlasView.DetailShown`, set by `DetailTiles`) and are fixed on the sheet as
   the pins are, sized for the finest drawing: the label constants are canvas units at the deepest
   zoom (`LabelZoom` = `MaxScale`), the name hung in the sheet at 1 / `LabelZoom` (the user's call:

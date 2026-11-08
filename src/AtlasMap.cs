@@ -117,7 +117,8 @@ namespace Atlas
         {
             ZNet net = ZNet.instance;
             Player player = Player.m_localPlayer;
-            if (!net)
+            // The network instance can exist before the world has been assigned.
+            if (!net || ZNet.World == null)
             {
                 if (s_worldUid != 0L) Reset();
                 return;
@@ -132,7 +133,7 @@ namespace Atlas
             // The world's own work needs no character, so it starts while the world loads and is
             // mostly done when the character arrives, instead of starting in its first frame
             // (the worst frame after joining, and the fog's wait began only then).
-            if (Game.m_noMap && ZNet.World != null) StartWorld(worldUid);
+            if (Game.m_noMap) StartWorld(worldUid);
             if (!player || !Game.m_noMap)
             {
                 s_view.Hide();

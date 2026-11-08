@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Joining a server no longer switches the atlas off until the game is restarted: it waits
+  for the server to name the world before preparing the map.
+
 ## 0.1.2
 
 - Pointing at pins that overlap names the one in front, and a pin without a name no longer

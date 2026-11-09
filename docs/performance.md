@@ -90,6 +90,13 @@ placement alone is 1.2 s. In the same run the ink upload took 43-55 ms of one fr
 fog upload 24 ms and the first opening (`Show`) 33 ms; after the repaint the fog took about
 0.5 s and the ink 1.0 s on the workers.
 
+Seventh timing run (`1b82a64`, 0.1.4 with the kept start and dead trees giving way as trees;
+Velen, no usable cache after the version bump), *measured*: three repaints for pin changes took
+3.69-3.72 s against 6.29 s, taking the kept start 13-24 ms; a pin change took 5.3 s from the
+paint's start to the ink laid (7.5 s in the fifth run). What a repaint still spends: glyphs inked
+2.0 s (1.87 s raster), fills after placement 0.41 s, waves 0.46 s, illustrations 0.43 s, record
+sealed 0.07 s. The first paint was unchanged at 9.8 s; the minimap capture took 49 ms of one frame.
+
 ## Why painting was slower in game than offline
 
 | Cause | Share | Evidence |

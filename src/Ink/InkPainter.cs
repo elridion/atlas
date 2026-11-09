@@ -3301,7 +3301,26 @@ namespace Atlas
         // long straight coast, then one group behind each cluster of islets. The rows are ruled
         // across the sheet, not along the coast, which gives the uneven hand-ruled look. Drawn on
         // the sheet only, in a fixed order, so the result is deterministic; close-ups redraw them.
+        // The layout reads no pin and no ink, so the waves of the first paint from a kept start are
+        // kept with it and a later paint inks those, the same strokes in the same order.
         private void DrawWaves(List<ContourLines.Line> lines)
+        {
+            InkRecord.Wave[] kept = m_start?.m_waves;
+            if (kept != null)
+            {
+                foreach (InkRecord.Wave wave in kept) DrawWave(wave);
+                return;
+            }
+            m_laidWaves = m_start != null ? new List<InkRecord.Wave>() : null;
+            LayOutWaves(lines);
+            if (m_start != null) m_start.m_waves = m_laidWaves.ToArray();
+            m_laidWaves = null;
+        }
+
+        // The waves this paint laid out, to keep with its start (DrawWaves); null when none is kept.
+        private List<InkRecord.Wave> m_laidWaves;
+
+        private void LayOutWaves(List<ContourLines.Line> lines)
         {
             int n = CanvasSize;
             int salt = unchecked(m_world.m_seed + 34 * 7919);
@@ -4030,8 +4049,16 @@ namespace Atlas
         {
             float y = rowY + (Noise(x / 48f, rowY / 48f, salt + 3) - 0.5f) * 0.4f;
             float phase = (Unit(seed, 5) - 0.5f) * 0.6f;
-            WaveStroke(new Vector2(x, y), Vector2.right, length, crests, phase, lift);
-            m_record?.AddWave(new InkRecord.Wave { m_x = x, m_y = y, m_length = length, m_crests = crests, m_phase = phase, m_lift = lift, m_anchor = anchor });
+            var wave = new InkRecord.Wave { m_x = x, m_y = y, m_length = length, m_crests = crests, m_phase = phase, m_lift = lift, m_anchor = anchor };
+            m_laidWaves?.Add(wave);
+            DrawWave(wave);
+        }
+
+        // Inks a laid-out wave and records it.
+        private void DrawWave(InkRecord.Wave wave)
+        {
+            WaveStroke(new Vector2(wave.m_x, wave.m_y), Vector2.right, wave.m_length, wave.m_crests, wave.m_phase, wave.m_lift);
+            m_record?.AddWave(wave);
         }
 
         // The record the sheet is painted into, for the waves close-ups draw again.

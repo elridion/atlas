@@ -44,9 +44,21 @@ namespace Atlas
         /// canvas planes are kept whole (bodies that are still blank as null), the glyph and mark
         /// lists as copies, the record's calls as InkRecord.Start; the peak bases and mist banks
         /// are filed again from the record's own lists, which were added in the same order.
+        /// The first paint from it also keeps what comes later but reads no pins either: the
+        /// waves as laid out (m_waves) and the open-water spots the sea's marks are placed on
+        /// (m_seaSpots); and every paint keeps its sea marks' placement with the ink tests it made
+        /// (m_sea), which the next paint reuses where no test can come out otherwise.
         /// </summary>
         private sealed class Startwork
         {
+            // The sheet's waves in drawing order (DrawWaves): their layout reads the groundwork,
+            // the water lines and the start's thorns and wet spires, never a pin or the ink.
+            public volatile InkRecord.Wave[] m_waves;
+            // The sea marks' candidate spots in rank order (DrawIllustrations).
+            public volatile OpenSpot[] m_seaSpots;
+            // The last placement of the sea marks (SeaPlan), replaced by each paint that places
+            // them again.
+            public volatile SeaPlan m_sea;
             public byte[][] m_planes;
             public byte[] m_riverMask;
             public Glyph[] m_glyphs;
@@ -71,6 +83,7 @@ namespace Atlas
         {
             Startwork start = m_groundwork?.m_start;
             if (start == null || m_record == null || m_record.Count != 0) return false;
+            m_start = start;
             // A record-only canvas has no planes to restore (Repaint).
             byte[][] planes = CanvasPlanes();
             for (int k = 0; k < planes.Length && !m_canvas.RecordsOnly; k++)
@@ -106,7 +119,7 @@ namespace Atlas
             var kept = new byte[planes.Length][];
             for (int k = 0; k < planes.Length; k++)
                 if (!IsBlank(planes[k])) kept[k] = (byte[])planes[k].Clone();
-            m_groundwork.m_start = new Startwork
+            m_groundwork.m_start = m_start = new Startwork
             {
                 m_planes = kept,
                 // Written only by DrawRivers, before this point.
@@ -140,6 +153,9 @@ namespace Atlas
 
         // The groundwork this painter built or took, so it keeps its water lines with the right one.
         private Groundwork m_groundwork;
+        // The pin-free start this painter took or kept, null when it has none (no record): what it
+        // reuses and keeps after the pins goes with it.
+        private Startwork m_start;
 
         // Drops the kept groundwork (about 128 MB), when the player leaves the world.
         public static void ClearGroundwork()

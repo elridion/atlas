@@ -15,7 +15,9 @@ namespace Atlas
     /// (InkRecord.CellHashes) are the only pixels that can differ, so a copy of the last sheet
     /// has just those cells drawn again from the new record (InkRecord.ReplayClipped). Effects
     /// that are not local (a glyph sorted elsewhere, a figure moved) still show up as changed
-    /// cells; they only make the region bigger.
+    /// cells; they only make the region bigger. The waves' layout and, where no ink test can come
+    /// out otherwise, the sea marks' placement are taken from the kept start (Startwork), so most
+    /// of what the run still decides is the pins and the fills round the glyphs.
     /// </summary>
     internal sealed partial class InkPainter
     {

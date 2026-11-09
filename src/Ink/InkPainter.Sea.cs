@@ -83,61 +83,80 @@ namespace Atlas
             public float m_factor, m_score, m_ring;
         }
 
+        /// <summary>
+        /// The sea marks' placement as a paint made it, kept with the start it painted from
+        /// (Startwork.m_sea): the marks in drawing order and every ink test (InkNear) it made, with
+        /// a hash of the calls after the start that could ink each test's pixels. The placement
+        /// reads nothing else that a pin can change, and it is sequential (each test sees the
+        /// marks placed before it), so a later paint whose calls hash alike over every test window
+        /// would make the same tests with the same outcomes and place the same marks: it draws
+        /// these instead. A pin that inks a window, or anything it moves there (a tree it hides,
+        /// a glyph the drawing order's sort puts elsewhere), changes that window's hash and the
+        /// placement is made again. The washes are shared with the sheet's record that made them.
+        /// </summary>
+        private sealed class SeaPlan
+        {
+            // Four ints a test (x0, y0, x1, y1, inclusive), in the order they were made.
+            public int[] m_windows;
+            public ulong[] m_hashes;
+            public SeaMark[] m_marks;
+            public SeaWash[] m_washes;
+        }
+
+        // While placing: the windows InkNear tested so far, null when no plan is kept.
+        private List<int> m_seaWindows;
+
         private void DrawIllustrations()
         {
             int salt = unchecked(m_world.m_seed + IllustrationSalt * 7919);
+            int n = CanvasSize / OpenCell;
+            InkLayer layer = m_canvas.m_layer;
+            m_canvas.m_layer = InkLayer.Illustration;
+            // The kept placement holds if no test window has other calls after the start than
+            // when it was made; the start's own calls are the same for every paint from it.
+            Startwork start = m_record != null ? m_start : null;
+            int before = m_record?.Count ?? 0;
+            SeaPlan plan = start?.m_sea;
+            bool holds = plan != null && SameHashes(plan.m_hashes, m_record.WindowHashes(plan.m_windows, start.m_record.Count, before, CanvasSize));
+            if (holds)
+            {
+                for (int k = 0; k < plan.m_marks.Length; k++)
+                {
+                    SeaMark mark = plan.m_marks[k];
+                    m_canvas.BeginGroup(mark.m_y);
+                    SeaGlyphs.Draw(m_canvas, mark.m_kind, mark.m_x, mark.m_y, mark.m_mirror, mark.m_scale);
+                    m_canvas.EndGroup();
+                    m_record.m_seaMarks.Add(mark);
+                    m_record.m_seaWashes.Add(plan.m_washes[k]);
+                }
+                m_canvas.m_layer = layer;
+                return;
+            }
             // A record-only paint has no ink to read: InkNear asks the record, indexed so far.
             if (m_canvas.RecordsOnly) m_record.Seal(CanvasSize);
-            int n = CanvasSize / OpenCell;
-            float centre = CanvasSize * 0.5f, ring = EdgeRadius / MetresPerPixel - FrameGap;
-            var open = new byte[n * n];
-            new DistanceField(n).Compute(i =>
-            {
-                int cx = i % n, cy = i / n;
-                float dx = (cx + 0.5f) * OpenCell - centre, dy = (cy + 0.5f) * OpenCell - centre;
-                if (dx * dx + dy * dy >= ring * ring) return true;
-                for (int y = cy * OpenCell; y < (cy + 1) * OpenCell; y++)
-                    for (int x = cx * OpenCell; x < (cx + 1) * OpenCell; x++)
-                        if (m_land[y * CanvasSize + x] != 0) return true;
-                return false;
-            }, open, 1f);
-            m_cancel.ThrowIfCancellationRequested();
+            m_seaWindows = start != null ? new List<int>() : null;
+            int firstMark = m_record?.m_seaMarks.Count ?? 0;
 
-            // Where the open water peaks (no neighbour within two cells farther out), ranked by
-            // how far it reaches, a little shuffled by seed so worlds alike in shape differ.
-            int least = Mathf.CeilToInt(OpenWaterMin / OpenCell);
-            var spots = new List<OpenSpot>();
-            for (int cy = 2; cy < n - 2; cy++)
+            // The candidates read no pins: the first paint from a start keeps them with it.
+            OpenSpot[] spots = start?.m_seaSpots;
+            if (spots == null)
             {
-                for (int cx = 2; cx < n - 2; cx++)
-                {
-                    int d = open[cy * n + cx];
-                    if (d < least || !IsOpenPeak(open, n, cx, cy, d)) continue;
-                    float factor = Mathf.Lerp(0.85f, 1.15f, Unit(HashInt(cx, cy, salt), 0));
-                    float px = (cx + 0.5f) * OpenCell - centre, py = (cy + 0.5f) * OpenCell - centre;
-                    spots.Add(new OpenSpot
-                    {
-                        m_cx = cx, m_cy = cy, m_open = d, m_factor = factor, m_score = d * factor,
-                        m_ring = ring - Mathf.Sqrt(px * px + py * py),
-                    });
-                }
+                spots = OpenSpots(salt);
+                if (start != null) start.m_seaSpots = spots;
             }
             Comparison<OpenSpot> byRank = (a, b) => a.m_score != b.m_score ? b.m_score.CompareTo(a.m_score) : (a.m_cy * n + a.m_cx).CompareTo(b.m_cy * n + b.m_cx);
-            spots.Sort(byRank);
 
             var counts = new int[SeaGlyphs.Names.Length];
             var placed = new List<Vector2>();
             var placedKinds = new List<int>();
             int firstKind = (int)(Unit(salt, 1) * 3f) % 3;
-            InkLayer layer = m_canvas.m_layer;
-            m_canvas.m_layer = InkLayer.Illustration;
             // Every spot considered and ruled out, whatever the reason: the stand-ins' candidates.
             var rejected = new List<OpenSpot>();
             // The candidates left, swap-removed as they are taken (NextFigureSpot breaks ties by
             // cell index, not by place in the list), each with its squared distance to the nearest
             // figure placed, updated as figures are placed: rescanning every figure for every
             // spot at every pick took about 0.6 s on Velen.
-            OpenSpot[] pool = spots.ToArray();
+            var pool = (OpenSpot[])spots.Clone();
             var nearest = new float[pool.Length];
             for (int i = 0; i < nearest.Length; i++) nearest[i] = float.MaxValue;
             int left = pool.Length, ranked = 0;
@@ -210,6 +229,66 @@ namespace Atlas
             rejected.Sort(byRank);
             PlaceStandIns(rejected, placed);
             m_canvas.m_layer = layer;
+            if (m_seaWindows == null) return;
+            int[] windows = m_seaWindows.ToArray();
+            m_seaWindows = null;
+            int count = m_record.m_seaMarks.Count - firstMark;
+            start.m_sea = new SeaPlan
+            {
+                m_windows = windows,
+                m_hashes = m_record.WindowHashes(windows, start.m_record.Count, before, CanvasSize),
+                m_marks = m_record.m_seaMarks.GetRange(firstMark, count).ToArray(),
+                m_washes = m_record.m_seaWashes.GetRange(firstMark, count).ToArray(),
+            };
+        }
+
+        private static bool SameHashes(ulong[] a, ulong[] b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+                if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        // The candidate spots, ranked: OpenCell cells where the open water peaks (no neighbour
+        // within two cells farther out), ranked by how far it reaches, a little shuffled by seed
+        // so worlds alike in shape differ.
+        private OpenSpot[] OpenSpots(int salt)
+        {
+            int n = CanvasSize / OpenCell;
+            float centre = CanvasSize * 0.5f, ring = EdgeRadius / MetresPerPixel - FrameGap;
+            var open = new byte[n * n];
+            new DistanceField(n).Compute(i =>
+            {
+                int cx = i % n, cy = i / n;
+                float dx = (cx + 0.5f) * OpenCell - centre, dy = (cy + 0.5f) * OpenCell - centre;
+                if (dx * dx + dy * dy >= ring * ring) return true;
+                for (int y = cy * OpenCell; y < (cy + 1) * OpenCell; y++)
+                    for (int x = cx * OpenCell; x < (cx + 1) * OpenCell; x++)
+                        if (m_land[y * CanvasSize + x] != 0) return true;
+                return false;
+            }, open, 1f);
+            m_cancel.ThrowIfCancellationRequested();
+
+            int least = Mathf.CeilToInt(OpenWaterMin / OpenCell);
+            var spots = new List<OpenSpot>();
+            for (int cy = 2; cy < n - 2; cy++)
+            {
+                for (int cx = 2; cx < n - 2; cx++)
+                {
+                    int d = open[cy * n + cx];
+                    if (d < least || !IsOpenPeak(open, n, cx, cy, d)) continue;
+                    float factor = Mathf.Lerp(0.85f, 1.15f, Unit(HashInt(cx, cy, salt), 0));
+                    float px = (cx + 0.5f) * OpenCell - centre, py = (cy + 0.5f) * OpenCell - centre;
+                    spots.Add(new OpenSpot
+                    {
+                        m_cx = cx, m_cy = cy, m_open = d, m_factor = factor, m_score = d * factor,
+                        m_ring = ring - Mathf.Sqrt(px * px + py * py),
+                    });
+                }
+            }
+            spots.Sort((a, b) => a.m_score != b.m_score ? b.m_score.CompareTo(a.m_score) : (a.m_cy * n + a.m_cx).CompareTo(b.m_cy * n + b.m_cx));
+            return spots.ToArray();
         }
 
         // The index of the next figure spot in farthest-point order (FrameNeighbour); ties go to
@@ -387,6 +466,13 @@ namespace Atlas
         {
             int x0 = Mathf.Max(0, Mathf.FloorToInt(box.m_left - gap)), x1 = Mathf.Min(CanvasSize - 1, Mathf.CeilToInt(box.m_right + gap));
             int y0 = Mathf.Max(0, Mathf.FloorToInt(box.m_top - gap)), y1 = Mathf.Min(CanvasSize - 1, Mathf.CeilToInt(box.m_bottom + gap));
+            if (m_seaWindows != null)
+            {
+                m_seaWindows.Add(x0);
+                m_seaWindows.Add(y0);
+                m_seaWindows.Add(x1);
+                m_seaWindows.Add(y1);
+            }
             if (m_canvas.RecordsOnly) return m_record.InkIn(x0, y0, x1, y1);
             for (int y = y0; y <= y1; y++)
                 for (int x = x0; x <= x1; x++)

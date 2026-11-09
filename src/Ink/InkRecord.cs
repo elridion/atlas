@@ -230,6 +230,9 @@ namespace Atlas
                 m_mistBanks = from.m_mistBanks.ToArray();
             }
 
+            // The calls kept, which every paint started from this begins with.
+            public int Count => m_calls.Length;
+
             // Only into a fresh record, before anything is recorded.
             public void CopyInto(InkRecord to)
             {
@@ -640,6 +643,72 @@ namespace Atlas
                 for (int x = x0; x <= x1; x++)
                     if (canvas.m_ink[(y - y0) * width + x - x0] != 0) return true;
             return false;
+        }
+
+        // Per window (four ints each: x0, y0, x1, y1, inclusive, as InkIn takes them), an
+        // order-sensitive hash of the calls from to to - 1 that InkIn would replay over it, with
+        // what they draw. Two records whose calls before from are the same and whose hashes agree
+        // on a window ink its pixels alike, so InkIn answers alike there (InkPainter's sea plan).
+        // One pass over those calls, so the record need not be sealed.
+        public ulong[] WindowHashes(int[] windows, int from, int to, int sheetSize)
+        {
+            int count = windows.Length / 4;
+            var hashes = new ulong[count];
+            if (count == 0) return hashes;
+            int across = (sheetSize + CellSize - 1) / CellSize;
+            int CellOf(float coordinate) => Mathf.Clamp((int)(coordinate / CellSize), 0, across - 1);
+            // Each window filed under the cells its pixels and the pixel past them cover (the
+            // reach of Touches), so a call can only touch the windows filed where its grown
+            // bounds lie.
+            var cells = new List<int>[across * across];
+            for (int w = 0; w < count; w++)
+            {
+                int x0 = CellOf(windows[4 * w]), x1 = CellOf(windows[4 * w + 2] + 1);
+                int y0 = CellOf(windows[4 * w + 1]), y1 = CellOf(windows[4 * w + 3] + 1);
+                for (int y = y0; y <= y1; y++)
+                {
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        int cell = y * across + x;
+                        if (cells[cell] == null) cells[cell] = new List<int>(4);
+                        cells[cell].Add(w);
+                    }
+                }
+            }
+            var last = new int[count];
+            for (int w = 0; w < count; w++) last[w] = -1;
+            for (int i = from; i < to; i++)
+            {
+                Call c = m_calls[i];
+                Bounds(c, out float minX, out float minY, out float maxX, out float maxY);
+                int x0 = CellOf(minX - ReplaySlack), x1 = CellOf(maxX + ReplaySlack);
+                int y0 = CellOf(minY - ReplaySlack), y1 = CellOf(maxY + ReplaySlack);
+                bool hashed = false;
+                ulong h = 0UL;
+                for (int y = y0; y <= y1; y++)
+                {
+                    for (int x = x0; x <= x1; x++)
+                    {
+                        List<int> filed = cells[y * across + x];
+                        if (filed == null) continue;
+                        foreach (int w in filed)
+                        {
+                            if (last[w] == i) continue;
+                            last[w] = i;
+                            // Touches, on the bounds already worked out.
+                            if (maxX + ReplaySlack < windows[4 * w] || minX - ReplaySlack > windows[4 * w + 2] + 1
+                                || maxY + ReplaySlack < windows[4 * w + 1] || minY - ReplaySlack > windows[4 * w + 3] + 1) continue;
+                            if (!hashed)
+                            {
+                                h = CallHash(c);
+                                hashed = true;
+                            }
+                            hashes[w] = (hashes[w] ^ h) * 0x9E3779B97F4A7C15UL + 1UL;
+                        }
+                    }
+                }
+            }
+            return hashes;
         }
 
         // Whether a call's Bounds, grown by ReplaySlack, reach the pixels [left, right) x [top, bottom).

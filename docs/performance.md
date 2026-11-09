@@ -14,8 +14,11 @@ threads, so `Workers.Count` is 4); in-game numbers from timing builds on the sam
   Each log line reads `[atlas timing] <seconds since joining> gc <collections> <stage>`: stages
   reached, main-thread cost of each upload, when fog, ink and paint jobs start on a worker, every
   repaint and tick redraw, a per-step breakdown of every frame over 16 ms, and the atlas's
-  per-frame cost until the first opening. A `MISSING` line from `Apply.ps1` means the code moved
-  and that call needs a new anchor.
+  per-frame cost until the first opening. Every paint also logs each stage of `InkPainter.Run`
+  (`paint stage <name>: <ms>, raster <ms>`) and a total: raster is the time `InkCanvas` spent
+  filling pixels, the rest is placement and other decisions. The raster timers wrap about a
+  million calls a paint and add an estimated 0.5 s, mostly to raster. A `MISSING` line from
+  `Apply.ps1` means the code moved and that call needs a new anchor.
 - **Byte checks**: every change that should not alter the drawing was compared offline before it
   was committed: SHA256 of all sheet planes and a deep hash of the `InkRecord`, close-up tiles and
   banners, under .NET and under Valheim's own Mono (the preview's code run inside
@@ -57,6 +60,33 @@ latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5
 | `ced7325` | Parchment cached; snapshot decoded on a worker; the first paint without a cache in the priority lane | No parchment wait before the fog; no 95 ms frame reading the snapshot |
 | `c5e2a20` | Closing the table's map takes the current pins into the snapshot | Pin edits reach the atlas without a record |
 | `b0a26e1` | Cached files start while the world loads; the ink is laid once per record; at most one upload or minimap capture per frame | Fifth timing run: ready at 3.4 s; work starts before the character arrives; one ink lay per change |
+
+## Where a paint's time goes
+
+Sixth timing run (`bdf5d1d`, Velen, no usable cached sheet), *measured* in game. The first paint
+after joining took 9.5 s (2.6 s of it raster); a repaint for a pin change, with the groundwork
+kept, 6.3 s (2.6 s raster):
+
+| Stages | First paint | Pin repaint | Raster | Reads pins |
+| --- | --- | --- | --- | --- |
+| Groundwork (coast heights, masks, distance fields) | 1754 ms | 19 ms | 0 | no |
+| Mist, background fills, lava, rivers, coast | 1039 ms | 1010 ms | 440 ms | no |
+| Placement: summits and hills, massifs | 339 ms | 358 ms | 0 | no |
+| Placement: trees | 1223 ms | 1190 ms | 0 | no |
+| Placement: dead trees, spires, thorns and floes | 136 ms | 133 ms | 0 | only dead trees (through `Add`) |
+| Pin block (`ClearOfMarks`, `OrderMarks`, cover limits) | 49 ms | 40 ms | 0-5 ms | yes |
+| Fills after placement (scarps, stumps, boulders, meadow grass, woodless ground) | 580 ms | 554 ms | 4 ms | locally (glyph footprints) |
+| Glyphs inked (sort included) | 1957 ms | 1928 ms | 1820 ms | yes |
+| Water lines traced (waterwork) | 1339 ms | 12 ms | 0 | no |
+| Waves | 485 ms | 456 ms | 160 ms | layout no, ink under pins yes |
+| Floes, illustrations, frame | 486 ms | 468 ms | 152 ms | illustrations read ink (`InkNear`) |
+| Record sealed, planes copied | 128 ms | 99 ms | 0 | |
+
+So on a pin change 59 % is decisions, not pixels, and about 2.7 s (everything up to and
+including placement, less the dead trees) neither reads pins nor changes for a world. Tree
+placement alone is 1.2 s. In the same run the ink upload took 43-55 ms of one frame, the first
+fog upload 24 ms and the first opening (`Show`) 33 ms; after the repaint the fog took about
+0.5 s and the ink 1.0 s on the workers.
 
 ## Why painting was slower in game than offline
 
@@ -110,8 +140,9 @@ pins are built, in 5-17 ms under Mono.
    allocations 21 % (first) and 46 % (repaint) and collections over nine Mono paints from 16 to
    11, byte-identical, but holds about 208 MB more between paints and changed no measured time.
    Take it only if the timing shows collections still hurt.
-5. The ink upload costs about 25 ms of one frame (Unity uploads the whole texture with its mips at
-   once); uploading mip levels separately would need checking.
+5. The ink upload costs 25-55 ms of one frame (Unity uploads the whole texture with its mips at
+   once); uploading only changed 256² tiles with `Graphics.CopyTexture` would need checking in
+   game.
 6. The background repaint takes about 9 s in game (Mono, collections); it no longer blocks
    opening.
 7. Close-ups took about 85 ms each in game before the rasterizer change; not re-measured.

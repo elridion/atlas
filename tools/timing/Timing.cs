@@ -133,6 +133,55 @@ namespace Atlas
                 + $"worst {s_worst:F1} ms at {s_worstAt:F2} s");
         }
 
+        // A paint's stages (InkPainter.Run): each Stage logs the time since the last one on this
+        // thread and how much of it went into filling pixels (Raster), so a record-only paint can
+        // be costed. Per thread, since close-up tiles draw on other workers at the same time.
+        [ThreadStatic] private static long t_stageAt;
+        [ThreadStatic] private static long t_paintAt;
+        [ThreadStatic] private static double t_stageRaster;
+        [ThreadStatic] private static int t_rasterDepth;
+        [ThreadStatic] private static long t_rasterAt;
+        [ThreadStatic] private static double t_raster;
+
+        private static double Ms(long ticks) => ticks * 1000.0 / Stopwatch.Frequency;
+
+        [Conditional(Define)]
+        public static void StagesBegin()
+        {
+            t_paintAt = t_stageAt = Stopwatch.GetTimestamp();
+            t_raster = t_stageRaster = 0.0;
+        }
+
+        [Conditional(Define)]
+        public static void Stage(string what)
+        {
+            long now = Stopwatch.GetTimestamp();
+            if (s_since.IsRunning)
+                Log($"paint stage {what}: {Ms(now - t_stageAt):F0} ms, raster {t_raster - t_stageRaster:F0} ms");
+            t_stageAt = now;
+            t_stageRaster = t_raster;
+        }
+
+        [Conditional(Define)]
+        public static void StagesEnd()
+        {
+            if (s_since.IsRunning)
+                Log($"paint total: {Ms(Stopwatch.GetTimestamp() - t_paintAt):F0} ms, raster {t_raster:F0} ms");
+        }
+
+        // Around InkCanvas's pixel loops; nested calls count once.
+        [Conditional(Define)]
+        public static void RasterBegin()
+        {
+            if (t_rasterDepth++ == 0) t_rasterAt = Stopwatch.GetTimestamp();
+        }
+
+        [Conditional(Define)]
+        public static void RasterEnd()
+        {
+            if (--t_rasterDepth == 0) t_raster += Ms(Stopwatch.GetTimestamp() - t_rasterAt);
+        }
+
         // Every line carries the time since joining and the collections since then (gen 0, which
         // under Mono's Boehm GC counts every full collection).
         private static void Log(string text) =>

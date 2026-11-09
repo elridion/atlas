@@ -70,6 +70,7 @@ latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5
 | `6925b92` | The first paint (and a full paint after a fallback) decides everything on a record-only canvas, then replays the whole sealed record into the sheet in 256² tiles on the workers (`InkPainter.Rasterize`); the kept start keeps no canvas planes (no painter reads them now), about 16 MB less | Offline (*measured*, Velen, .NET, 4 workers): first paint 3.69-3.78 -> 3.41-3.55 s (record-only part 3.15-3.22 s, tiled replay 0.29 s, which replays about 0.6 s of single-thread raster), a paint from the kept start 0.86-0.91 -> 0.64-0.70 s; sea marks 99 -> about 200 ms on the first paint, as the ink tests now replay the record (`InkIn`); sheet (all 6 planes, SHA256) and record (deep hash) byte-identical to the live paint for the start island, swamp and Mistlands and sea pin sets and two subsets each; not checked under Mono, not yet measured in game |
 | `538428e` | A change (pins, ticks, fog) keeps the drawn close-ups it reaches in or near the view on screen, stale, and each one's redraw swaps its texture in place; a stale tile waits for the fog's judgement of a new record's marks (at most 3 s) instead of being drawn before and again after it; uploads take in-view missing tiles, then in-view stale ones; closed, stale tiles of the view and ring the atlas opens on use every worker, up to 48 a change (`DetailTiles.CatchUpMost`) | Zoomed in, a pin change no longer shows the blurry sheet while its tiles are redrawn, and those tiles are drawn once, not twice; opening after pins edited at a table should no longer show a blurry patch for about 2 s. No pixel changes (offline harnesses unchanged); the tile pyramid cannot run offline, so nothing here is measured; the timing build logs tiles kept stale per change, when the last stale tile in view was swapped and the closed catch-up |
 | `48475e7` | A record whose explored land equals that of the snapshot the last whole fog was laid for keeps the fog (`Snapshot.SameExplored`: size, pixel size and every bit, about 1 ms on the main thread offline); glimpses and the Glimpse setting already had triggers of their own | A record that explored nothing new skips about 0.5 s of fog on a worker and an 11-24 ms upload frame (*from the last timing run*); new pins only judge their marks on the kept band as before. Comparison checked offline; not yet measured in game (the timing build logs `fog kept: inputs unchanged`) |
+| `686c072` | The last fog band and laid ink are kept on disk per world (`LaidCache`, `.fog` 12 MB and `.laid` 27-85 MB, raw), each under a SHA-256 key of its inputs (band: explored bits, glimpses, `Glimpse`, seed, version; ink: the band's key, the sheet's pins key, sea marks, mark counts); read while the world loads, the first whole fog and the first ink lay take them when the keys match (`Paper.FogOfBand`, `Paper.LoadedInk`), else lay as before; written on a worker after a fog or ink with a new key is laid | Offline (*measured*, Velen, start island; .NET / Valheim's Mono): fog 100-130 / 190-200 ms laid against 25-35 / about 40 ms from disk, ink 170-220 / 220-245 ms laid against 23-25 / about 40 ms from disk; byte-identical to laid ones, and every later path (pin change region lay and `Redecide`, `FogChange`, a tick, more explored) the same from either, Glimpse on and off, .NET and Mono. In game the fog and ink took about 1.15 s before the atlas could open (fog 0.50 s, ink 0.65 s, last timing run: open at 3.44 s), so it should open about 1 s sooner when the keys match (*estimated*); not yet measured in game (the timing build logs `atlas can open (fog ..., ink ...)`) |
 
 ## Where a paint's time goes
 
@@ -153,6 +154,29 @@ byte-identical). Removing one of the start island's eleven pins changed 116 bloc
 ticking one 2-4 blocks; exploring a 600 m disc more 55-71 blocks in 4 tiles. Scaled by the
 in-game ratios (fog 0.55 s, ink 1.0 s), the fog and ink after a pin change should drop from
 about 1.5 s to under 0.2 s; not yet measured in game.
+
+Offline after `686c072` (Velen, *measured* with `--fogcachecheck` and a temporary
+measurement in the preview, warm file cache; Valheim's Mono through a host on
+`mono-2.0-bdwgc.dll`). What each piece costs to read back against laying it:
+
+| Piece | Laid (.NET / Mono) | Raw read | gzip Fastest read (.NET / Mono) | Size raw / gzip |
+| --- | --- | --- | --- | --- |
+| Fog band (opacity, thinning, glimpse opacity) | 100-165 / 190-200 ms (the whole fog) | 5-7 ms | 32 / 24 ms | 12 MB / 0.1-0.2 MB |
+| Fog RGBA (not stored: made from the band and the parchment) | | 5 ms | 109 / 40 ms | 16 MB / 3-4.6 MB |
+| Laid ink with mips | 170-220 / 215-249 ms | 13-22 ms | 224 / 172 ms | 85 MB / 1.8-2.2 MB |
+| Cleared ink (not stored: made again, 6-11 / 19-21 ms) | | 5 ms | 38 / 34 ms | 16 MB / 0.1 MB |
+
+The rest of a load: the band's key 0-8 ms (SHA-256 of the 512 KB of explored bits), the fog
+from the band 14-30 ms (`FogOfBand`: the buffers and the marks judged), the ink's key under
+1 ms, a lay's kept state from the ink read back 5-13 / 18-24 ms (cleared ink, fogged blocks,
+the shown sea marks' washes, 11 / 19 ms for 50 of them). The ink decided the format: gzip read
+it back under Mono in 172 ms against a 215-249 ms lay, not clearly faster, raw in 13-22 ms;
+the band is raw too (gzip would save 12 MB for about 20 ms more). The ink file leaves out the
+32² blocks under opaque fog: 27-32 MB with the start island explored, 57-60 MB with most of
+Velen (a 7 km disc: fog 285-359 ms laid against about 35 ms from disk, ink 344-390 ms against
+45-70 ms), at most about 85 MB. Writing takes 4-9 ms (band) and 30-45 ms (ink) to the OS file
+cache. Cold reads were not measured; both files are read while the world loads, about 2 s
+before the fog needs them in the last timing run.
 
 ## Why painting was slower in game than offline
 

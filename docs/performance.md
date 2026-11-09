@@ -106,6 +106,18 @@ sealed 30 ms, cell hashes 37 ms (the old record's are kept with it), changed cel
 What is left is decisions, not pixels; the waves' layout does not read the pins and could be
 kept with the groundwork (about 0.2 s offline).
 
+Eighth timing run (`310de73`, the cell repaint; Velen with its cache), *measured*: the atlas
+could open at 3.18 s. Three pin changes took the cell repaint, none fell back: 2.02-2.12 s
+against 3.7 s, redrawing 15-34 of 4096 cells (6-19 rectangles) in 36-63 ms. A pin change took
+3.7 s from the repaint's start to the ink laid (5.3 s in the seventh run), of which the fog
+(0.55 s) and the ink lay (1.0 s) after it are now nearly half. What the repaint still spends:
+illustrations 0.69-0.76 s (up from 0.43 s: under Mono `InkRecord.InkIn`'s scratch replays cost
+more than the ink they replace), fills after placement 0.56 s, waves 0.30 s, cells compared
+0.10 s, or 0.21 s when the old record's hashes are not cached yet (the first repaint, and the
+first after a tick re-check, whose record is a copy), record sealed
+0.07 s, glyphs recorded 0.08-0.10 s. The minimap capture took 61 ms of one frame and the first
+opening 41 ms.
+
 ## Why painting was slower in game than offline
 
 | Cause | Share | Evidence |

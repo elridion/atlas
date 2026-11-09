@@ -118,6 +118,12 @@ Around $ip '            Buffer.BlockCopy(painter.m_canvas.m_pinInk, 0, sheet, 5 
 $p = (Resolve-Path $ip).Path; $t = [IO.File]::ReadAllText($p)
 $t = [regex]::Replace($t, "(Timing\.Stage\(""planes copied""\);(\r?\n))", "`$1            Timing.StagesEnd();`$2")
 [IO.File]::WriteAllText($p, $t, $enc)
+# Whether the waves' layout and the sea marks' placement were kept from the last paint or made again.
+Edit-File $ip "                foreach (InkRecord.Wave wave in kept) DrawWave(wave);`n" "                Timing.Mark(`$""waves: kept layout reused ({kept.Length} strokes)"");`n                foreach (InkRecord.Wave wave in kept) DrawWave(wave);`n"
+Edit-File $ip "            LayOutWaves(lines);`n" "            LayOutWaves(lines);`n            Timing.Mark(m_start != null ? ""waves: laid out and kept"" : ""waves: laid out (no kept start)"");`n"
+$sp = 'src\Ink\InkPainter.Sea.cs'
+Edit-File $sp "            bool holds = plan != null && SameHashes(" "            Timing.Stage(""illustrations: before the kept placement's check"");`n            bool holds = plan != null && SameHashes("
+Edit-File $sp "            if (holds)`n" "            Timing.Stage(holds ? `$""illustrations: kept placement checked ({plan.m_hashes.Length} windows), reused"" : plan != null ? `$""illustrations: kept placement checked ({plan.m_hashes.Length} windows), a window changed, placing again"" : ""illustrations: no kept placement, placing"");`n            if (holds)`n"
 
 # The cell repaint (InkPainter.Repaint): its record-only run logs the stages above.
 $rp = 'src\Ink\InkPainter.Repaint.cs'

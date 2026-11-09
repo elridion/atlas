@@ -62,6 +62,7 @@ latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5
 | `b0a26e1` | Cached files start while the world loads; the ink is laid once per record; at most one upload or minimap capture per frame | Fifth timing run: ready at 3.4 s; work starts before the character arrives; one ink lay per change |
 | `3df66ec` | The pin-free start of a paint (everything before the dead trees) kept with the groundwork, about 24 MB | Repaint for new pins 2.6 -> 1.2 s offline (byte-identical); about 2.7 s of the 6.3 s in game by the sixth run's stages, not yet measured in game |
 | `40f8a54` | Swamp dead trees give way to pins by cover as trees do instead of being refused a place, so no glyph placement reads the pins and the kept start covers all of it | Repaint 1.2 -> 1.1 s offline (byte-identical); dead trees near pins drawn differently (`InkCache.Version` 3) |
+| `0aca2ee` | A repaint runs the painter from the kept start on a record-only canvas and draws again only the 64 px cells whose calls changed (`InkPainter.Repaint`), on windows of the sheet; the tick re-check uses windows too | Repaint 1.1 -> 0.73 s offline (*measured*, sheet and record byte-identical to fresh paints under .NET for three pin sets, not checked under Mono); 7-20 cell rectangles (41-135 thousand pixels) drawn for one pin; not yet measured in game |
 
 ## Where a paint's time goes
 
@@ -97,6 +98,14 @@ paint's start to the ink laid (7.5 s in the fifth run). What a repaint still spe
 2.0 s (1.87 s raster), fills after placement 0.41 s, waves 0.46 s, illustrations 0.43 s, record
 sealed 0.07 s. The first paint was unchanged at 9.8 s; the minimap capture took 49 ms of one frame.
 
+Offline after `0aca2ee` (Velen, start island pins, *measured* with temporary stage timers): the
+record-only repaint takes about 0.73 s against 1.1 s for a full repaint from the kept start.
+Fills after placement 165 ms, glyphs recorded (sort included) 80 ms (530 ms inked), waves 205 ms
+(230 ms inked), illustrations 173 ms (106 ms inked: `InkNear` replays the record there), record
+sealed 30 ms, cell hashes 37 ms (the old record's are kept with it), changed cells drawn 15 ms.
+What is left is decisions, not pixels; the waves' layout does not read the pins and could be
+kept with the groundwork (about 0.2 s offline).
+
 ## Why painting was slower in game than offline
 
 | Cause | Share | Evidence |
@@ -129,10 +138,12 @@ pins are built, in 5-17 ms under Mono.
   shader.
 - Painting only explored land: the sheet is cached by its pins, so exploring would repaint while
   sailing, and several stages work across the whole world.
-- A partial repaint around changed pins: pins' effects are local (15 x 25 to 22 x 31 px), but
-  about 1,000-1,500 lines with drift risk, the downstream steps would still take 1.5-2 s, and
-  `m_glyphs.Sort` has no tie-break (adding a pin moves a few far-away pixels), which would need
-  an `InkCache.Version` bump first.
+- A partial repaint around changed pins, re-deciding only near them: pins' effects are local
+  (15 x 25 to 22 x 31 px), but about 1,000-1,500 lines with drift risk, the downstream steps
+  would still take 1.5-2 s, and `m_glyphs.Sort` has no tie-break (adding a pin moves a few
+  far-away pixels), which would need an `InkCache.Version` bump first. `0aca2ee` instead decides
+  everything as a full paint does and only rasterizes locally; the sort's reordering just adds a
+  few cells, so no bump was needed.
 - Raising worker priority to Normal: risks the frame rate.
 
 ## Open

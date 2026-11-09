@@ -89,6 +89,9 @@ namespace Atlas
         // Whether the next fog lays its band again (a new snapshot, glimpses or Glimpse setting,
         // or a failed fog); otherwise only the sheet changed and its marks are judged again.
         private static bool s_fogFull = true;
+        // The snapshot the last fog laid whole was laid for (or is being laid for), null when
+        // none or it failed: a record whose explored land is the same keeps that fog.
+        private static Snapshot s_fogSnapshot;
         private static Texture2D s_paper;
         private static Texture2D s_fog;
 
@@ -220,7 +223,11 @@ namespace Atlas
             // A saved snapshot still being decoded is older than this one.
             s_snapshotTask = null;
             s_snapshot.Save(player, ZNet.instance.GetWorldUID());
-            s_fogDirty = s_fogFull = true;
+            // The fog reads the snapshot only for its explored land: a record that explored
+            // nothing new (at a table again, or to keep new pins) keeps the fog as laid, about
+            // half a second on a worker and a long frame for its upload. New pins still judge
+            // the marks again on its band (SetSheet), and new glimpses lay it again (KeepPins).
+            if (!s_snapshot.SameExplored(s_fogSnapshot)) s_fogDirty = s_fogFull = true;
             s_pinsDirty = true;
             // The snapshot is still saved for the next session, but nothing would end the sparkles.
             if (!s_stopped) s_sparkles.Begin(table);
@@ -827,6 +834,7 @@ namespace Atlas
                     // buffer may be half written, so the next fog is laid whole.
                     s_fogFailed = true;
                     s_fogFull = true;
+                    s_fogSnapshot = null;
                     return;
                 }
                 s_parchment = done.Result.m_parchment;
@@ -878,7 +886,7 @@ namespace Atlas
                 return;
             }
             bool glimpseBand = s_fogGlimpse = AtlasPlugin.Glimpse.Value;
-            Snapshot snapshot = s_snapshot;
+            Snapshot snapshot = s_fogSnapshot = s_snapshot;
             int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
             int size = Paper.FogSize;
             if (s_fogPixels == null) s_fogPixels = new byte[size * size * 4];
@@ -1206,6 +1214,7 @@ namespace Atlas
             s_fogTask = null;
             s_fogDirty = false;
             s_fogFull = true;
+            s_fogSnapshot = null;
             s_inkSerial = 0;
             s_wholeInk = null;
             s_sheetFrom = null;

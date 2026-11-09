@@ -146,6 +146,8 @@ Edit-File $dt "            DropWhere((level, region, unjudged) => Touches(region
 Edit-File $dt "                    old.m_used = m_frame;`n                    continue;`n" "                    old.m_used = m_frame;`n                    bool timingLeft = false;`n                    foreach (Tile timingTile in m_tiles.Values)`n                        if (timingTile.m_stale && timingTile.m_region.Overlaps(m_inView)) timingLeft = true;`n                    if (!timingLeft) Timing.StaleInViewDone(open);`n                    continue;`n"
 Edit-File $dt "                if (catchUp) m_catchUp--;`n" "                if (catchUp) m_catchUp--;`n                if (catchUp) Timing.CatchUpStarted();`n                if (catchUp && m_catchUp == 0) Timing.CatchUpEnded(""budget spent"");`n"
 Edit-File $dt "            if (!open && m_catchUp > 0 && !StaleInCore()) m_catchUp = 0;`n" "            if (!open && m_catchUp > 0 && !StaleInCore())`n            {`n                m_catchUp = 0;`n                Timing.CatchUpEnded(""no stale tile left in the view and ring"");`n            }`n"
+# A record that explored nothing new keeps the fog (Snapshot.SameExplored).
+Edit-File 'src\AtlasMap.cs' "            if (!s_snapshot.SameExplored(s_fogSnapshot)) s_fogDirty = s_fogFull = true;`n" "            if (!s_snapshot.SameExplored(s_fogSnapshot)) s_fogDirty = s_fogFull = true;`n            else Timing.Mark(""fog kept: inputs unchanged (the record explored nothing new)"");`n"
 
 # The cell repaint (InkPainter.Repaint): its record-only run logs the stages above.
 $rp = 'src\Ink\InkPainter.Repaint.cs'

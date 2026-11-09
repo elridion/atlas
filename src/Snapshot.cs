@@ -83,6 +83,27 @@ namespace Atlas
             return snapshot;
         }
 
+        // Whether two snapshots hold the same explored land: size, pixel size and every bit, all
+        // the fog reads of a snapshot (Paper.Fog, SeaMarkSeen). Any thread.
+        public bool SameExplored(Snapshot other)
+        {
+            if (other == null || other.m_size != m_size || other.m_pixelSize != m_pixelSize) return false;
+            if (other.m_explored == m_explored) return true;
+            if (other.m_explored == null || m_explored == null || other.m_explored.Length != m_explored.Length) return false;
+            int length = m_explored.Length;
+            var a = new int[(length + 31) / 32];
+            var b = new int[a.Length];
+            m_explored.CopyTo(a, 0);
+            other.m_explored.CopyTo(b, 0);
+            int whole = length / 32;
+            for (int i = 0; i < whole; i++)
+                if (a[i] != b[i]) return false;
+            // The last word's bits past the length are not part of either.
+            if (whole == a.Length) return true;
+            int mask = (1 << (length % 32)) - 1;
+            return (a[whole] & mask) == (b[whole] & mask);
+        }
+
         // Whether two snapshots hold the same pins in the same order.
         public bool SamePins(Snapshot other)
         {

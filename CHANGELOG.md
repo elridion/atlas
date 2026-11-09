@@ -3,6 +3,7 @@
 ## 0.1.4
 
 - Adding, removing or moving a pin redraws the map sooner.
+- Recording discoveries when nothing new was explored finishes sooner.
 - Zoomed in, the detailed view stays sharp after a pin is added, removed, moved or checked:
   only the part close round that pin is drawn again, in place, without turning blurry
   meanwhile, and a view left zoomed in is caught up sooner after editing pins at a table.

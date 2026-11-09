@@ -152,7 +152,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   kept, so the record keeps each pin's order and the cover of the relief and dead trees in front
   (`m_pinOrders`, `m_pinCovers`), and a close-up scatters every tree that can reach a pin near it
   (`ScatterArea`, `PinInfluence` round each pin, the ground sampled that far too), so tiles
-  decide alike. A mist bank drawn after a pin whose footprint reaches its core (`MarkCore`
+  decide alike (and a pin change drops only the close-ups those trees reach, `RecordChange`). A mist bank drawn after a pin whose footprint reaches its core (`MarkCore`
   0.3 of its box in from each side) is left out once every glyph is placed (`ClearOfMarks`,
   cores filed in `PeakCell` squares); every other kind is relief, a tree or a dead tree. A broad clearing round
   every pin was too aggressive. Relief (peaks, hills, spires, sea thorns, `IsRelief`) is never
@@ -1339,16 +1339,35 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   inclusive, and the river strokes `TileRiverReach` further); every group in a changed cell
   that the other record has not alike (`GroupHash`), over all its cells, as a tile replays a
   group whole; the peaks, glyph footprints (`TileGlyphReach`), mist banks, waves
-  (`TileWaveReach`) and sea washes near it (`AddChangedLists`); and the pins: any pin added,
-  removed, moved, ticked, reordered or given another order or cover drops every tile whose
-  `FogReach` meets its `PinInfluence`, since the tile's own trees are decided with every pin
-  that can reach them. Tiles under opaque fog read no record and stay. A tile drawn from any
+  (`TileWaveReach`) and sea washes near it (`AddChangedLists`; a pin's sheet box is among the
+  glyph footprints, so this alone drops the tiles within about 82 px of a changed pin); and the
+  pins (`RecordChange.PinAreas`). A pin reaches a close-up's pixels only through the trees whose
+  footprint meets its box at the tile's level of detail (`InkPainter.MarkBox`) and the grass
+  tufts over it: `LimitMarkCover`, `DropHiddenBehindMarks`, `OnAMark`, `DrawGrassOverMarks`.
+  Trees are placed and `HideCoveredCrowns` runs before any pin limits them, and trees always pass
+  `ClearOfMarks`; `LimitMarkCover` takes the pins in turn and a tree one leaves out is no
+  candidate for the next, so pins whose boxes lie closer than a tree's footprint
+  (`TilePinLink`, `GlyphReach`) share their choices, down a chain. A changed pin's sheet box
+  also changes trees before any pin limits them (the dead trees over it, the copses, oaks and
+  lone pines kept off those or the box by `ClearOfPlaced`, the crowns those hide), which the
+  glyph footprint read above covers where they draw, so the pins within `TilePinCascade` of it
+  join its chain. So every box of the chain round a pin added, removed, moved, ticked,
+  reordered or given another order or cover, in either record, counts, grown by `TilePinReach`
+  (a tree meeting it and the ground marks laid round its footprint, `TileGroundReach`; scaled by
+  1 / lod). Pins alike outside such a
+  chain keep their order among themselves (`RecordChange.Diff`) and decide alike. `ScatterArea`
+  still widens a tile's scatter round pins near it, but every glyph that can show in a tile is
+  decided from its own hashes and the ground within `TileMargin`, so a tile whose scatter area
+  changed keeps its pixels. Tiles under opaque fog read no record and stay. A tile drawn from any
   other record, a full paint after a fallback, or a failed comparison drops them all.
   Offline, every kept tile was byte-identical to one drawn fresh from the new record, fog and
-  pins (Velen: start island, swamp and Mistlands, a pin on a sea figure; pins removed, moved,
-  added, and two changes before one fog), with about 87-95 % of a view's 4x and 2x tiles kept
-  round a changed pin; most dropped tiles would have come out the same (the pin rule is
-  generous). Untested in game. The ground fills,
+  pins (Velen: start island, swamp and Mistlands, a pin on a sea figure, seven pins within 100 m
+  in a wood; pins removed, moved 60 m and 20 m, added, and two changes before one fog). Of the
+  drawn tiles (not under opaque fog) within three 4x or two 2x tiles of a changed pin, 45-65 %
+  are kept (21-51 % with the earlier rule, which dropped every tile whose `FogReach` met a
+  changed pin's `PinInfluence`; the 87-95 % first noted counted tiles under opaque fog). The pin
+  rule now drops almost nothing past the glyph footprint read above, which drops the rest; most
+  of those would have come out the same. Untested in game. The ground fills,
   trees and coast are drawn afresh (`InkPainter.PaintTile`) from a `TileGrid` sampled every few
   tile pixels; everything else is replayed from the `InkRecord` (every pen call of the painting
   with its `InkLayer`, about 720k calls, 20 MB, indexed in 64 px cells). Because only painting

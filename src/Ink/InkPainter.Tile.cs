@@ -33,6 +33,28 @@ namespace Atlas
         internal const float TileWaveReach = (WaveLongCrests + 1) * WaveCrest * 1.1f + TileWaveSearch;
         internal const float TileRiverReach = GlyphReach + 2f;
 
+        // How a pin reaches a close-up's pixels (RecordChange), at level of detail 1 in sheet
+        // pixels (finer ones scale by 1 / lod, as their trees and ground marks do). A pin changes
+        // only the trees whose footprint meets its box (LimitMarkCover, DropHiddenBehindMarks)
+        // and the grass tufts over it (OnAMark, DrawGrassOverMarks). Two pins whose boxes lie
+        // closer than a tree's footprint (at most 15 T across, GlyphBox) can share a tree, and so
+        // what LimitMarkCover leaves the later one: TilePinLink. A tree meeting a box stands
+        // within GlyphReach of it and draws within GlyphReach of its foot; the ground marks laid
+        // round its footprint (scarps, stumps, boulders and their stipple, woodless ground,
+        // tufts by an oak) reach at most TileGroundReach past it (a boulder's clearance and box,
+        // then the stipple keeping off it, about 20 px); 2 more for the pen's edge.
+        internal const float TilePinLink = GlyphReach;
+        private const float TileGroundReach = 22f;
+        internal const float TilePinReach = GlyphReach + (GlyphReach > TileGroundReach ? GlyphReach : TileGroundReach) + 2f;
+        // How far from a changed pin's sheet box the trees it changes before any pin limits
+        // them can stand (not scaled: the dead trees are the sheet's): the dead trees over the box
+        // (LimitMarkCover on the sheet), the copses, oaks and lone pines kept off it or them
+        // (ClearOfPlaced), an oak kept off a copse (PlaceOaks) and the crowns behind those
+        // (HideCoveredCrowns), each a footprint under GlyphReach further, and one more for the
+        // scraped rim round a crown. A pin whose box such a tree can meet shares its choices
+        // with the changed one.
+        internal const float TilePinCascade = 5f * GlyphReach;
+
         // Worker thread. Draws into canvas, which shows region (sheet pixels) at its magnification.
         public static void PaintTile(WorldSource world, InkRecord record, TileGrid grid, InkCanvas canvas, RectInt region, Rect scatter,
             float lod, int scale, CancellationToken cancel, byte[] glimpse = null, FogEdge edge = null, HashSet<int> hiddenGroups = null)

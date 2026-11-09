@@ -617,13 +617,7 @@ namespace Atlas
             if (pins == null) return;
             foreach (SheetPin pin in pins)
             {
-                float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
-                // A close-up's pins are smaller by its level of detail, as its trees (InkCanvas.Pin).
-                // The glyph's place is its foot, below the pin's place for the Stones and the
-                // raised glyphs (PinGlyphs.Sink).
-                float size = PinSheetSize(pin.m_glyph) / m_lod;
-                var g = new Glyph { m_x = x, m_y = y + PinGlyphs.Sink(pin.m_glyph) * size, m_size = size, m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
-                g.m_order = g.m_y;
+                Glyph g = MarkOf(pin, m_lod);
                 m_marks.Add(g);
                 Vector4 box = GlyphBox(g);
                 float dx = (box.z - box.x) * MarkCore, dy = (box.w - box.y) * MarkCore;
@@ -638,6 +632,27 @@ namespace Atlas
                         cell.Add(zone);
                     }
             }
+        }
+
+        // A pin's glyph at a level of detail. A close-up's pins are smaller by its level of
+        // detail, as its trees (InkCanvas.Pin). The glyph's place is its foot, below the pin's
+        // place for the Stones and the raised glyphs (PinGlyphs.Sink).
+        private static Glyph MarkOf(SheetPin pin, float lod)
+        {
+            float x = (pin.m_x + HalfExtent) / MetresPerPixel, y = (HalfExtent - pin.m_z) / MetresPerPixel;
+            float size = PinSheetSize(pin.m_glyph) / lod;
+            var g = new Glyph { m_x = x, m_y = y + PinGlyphs.Sink(pin.m_glyph) * size, m_size = size, m_kind = Kind.Pin, m_seed = (int)pin.m_glyph | (pin.m_checked ? PinStruck : 0) };
+            g.m_order = g.m_y;
+            return g;
+        }
+
+        // A pin's box (GlyphBox) as a close-up at lod places it, which its trees and grass are
+        // tested against (LimitMarkCover, DropHiddenBehindMarks, OnAMark); RecordChange tests a
+        // pin change by it.
+        internal static Rect MarkBox(SheetPin pin, float lod)
+        {
+            Vector4 box = GlyphBox(MarkOf(pin, lod));
+            return Rect.MinMaxRect(box.x, box.y, box.z, box.w);
         }
 
         private static bool IsMark(Kind kind) => kind == Kind.Pin;
@@ -893,7 +908,7 @@ namespace Atlas
 
         // How far round a pin's place a close-up scatters trees, in sheet pixels: the largest pin's
         // box (PinSheetSize, lifted) and the tallest tree that can stand in front of it.
-        public const float PinInfluence = 44f;
+        private const float PinInfluence = 44f;
 
         // The part of the sheet a close-up of region scatters its glyphs over beyond its own
         // reach: every pin near it, with PinInfluence round it, so the trees in front of a pin are

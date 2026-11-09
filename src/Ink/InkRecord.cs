@@ -199,6 +199,8 @@ namespace Atlas
             copy.m_hashLock = new object();
             copy.m_cellHashes = null;
             copy.m_fades = null;
+            copy.m_tileHashes = null;
+            copy.m_riverHashes = null;
             // The fog's marks do not change with a tick (pins are not among them), only their key.
             copy.m_marks = new SheetMarks { m_key = key };
             copy.m_marks.m_trees.AddRange(m_marks.m_trees);
@@ -585,6 +587,182 @@ namespace Atlas
                 return hashes;
             }
         }
+
+        // The layers close-ups replay from the record (InkPainter.RunTile); they draw the ground
+        // fills, trees, coast and waves afresh.
+        private const int TileLayers = (1 << (int)InkLayer.Lava) | (1 << (int)InkLayer.River) | (1 << (int)InkLayer.Glyph)
+            | (1 << (int)InkLayer.Floe) | (1 << (int)InkLayer.Illustration) | (1 << (int)InkLayer.Frame);
+        private ulong[] m_tileHashes, m_riverHashes;
+
+        // Per index cell, as CellHashes, a hash of what a close-up reads from the calls that can
+        // touch the cell: the calls of the layers it replays and of every glyph group, in order,
+        // each grouped call with its group's foot and whether it starts or ends the group (a
+        // close-up sorts the groups by their feet in with its own trees and replays each whole).
+        // rivers gets the same of the river strokes alone, which a close-up reads further out
+        // (InkPainter.MarkTileRivers). Two sealed records whose hashes agree on the cells a
+        // close-up picks give it the same calls, groups and feet there (RecordChange). Worked out
+        // once per record.
+        public ulong[] TileHashes(out ulong[] rivers)
+        {
+            lock (m_hashLock)
+            {
+                if (m_tileHashes == null)
+                {
+                    var hashes = new ulong[m_cellsAcross * m_cellsAcross];
+                    var river = new ulong[hashes.Length];
+                    int tint = -1;
+                    bool ramp = false;
+                    for (int i = 0; i < m_calls.Count; i++)
+                    {
+                        Call c = m_calls[i];
+                        bool read = c.m_group >= 0 || (TileLayers & (1 << (int)c.m_layer)) != 0;
+                        bool riverStroke = c.m_layer == InkLayer.River && c.m_op == Op.Stroke;
+                        ulong h = 0UL;
+                        if (read || riverStroke)
+                        {
+                            h = CallHash(c);
+                            if (MarksBody(c) && ramp) h = Mix(h ^ (CallHash(m_calls[tint]) * 0xC2B2AE3D27D4EB4FUL));
+                            if (c.m_group >= 0)
+                            {
+                                bool first = i == 0 || m_calls[i - 1].m_group != c.m_group;
+                                bool last = i + 1 == m_calls.Count || m_calls[i + 1].m_group != c.m_group;
+                                h = Mix(h ^ Bits(m_groupFeet[c.m_group], (first ? 1f : 0f) + (last ? 2f : 0f)));
+                            }
+                        }
+                        if (c.m_op == Op.Tint)
+                        {
+                            tint = i;
+                            if (c.m_body == BodyKind.Keep) ramp = true;
+                        }
+                        else if (c.m_op == Op.EraseOutline)
+                        {
+                            ramp = false;
+                        }
+                        if (!read && !riverStroke) continue;
+                        Bounds(c, out float minX, out float minY, out float maxX, out float maxY);
+                        int x0 = Cell(minX - ReplaySlack), x1 = Cell(maxX + ReplaySlack);
+                        int y0 = Cell(minY - ReplaySlack), y1 = Cell(maxY + ReplaySlack);
+                        for (int y = y0; y <= y1; y++)
+                        {
+                            for (int x = x0; x <= x1; x++)
+                            {
+                                int cell = y * m_cellsAcross + x;
+                                if (read) hashes[cell] = (hashes[cell] ^ h) * 0x9E3779B97F4A7C15UL + 1UL;
+                                if (riverStroke) river[cell] = (river[cell] ^ h) * 0x9E3779B97F4A7C15UL + 1UL;
+                            }
+                        }
+                    }
+                    m_riverHashes = river;
+                    m_tileHashes = hashes;
+                }
+                rivers = m_riverHashes;
+                return m_tileHashes;
+            }
+        }
+
+        // Adds the first call of every group with a call that can touch the index cell (cx, cy),
+        // each group once (seen). The record must be sealed.
+        public void GroupsNear(int cx, int cy, HashSet<int> seen, List<int> into)
+        {
+            float left = cx * CellSize, top = cy * CellSize;
+            foreach (int i in Picked(left - ReplaySlack, top - ReplaySlack, left + CellSize + ReplaySlack, top + CellSize + ReplaySlack))
+            {
+                int group = m_calls[i].m_group;
+                if (group < 0 || !seen.Add(group)) continue;
+                int first = i;
+                while (first > 0 && m_calls[first - 1].m_group == group) first--;
+                into.Add(first);
+            }
+        }
+
+        // A hash of the group starting at call first as a close-up replays it: its calls in
+        // order, with what they draw, and its foot.
+        public ulong GroupHash(int first)
+        {
+            int group = m_calls[first].m_group;
+            ulong h = Mix(Bits(m_groupFeet[group], 0f));
+            for (int k = first; k < m_calls.Count && m_calls[k].m_group == group; k++) h = Mix(h ^ CallHash(m_calls[k]));
+            return h;
+        }
+
+        // Adds the index cells (x, y the first, width and height the count) over which the group
+        // starting at call first has calls: a close-up that picks any of them replays all of it.
+        public void AddGroupCells(int first, List<RectInt> into)
+        {
+            int group = m_calls[first].m_group;
+            int x0 = int.MaxValue, y0 = int.MaxValue, x1 = int.MinValue, y1 = int.MinValue;
+            for (int k = first; k < m_calls.Count && m_calls[k].m_group == group; k++)
+            {
+                Bounds(m_calls[k], out float minX, out float minY, out float maxX, out float maxY);
+                // A few sea marks' strokes end at no point (NaN), which the index files in the
+                // first cell (Cell clamps it); taken in with the rest they spanned the sheet's
+                // corner to the mark.
+                if (float.IsNaN(minX) || float.IsNaN(minY) || float.IsNaN(maxX) || float.IsNaN(maxY))
+                {
+                    int nx = Cell(minX), ny = Cell(minY);
+                    into.Add(new RectInt(nx, ny, Cell(maxX) - nx + 1, Cell(maxY) - ny + 1));
+                    continue;
+                }
+                x0 = Math.Min(x0, Cell(minX));
+                y0 = Math.Min(y0, Cell(minY));
+                x1 = Math.Max(x1, Cell(maxX));
+                y1 = Math.Max(y1, Cell(maxY));
+            }
+            if (x1 >= x0) into.Add(new RectInt(x0, y0, x1 - x0 + 1, y1 - y0 + 1));
+        }
+
+        // Adds the sheet areas over which a close-up's region would read an entry of this
+        // record's lists that from does not have alike (RecordChange): the peaks, mist banks and
+        // glyph footprints it takes within its reach (InkPainter.TileGlyphReach, TileMistReach),
+        // the waves it draws again (TileWaveReach) and the sea marks' washes it samples. False
+        // when they cannot be compared (marks and washes not in step).
+        public bool AddChangedLists(InkRecord from, List<Rect> into)
+        {
+            if (from.m_seaWashes.Count != from.m_seaMarks.Count || m_seaWashes.Count != m_seaMarks.Count) return false;
+            float reach = InkPainter.TileGlyphReach, mist = InkPainter.TileMistReach, waves = InkPainter.TileWaveReach;
+            // Peaks, banks and footprints are filed for tests, in any order; waves are drawn in
+            // order, and so are the marks' washes laid.
+            RecordChange.Diff(from.m_peaks.Count, m_peaks.Count, false, (a, b) => from.m_peaks[a].Equals(m_peaks[b]),
+                a => from.m_peaks[a].GetHashCode(), b => m_peaks[b].GetHashCode(),
+                a => into.Add(Around(from.m_peaks[a].x, from.m_peaks[a].y, reach)), b => into.Add(Around(m_peaks[b].x, m_peaks[b].y, reach)));
+            RecordChange.Diff(from.m_mistBanks.Count, m_mistBanks.Count, false, (a, b) => from.m_mistBanks[a].Equals(m_mistBanks[b]),
+                a => from.m_mistBanks[a].GetHashCode(), b => m_mistBanks[b].GetHashCode(),
+                a => into.Add(Around(from.m_mistBanks[a].x, from.m_mistBanks[a].y, mist)), b => into.Add(Around(m_mistBanks[b].x, m_mistBanks[b].y, mist)));
+            RecordChange.Diff(from.m_glyphBoxes.Count, m_glyphBoxes.Count, false, (a, b) => from.m_glyphBoxes[a].Equals(m_glyphBoxes[b]),
+                a => from.m_glyphBoxes[a].GetHashCode(), b => m_glyphBoxes[b].GetHashCode(),
+                a => into.Add(Grown(from.m_glyphBoxes[a], reach)), b => into.Add(Grown(m_glyphBoxes[b], reach)));
+            RecordChange.Diff(from.m_waves.Count, m_waves.Count, true, (a, b) => SameWave(from.m_waves[a], m_waves[b]),
+                a => WaveKey(from.m_waves[a]), b => WaveKey(m_waves[b]),
+                a => into.Add(WaveArea(from.m_waves[a], waves)), b => into.Add(WaveArea(m_waves[b], waves)));
+            // A mark's wash is drawn from the mark alone (SeaWash), so marks alike wash alike.
+            RecordChange.Diff(from.m_seaMarks.Count, m_seaMarks.Count, true, (a, b) => SameSeaMark(from.m_seaMarks[a], m_seaMarks[b]),
+                a => SeaMarkKey(from.m_seaMarks[a]), b => SeaMarkKey(m_seaMarks[b]),
+                a => into.Add(WashArea(from.m_seaWashes[a])), b => into.Add(WashArea(m_seaWashes[b])));
+            return true;
+        }
+
+        private static Rect Around(float x, float y, float reach) => Rect.MinMaxRect(x - reach, y - reach, x + reach, y + reach);
+
+        private static Rect Grown(Vector4 box, float reach) => Rect.MinMaxRect(box.x - reach, box.y - reach, box.z + reach, box.w + reach);
+
+        // The rows and columns over which a close-up takes a wave (Waves, as DrawTileWaves asks).
+        private static Rect WaveArea(Wave wave, float reach) =>
+            Rect.MinMaxRect(wave.m_x - reach, wave.m_y - 2f, wave.m_x + wave.m_length + reach, wave.m_y + 2f);
+
+        private static Rect WashArea(SeaWash wash) => Rect.MinMaxRect(wash.Left, wash.Top, wash.Right, wash.Bottom);
+
+        // Waves alike but for their index, which shifts as strokes are added before them.
+        private static bool SameWave(Wave a, Wave b) =>
+            a.m_x == b.m_x && a.m_y == b.m_y && a.m_length == b.m_length && a.m_phase == b.m_phase && a.m_lift == b.m_lift
+            && a.m_crests == b.m_crests && a.m_anchor == b.m_anchor;
+
+        private static int WaveKey(Wave w) => w.m_x.GetHashCode() * 31 + w.m_y.GetHashCode();
+
+        internal static bool SameSeaMark(SeaMark a, SeaMark b) =>
+            a.m_west == b.m_west && a.m_east == b.m_east && a.m_south == b.m_south && a.m_north == b.m_north && a.m_kind == b.m_kind
+            && a.m_x == b.m_x && a.m_y == b.m_y && a.m_scale == b.m_scale && a.m_mirror == b.m_mirror;
+
+        internal static int SeaMarkKey(SeaMark m) => m.m_x.GetHashCode() * 31 + m.m_y.GetHashCode();
 
         // Draws onto canvas every call that can touch the sheet pixels [left, right) x [top,
         // bottom), in order, so those pixels come out as a paint of the whole sheet left them:

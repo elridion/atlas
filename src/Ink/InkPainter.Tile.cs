@@ -23,6 +23,16 @@ namespace Atlas
         // it, plus the margins their rules test, so a tile's neighbours decide alike at the edge.
         public static float TileMargin(float lod) => (GlyphReach + 8f) / lod;
 
+        // How far past its region a close-up reads the record's lists and river strokes, in sheet
+        // pixels, at the coarsest level of detail (1; finer ones read less): the peaks and glyph
+        // footprints its trees keep off (RunTile), the mist banks its scarps keep off, the waves
+        // it draws again (DrawTileWaves) and the river courses its trees keep off
+        // (MarkTileRivers). RecordChange tests a pin change against them.
+        internal const float TileGlyphReach = GlyphReach + PeakCell;
+        internal const float TileMistReach = PeakCell;
+        internal const float TileWaveReach = (WaveLongCrests + 1) * WaveCrest * 1.1f + TileWaveSearch;
+        internal const float TileRiverReach = GlyphReach + 2f;
+
         // Worker thread. Draws into canvas, which shows region (sheet pixels) at its magnification.
         public static void PaintTile(WorldSource world, InkRecord record, TileGrid grid, InkCanvas canvas, RectInt region, Rect scatter,
             float lod, int scale, CancellationToken cancel, byte[] glimpse = null, FogEdge edge = null, HashSet<int> hiddenGroups = null)
@@ -46,7 +56,7 @@ namespace Atlas
             // The sheet's mist banks near the tile, which the tile's scarps keep off as the
             // sheet's do: a bank reaches 30 sheet px either side of its centre.
             var banks = new List<Vector3>();
-            record.MistBanks(m_left - PeakCell, m_top - PeakCell, m_right + PeakCell, m_bottom + PeakCell, banks);
+            record.MistBanks(m_left - TileMistReach, m_top - TileMistReach, m_right + TileMistReach, m_bottom + TileMistReach, banks);
             foreach (Vector3 bank in banks) AddMistBank(bank);
             m_canvas.m_layer = InkLayer.Background;
             DrawBackground();
@@ -65,7 +75,7 @@ namespace Atlas
             // on the sheet: the tile's trees stand up to GlyphReach beyond it, and a peak's base
             // reaches half its width (51 px at most) from its foot.
             var peaks = new List<Vector4>();
-            float reach = GlyphReach + PeakCell;
+            float reach = TileGlyphReach;
             record.Peaks(m_left - reach, m_top - reach, m_right + reach, m_bottom + reach, peaks);
             foreach (Vector4 peak in peaks) AddPeakBase(peak);
             // The sheet's other glyphs' footprints, before the trees, so a boulder field's lone
@@ -94,7 +104,14 @@ namespace Atlas
             // hides the other, as on the sheet; laid over all the trees, a spire behind a tree
             // would cover it.
             List<InkRecord.Group> groups = record.Groups(InkLayer.Glyph, m_left, m_top, m_right, m_bottom);
-            groups.Sort((a, b) => a.m_foot.CompareTo(b.m_foot));
+            // Equal feet keep the record's order (a group's calls are consecutive), as the sheet
+            // drew them: List.Sort is unstable, and its order for them changed with groups far
+            // apart, so a close-up kept after a pin change (RecordChange) could not be told alike.
+            groups.Sort((a, b) =>
+            {
+                int byFoot = a.m_foot.CompareTo(b.m_foot);
+                return byFoot != 0 ? byFoot : a.m_calls[0].CompareTo(b.m_calls[0]);
+            });
             // The sheet's glyphs the band leaves out (relief beyond its end, dead trees thinned out).
             if (m_hiddenGroups != null) groups.RemoveAll(g => m_hiddenGroups.Contains(g.m_id));
             int next = 0;
@@ -154,7 +171,7 @@ namespace Atlas
         // stay put and are left out where the tile has land.
         private void DrawTileWaves(InkRecord record)
         {
-            float reach = (WaveLongCrests + 1) * WaveCrest * 1.1f + TileWaveSearch;
+            float reach = TileWaveReach;
             var waves = new List<InkRecord.Wave>();
             record.Waves(m_left - reach, m_top - 2f, m_right + reach, m_bottom + 2f, waves);
             // The sheet's strokes the band leaves out.

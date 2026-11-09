@@ -3,6 +3,8 @@
 ## 0.1.4
 
 - Adding, removing or moving a pin redraws the map sooner.
+- Zoomed in, the detailed view stays sharp after a pin is added, removed or moved: only the
+  part round that pin fills in again.
 - Swamp dead trees near a pin may now stand partly in front of it, as other trees do,
   instead of leaving a clearing round it. Your map is drawn again once after updating.
 

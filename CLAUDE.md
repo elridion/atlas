@@ -161,7 +161,8 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Close-ups take the list from `InkRecord.m_pins` and decide the same. The list's key (`SheetPin.Key`, order-free) is kept with the sheet in the cache;
   a different key paints the world again in the background (about 6 s offline), the old sheet
   showing until the new one is uploaded and the table sparkling meanwhile; the close-up tiles
-  start over with the new record. With the shown sheet's record at hand (same key, the world's
+  are drawn from the new record, those a repaint's change cannot reach kept (`RecordChange`,
+  below "Close-ups"). With the shown sheet's record at hand (same key, the world's
   alt biomes read this session, the kept groundwork and start) the repaint rasterizes only what
   changed (`InkPainter.Repaint`): the painter runs from the kept start on a canvas that only
   records (`InkCanvas.RecordOnly`), so every decision is a full paint's and the new record comes
@@ -213,7 +214,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   drawing stops"), and writes a second texture, the glimpse, bare parchment whose opacity is the
   unexplored land softened at the explored edge. `AtlasView` lays it over the paper's wash and
   under the ink, so the band shows the map on untinted parchment; close-ups lay it over their
-  wash before the glyphs' bodies (`DetailTile.Render`, `DetailTiles.SetGlimpse`). `SetGlimpse` takes a `FogChange` made on the fog's worker (`FogChange.Between`, against the glimpse copy and edge the tiles were drawn under): the 8² fog-pixel blocks where the glimpse alpha, `m_edge` or `m_thin` changed, plus the grown boxes of glyphs, wave strokes and sea marks whose decision flipped. Only tiles whose `DetailTile.FogReach` (scatter area grown by 2x `TileMargin` + 40 px, for the trees `CutByFog` judges) meets a dirty block, or whose region meets a changed mark, are dropped, done, running or queued; without a comparable earlier fog (first fog, other `SheetMarks` or sea marks) every tile is. A tile reads nothing else from the fog (the fog texture is its own layer above the tiles); kept tiles are byte-identical to fresh ones offline (9 runs). A tile wholly under opaque fog is not drawn (`DetailTiles.UnderFog`: `FogEdge.m_edge`, the fog texture's own alpha, 255 over its region and one fog pixel round it, as the fog over the close-ups samples bilinearly; at most `FogTestsPerFrame` tests a frame); it counts as done with no texture (`m_fogged`) and is dropped like a drawn tile when a `FogChange` reaches it, so an opened fog tests it again. About 70% of 4x tiles offline. In the glimpse the glyphs' bodies (crowns, peaks) and the
+  wash before the glyphs' bodies (`DetailTile.Render`, `DetailTiles.SetGlimpse`). `SetGlimpse` takes a `FogChange` made on the fog's worker (`FogChange.Between`, against the glimpse copy and edge the tiles were drawn under): the 8² fog-pixel blocks where the glimpse alpha, `m_edge` or `m_thin` changed, plus the grown boxes of glyphs, wave strokes and sea marks whose decision flipped. Only tiles whose `DetailTile.FogReach` (scatter area grown by 2x `TileMargin` + 40 px, for the trees `CutByFog` judges) meets a dirty block, or whose region meets a changed mark, are dropped, done, running or queued; without a comparable earlier fog (first fog, no marks) every tile is. After a pin change the edges were judged for different `SheetMarks` (indices shift), so glyph and wave marks are matched by footprint, order, shape and kind (`FogChange.Matched`), and a mark without a match or judged otherwise counts as changed, as does a sea illustration in one fog's list and not the other's. A tile started after a pin change but before the fog judged the new marks (`FogEdge.Matches` false, so it left nothing out) is flagged `m_unjudged` and dropped by the next `SetGlimpse`. A tile reads nothing else from the fog (the fog texture is its own layer above the tiles); kept tiles are byte-identical to fresh ones offline (9 runs). A tile wholly under opaque fog is not drawn (`DetailTiles.UnderFog`: `FogEdge.m_edge`, the fog texture's own alpha, 255 over its region and one fog pixel round it, as the fog over the close-ups samples bilinearly; at most `FogTestsPerFrame` tests a frame); it counts as done with no texture (`m_fogged`) and is dropped like a drawn tile when a `FogChange` reaches it, so an opened fog tests it again. About 70% of 4x tiles offline. In the glimpse the glyphs' bodies (crowns, peaks) and the
   sea illustrations' wash give way to the parchment and the terrain's ink turns greyer
   (`Paper.GlimpseInkColor`); pins keep their red (the user's design). The sheet bakes that into
   its ink texture (`Paper.InkWithMips` takes the glimpse), so `AtlasMap` keeps the sheet's planes
@@ -325,7 +326,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
 - Detail tiles: `DetailTiles.cs` the tile pyramid (what to draw, workers, textures),
   `DetailTile.cs` composites one, `InkPainter.Tile.cs` draws it, `TileGrid.cs` the ground sampled
   for it, `SampleCache.cs` the shared samples, `WorldSampler.cs` the world generator and minimap
-  samplers.
+  samplers, `RecordChange.cs` what a pin change changed for them.
 - `docs/performance.md` the performance work: measurements, what was changed and ruled out, and what is open (with the parked `docs/array-pool.patch`). `tools/timing/` makes a timing build (`Apply.ps1`, `Timing.cs`; never commit its result).
 - `assets/translations/<Language>.json` (`atlas_*` keys); `tools/make_icon.ps1` generates
   `package/icon.png`; `hexium.json` Hexium listing metadata.
@@ -359,7 +360,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   Any change to the drawing bumps `InkCache.Version` by one, or players keep the old cached
   sheet. Only the exact version is read, so any other is drawn again.
 - **The rasterizer only narrows which pixels it evaluates.** `InkCanvas` uses row spans, a cell grid of edges for outlines and row crossings for inside, but keeps each pixel's coverage arithmetic exactly as written: no reordering, no inverse lengths (they round differently). A change there that moves any pixel bumps `InkCache.Version`; check byte for byte offline, under .NET and Valheim's Mono. A part of the sheet drawn again must be drawn on a window (`InkCanvas.Window`: sheet coordinates, only its pixels kept, the outline's edge grid laid over the whole sheet), never on a canvas with an origin of its own: subtracting the origin rounds the shapes' coordinates, and a 64 px replay so came out with about 15 ink pixels a level off.
-- **The record is the drawing.** Replaying a paint's record onto a blank sheet gives its sheet byte for byte, which the repaint (`InkPainter.Repaint`), the tick re-check and the cell hashes rely on. So the painter writes the canvas only through recorded calls (`Pin`'s shield is refilled by its replay), no placement reads the canvas's pixels except `InkNear` (sea illustrations and stand-ins), which a record-only canvas answers from the record (`InkRecord.InkIn`) and whose kept outcomes hold while the calls over its windows hash alike (`InkRecord.WindowHashes`, the sea plan), and the only state one call leaves for the next is the base fade (a `Keep` tint for the next body-marking erases, restored by `ReplayClipped`). A new decision that reads pixels, or new canvas state carried between calls, must do the same or the repaint goes wrong where no cell's calls changed.
+- **The record is the drawing.** Replaying a paint's record onto a blank sheet gives its sheet byte for byte, which the repaint (`InkPainter.Repaint`), the tick re-check and the cell hashes rely on. So the painter writes the canvas only through recorded calls (`Pin`'s shield is refilled by its replay), no placement reads the canvas's pixels except `InkNear` (sea illustrations and stand-ins), which a record-only canvas answers from the record (`InkRecord.InkIn`) and whose kept outcomes hold while the calls over its windows hash alike (`InkRecord.WindowHashes`, the sea plan), and the only state one call leaves for the next is the base fade (a `Keep` tint for the next body-marking erases, restored by `ReplayClipped`). A new decision that reads pixels, or new canvas state carried between calls, must do the same or the repaint goes wrong where no cell's calls changed. Likewise a close-up kept after a pin change (`RecordChange`) is right only while the comparison covers everything a tile reads from its record: a new read in `InkPainter.RunTile`, `PaintTile` or `DetailTile.Render` (another list, a wider query, another layer replayed) must be added to `RecordChange` (and its reach to the `Tile*Reach` constants), or tiles keep the old drawing there.
 - **Persisted config.** Section and key names (`Pins`, `PlayerPins`, `BedPin`, `DeathPin`,
   `BossPins`, `TraderPins`, `HildirPins`, `PlacePins`, `UnexploredPins`; `Fog`, `Glimpse`):
   renaming one resets players' settings.
@@ -1327,7 +1328,27 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   from cells `GlyphReach` beyond it, so neighbours draw the same glyphs and margins and seams do
   not show. The sheet's non-tree glyphs are recorded as groups with their feet
   (`InkRecord.BeginGroup`), and a tile sorts them in with its own trees and draws all from north
-  to south; replayed over all the trees, spires behind trees would cover them. The ground fills,
+  to south, equal feet in the record's order (`List.Sort` alone is unstable, and its order for
+  them shifted with groups far away); replayed over all the trees, spires behind trees would
+  cover them.
+  **A pin change keeps the close-ups it cannot reach** (`RecordChange`, made on the paint's
+  worker after a cell repaint, `DetailTiles.NewRecord`; the fog's new decisions follow through
+  `FogChange`, above). What a tile reads from its record, and so what is compared: the calls
+  of the layers it replays and of every glyph group, with each group's foot and boundaries
+  (`InkRecord.TileHashes`, per 64 px cell; a tile picks the cells under its region, edges
+  inclusive, and the river strokes `TileRiverReach` further); every group in a changed cell
+  that the other record has not alike (`GroupHash`), over all its cells, as a tile replays a
+  group whole; the peaks, glyph footprints (`TileGlyphReach`), mist banks, waves
+  (`TileWaveReach`) and sea washes near it (`AddChangedLists`); and the pins: any pin added,
+  removed, moved, ticked, reordered or given another order or cover drops every tile whose
+  `FogReach` meets its `PinInfluence`, since the tile's own trees are decided with every pin
+  that can reach them. Tiles under opaque fog read no record and stay. A tile drawn from any
+  other record, a full paint after a fallback, or a failed comparison drops them all.
+  Offline, every kept tile was byte-identical to one drawn fresh from the new record, fog and
+  pins (Velen: start island, swamp and Mistlands, a pin on a sea figure; pins removed, moved,
+  added, and two changes before one fog), with about 87-95 % of a view's 4x and 2x tiles kept
+  round a changed pin; most dropped tiles would have come out the same (the pin rule is
+  generous). Untested in game. The ground fills,
   trees and coast are drawn afresh (`InkPainter.PaintTile`) from a `TileGrid` sampled every few
   tile pixels; everything else is replayed from the `InkRecord` (every pen call of the painting
   with its `InkLayer`, about 720k calls, 20 MB, indexed in 64 px cells). Because only painting

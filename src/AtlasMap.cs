@@ -405,6 +405,7 @@ namespace Atlas
                     InkRecord record = null;
                     byte[] ink = null;
                     System.Collections.Generic.List<RectInt> changed = null, redrawn = null;
+                    RecordChange tileChange = null;
                     if (sheetRecord != null)
                     {
                         changed = new System.Collections.Generic.List<RectInt>();
@@ -427,6 +428,19 @@ namespace Atlas
                             ink = null;
                         }
                         if (ink == null) redrawn = null;
+                        // What changed for the close-ups, so those it cannot reach are kept
+                        // (DetailTiles.NewRecord). A failure only costs the close-ups.
+                        if (ink != null)
+                        {
+                            try
+                            {
+                                tileChange = RecordChange.Between(lastRecord, record);
+                            }
+                            catch (Exception e) when (!(e is OperationCanceledException))
+                            {
+                                Jotunn.Logger.LogWarning($"The atlas could not compare its close-ups' record with the last: {e}");
+                            }
+                        }
                     }
                     if (ink == null)
                     {
@@ -441,7 +455,7 @@ namespace Atlas
                     return new PaintResult
                     {
                         m_ink = ink, m_record = record, m_density = density, m_key = key, m_saved = save, m_changed = changed, m_seed = source.m_seed,
-                        m_from = redrawn != null ? sheetInk : null, m_redrawn = redrawn,
+                        m_from = redrawn != null ? sheetInk : null, m_redrawn = redrawn, m_tileChange = tileChange,
                     };
                 };
                 // With no sheet to show the paint is the opening's own work (its loops too), ahead
@@ -498,7 +512,7 @@ namespace Atlas
                 SetSheet(result.m_ink, s_sheetMarks, s_marks, result.m_density, result.m_key, result.m_from, result.m_redrawn);
                 return;
             }
-            s_tiles.NewRecord();
+            s_tiles.NewRecord(result.m_record, result.m_tileChange);
             if (s_sheet != null && result.m_key == s_rawKey) return;
             SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_record.m_marks, result.m_density, result.m_key, result.m_from, result.m_redrawn);
         }
@@ -641,6 +655,8 @@ namespace Atlas
             // again (InkPainter.Repaint, Recheck), or null for a whole paint.
             public byte[] m_from;
             public System.Collections.Generic.List<RectInt> m_redrawn;
+            // What a repaint changed for the close-ups against the last record (null: everything).
+            public RecordChange m_tileChange;
         }
 
         // A fog laid on a worker: the parchment it was laid on and where its drawing stops.
@@ -839,13 +855,25 @@ namespace Atlas
             {
                 FogEdge last = s_edge;
                 byte[] fog = s_fogPixels, laidGlimpse = s_glimpseCopy, paper = s_parchment;
+                SeaMark[] lastSea = s_fogMarks;
                 SeaMark[] seaMarks = s_fogTaskMarks = s_seaMarks;
                 SheetMarks judged = s_marks;
                 s_fogTask = Workers.RunFirst(() =>
                 {
                     FogEdge edge = Paper.Redecide(last, fog, laidGlimpse, seaMarks, judged);
                     bool lifted = !SameBytes(edge.m_edge, last.m_edge);
-                    return new FogLaid { m_edge = edge, m_parchment = paper, m_glimpse = laidGlimpse, m_redecided = true, m_fogChanged = lifted };
+                    // Matched mark by mark with the decisions the close-ups were drawn under, so
+                    // only those whose marks were judged otherwise are drawn again.
+                    FogChange change = null;
+                    try
+                    {
+                        change = FogChange.Between(laidGlimpse, last, laidGlimpse, edge, lastSea, seaMarks);
+                    }
+                    catch (Exception e)
+                    {
+                        Jotunn.Logger.LogWarning($"The atlas could not compare its fog with the last: {e}");
+                    }
+                    return new FogLaid { m_edge = edge, m_parchment = paper, m_glimpse = laidGlimpse, m_change = change, m_redecided = true, m_fogChanged = lifted };
                 });
                 return;
             }
@@ -865,7 +893,7 @@ namespace Atlas
             // with on the worker, so only the close-ups it changes are drawn again.
             byte[] oldGlimpse = s_glimpseCopy;
             FogEdge oldEdge = s_edge;
-            bool sameSea = marks == s_fogMarks;
+            SeaMark[] oldSea = s_fogMarks;
             // The task hands the parchment back instead of storing it, so a task still running
             // when the world changes cannot leave its paper behind for the next world.
             Func<byte[], FogLaid> lay = paper =>
@@ -875,7 +903,7 @@ namespace Atlas
                 FogChange change = null;
                 try
                 {
-                    change = FogChange.Between(oldGlimpse, oldEdge, copy, edge, sameSea);
+                    change = FogChange.Between(oldGlimpse, oldEdge, copy, edge, oldSea, marks);
                 }
                 catch (Exception e)
                 {

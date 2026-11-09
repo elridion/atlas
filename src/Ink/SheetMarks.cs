@@ -117,7 +117,7 @@ namespace Atlas
             return false;
         }
 
-        private static Vector4 SeaBox(SeaMark mark) => new Vector4(
+        internal static Vector4 SeaBox(SeaMark mark) => new Vector4(
             (mark.m_west + InkPainter.HalfExtent) / InkPainter.MetresPerPixel,
             (InkPainter.HalfExtent - mark.m_north) / InkPainter.MetresPerPixel,
             (mark.m_east + InkPainter.HalfExtent) / InkPainter.MetresPerPixel,
@@ -161,10 +161,12 @@ namespace Atlas
     }
 
     /// <summary>
-    /// What a new fog changed for close-ups against the fog laid before it on the same sheet
-    /// marks (Between): where the planes a close-up reads differ (the glimpse's opacity, the
-    /// band's opacity and its thinning), as blocks of BlockPixels fog pixels, and the sheet boxes
-    /// of the marks whose decision changed (glyphs and wave strokes by index, sea illustrations).
+    /// What a new fog changed for close-ups against the fog laid before it (Between), on the
+    /// same sheet marks or a new sheet's after a pin change: where the planes a close-up reads
+    /// differ (the glimpse's opacity, the band's opacity and its thinning), as blocks of
+    /// BlockPixels fog pixels, and the sheet boxes of the marks whose decision changed (glyphs
+    /// and wave strokes by index on the same marks, matched by footprint on others; sea
+    /// illustrations by their boxes).
     /// A close-up whose reads miss all of it draws the same under either fog, so it is kept
     /// (DetailTiles.SetGlimpse). Made on the worker that laid the fog, as comparing the planes
     /// reads 16 MB; the main thread only tests tiles against it.
@@ -192,14 +194,20 @@ namespace Atlas
         private readonly List<Rect> m_marks = new List<Rect>();
 
         // Worker thread. The change from the fog laid as oldGlimpse and oldEdge to glimpse and
-        // edge, or null when they cannot be compared (no earlier fog, other sheet marks or sea
-        // illustrations): then every close-up is drawn again. sameSea is whether both were laid
-        // for the same sea illustrations.
-        public static FogChange Between(byte[] oldGlimpse, FogEdge oldEdge, byte[] glimpse, FogEdge edge, bool sameSea)
+        // edge, or null when they cannot be compared (no earlier fog or marks): then every
+        // close-up is drawn again. oldSea and sea are the sea illustrations each was laid for.
+        // Edges judged for other sheet marks (a new sheet after a pin change) are compared mark
+        // by mark: a glyph or wave stroke is the same mark in both when its footprint, order,
+        // shape and kind agree (indices shift as marks are added or left out elsewhere), and one
+        // without a match, or judged otherwise, counts as changed; so does a sea illustration in
+        // one list and not the other.
+        public static FogChange Between(byte[] oldGlimpse, FogEdge oldEdge, byte[] glimpse, FogEdge edge, IList<SeaMark> oldSea, IList<SeaMark> sea)
         {
-            if (!sameSea || oldGlimpse == null || oldEdge == null || glimpse == null || edge == null) return null;
-            if (oldEdge.m_marks != edge.m_marks || oldEdge.m_edge == null || oldEdge.m_thin == null) return null;
-            if (!SameLength(oldEdge.m_glyphs, edge.m_glyphs) || !SameLength(oldEdge.m_waves, edge.m_waves)) return null;
+            if (oldGlimpse == null || oldEdge == null || glimpse == null || edge == null) return null;
+            if (oldEdge.m_edge == null || oldEdge.m_thin == null) return null;
+            bool sameMarks = oldEdge.m_marks == edge.m_marks;
+            if (!sameMarks && (oldEdge.m_marks == null || edge.m_marks == null)) return null;
+            if (sameMarks && (!SameLength(oldEdge.m_glyphs, edge.m_glyphs) || !SameLength(oldEdge.m_waves, edge.m_waves))) return null;
             int n = Paper.FogSize;
             if (oldGlimpse.Length != n * n * 4 || glimpse.Length != n * n * 4) return null;
             var change = new FogChange { m_fromGlimpse = oldGlimpse, m_fromEdge = oldEdge, m_blocks = new bool[Blocks * Blocks] };
@@ -220,19 +228,51 @@ namespace Atlas
                 }
             });
             SheetMarks marks = edge.m_marks;
-            if (edge.m_glyphs != null)
+            if (sameMarks)
             {
-                for (int i = 0; i < edge.m_glyphs.Length; i++)
-                    if (edge.m_glyphs[i] != oldEdge.m_glyphs[i]) change.m_marks.Add(Grown(marks.m_glyphs[i].m_box, GlyphGrow));
-                for (int i = 0; i < edge.m_waves.Length; i++)
-                    if (edge.m_waves[i] != oldEdge.m_waves[i]) change.m_marks.Add(Grown(marks.m_waves[i].m_box, WaveGrow));
+                if (edge.m_glyphs != null)
+                {
+                    for (int i = 0; i < edge.m_glyphs.Length; i++)
+                        if (edge.m_glyphs[i] != oldEdge.m_glyphs[i]) change.m_marks.Add(Grown(marks.m_glyphs[i].m_box, GlyphGrow));
+                    for (int i = 0; i < edge.m_waves.Length; i++)
+                        if (edge.m_waves[i] != oldEdge.m_waves[i]) change.m_marks.Add(Grown(marks.m_waves[i].m_box, WaveGrow));
+                }
+            }
+            else
+            {
+                Matched(oldEdge.m_marks.m_glyphs, oldEdge.m_glyphs, marks.m_glyphs, edge.m_glyphs, GlyphGrow, change.m_marks);
+                Matched(oldEdge.m_marks.m_waves, oldEdge.m_waves, marks.m_waves, edge.m_waves, WaveGrow, change.m_marks);
             }
             AddMissing(edge.m_hiddenSea, oldEdge.m_hiddenSea, change.m_marks);
             AddMissing(oldEdge.m_hiddenSea, edge.m_hiddenSea, change.m_marks);
+            // A sea illustration placed in one fog's sheet and not the other's is judged anew.
+            if (oldSea != sea)
+            {
+                int a = oldSea?.Count ?? 0, b = sea?.Count ?? 0;
+                RecordChange.Diff(a, b, false, (i, j) => InkRecord.SameSeaMark(oldSea[i], sea[j]),
+                    i => InkRecord.SeaMarkKey(oldSea[i]), j => InkRecord.SeaMarkKey(sea[j]),
+                    i => change.m_marks.Add(Grown(FogEdge.SeaBox(oldSea[i]), SeaGrow)), j => change.m_marks.Add(Grown(FogEdge.SeaBox(sea[j]), SeaGrow)));
+            }
             return change;
         }
 
         private static bool SameLength(bool[] a, bool[] b) => a == null ? b == null : b != null && a.Length == b.Length;
+
+        // Adds the grown boxes of the marks of either list without a match in the other, or
+        // judged otherwise there (left out, per list, as FogEdge keeps it; null for none).
+        private static void Matched(List<FogMark> oldMarks, bool[] oldHidden, List<FogMark> marks, bool[] hidden, float grow, List<Rect> into)
+        {
+            RecordChange.Diff(oldMarks.Count, marks.Count, false,
+                (i, j) => SameMark(oldMarks[i], marks[j]) && Hidden(oldHidden, i) == Hidden(hidden, j),
+                i => oldMarks[i].m_box.GetHashCode(), j => marks[j].m_box.GetHashCode(),
+                i => into.Add(Grown(oldMarks[i].m_box, grow)), j => into.Add(Grown(marks[j].m_box, grow)));
+        }
+
+        private static bool Hidden(bool[] hidden, int i) => hidden != null && i < hidden.Length && hidden[i];
+
+        // The same mark of two sheets, its record group aside (group ids shift).
+        private static bool SameMark(FogMark a, FogMark b) =>
+            a.m_box.Equals(b.m_box) && a.m_order == b.m_order && a.m_shape == b.m_shape && a.m_thinned == b.m_thinned;
 
         private static Rect Grown(Vector4 box, float grow) => Rect.MinMaxRect(box.x - grow, box.y - grow, box.z + grow, box.w + grow);
 

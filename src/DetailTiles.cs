@@ -85,6 +85,8 @@ namespace Atlas
             public long m_used;
             // How far it has faded in, 0 to 1.
             public float m_shown;
+            // Drawn under a fog judged for other marks than its record's (Unjudged).
+            public bool m_unjudged;
         }
 
         private sealed class Done
@@ -93,6 +95,7 @@ namespace Atlas
             public int m_level;
             public RectInt m_region;
             public byte[] m_rgba;
+            public bool m_unjudged;
         }
 
         // A tile on a worker, with its own cancellation, so a tile the view has left can be
@@ -106,6 +109,7 @@ namespace Atlas
             public bool m_first;
             // The last frame it was wanted.
             public long m_wanted;
+            public bool m_unjudged;
         }
 
         private readonly Dictionary<long, Tile> m_tiles = new Dictionary<long, Tile>();
@@ -167,7 +171,9 @@ namespace Atlas
         // A new fog. With its change from the fog the tiles were drawn under (FogChange, null when
         // it could not be compared) only the tiles that read a changed part are dropped, done,
         // running or queued; the rest draw the same under either fog and stay, so a record that
-        // explores a little more does not redraw every close-up. Without it every tile goes.
+        // explores a little more, or new pins judged on the same band, do not redraw every
+        // close-up. Tiles drawn from a record the fog had not judged (after a pin change, before
+        // its marks were judged again) go too: they left nothing out. Without it every tile goes.
         public void SetGlimpse(byte[] glimpse, FogEdge edge, FogChange change)
         {
             bool partial = change != null && m_record != null && change.m_fromGlimpse == m_glimpse && change.m_fromEdge == m_edge;
@@ -179,17 +185,28 @@ namespace Atlas
                 return;
             }
             InkRecord record = m_record;
-            DropWhere((level, region) => change.Affects(region, DetailTile.FogReach(record, region, s_scales[level])));
+            DropWhere((level, region, unjudged) => unjudged || change.Affects(region, DetailTile.FogReach(record, region, s_scales[level])));
         }
 
-        // A new painting of the same world: its tiles are drawn again from the new record (set by
-        // SetSource), under the same glimpse and fog. Clearing those too left close-ups without
-        // the glimpse's bare parchment and greyer ink until the next fog, since the world is now
-        // painted after login and finishes after the fog is laid.
-        public void NewRecord()
+        // A new painting of the same world: its tiles are drawn again from the new record. With
+        // its change from the record the tiles were drawn from (RecordChange, made by a repaint
+        // for other pins; null otherwise) only the tiles that read a changed part are dropped,
+        // done, running or queued; the rest draw the same from either record and stay, as do
+        // the tiles under opaque fog, which read no record. The fog judges the new marks next
+        // (SetGlimpse). Without a change every tile goes, until SetSource gives the record; the
+        // glimpse and fog stay, or close-ups were drawn without the glimpse's bare parchment and
+        // greyer ink until the next fog, since the world is painted after login and finishes
+        // after the fog is laid.
+        public void NewRecord(InkRecord record, RecordChange change)
         {
-            DropTiles();
-            m_record = null;
+            if (change == null || m_record == null || change.m_from != m_record)
+            {
+                DropTiles();
+                m_record = null;
+                return;
+            }
+            DropWhere((level, region, unjudged) => change.Affects(record, region, s_scales[level]), fogged: false);
+            m_record = record;
         }
 
         // The same painting with pins ticked or unticked (InkPainter.Recheck): only the tiles over
@@ -198,38 +215,46 @@ namespace Atlas
         // one elsewhere are kept too. Those over the pins are dropped, running or done.
         public void NewChecks(InkRecord record, List<RectInt> changed)
         {
-            DropWhere((level, region) => Touches(region, changed));
+            DropWhere((level, region, unjudged) => Touches(region, changed));
             m_record = record;
         }
 
-        // Drops the tiles, done, running or queued, for which drop (level, sheet region) holds.
-        private void DropWhere(Func<int, RectInt, bool> drop)
+        // Drops the tiles, done, running or queued, for which drop (level, sheet region, drawn
+        // unjudged) holds, and those tested under the fog unless fogged is false; returns how
+        // many went.
+        private int DropWhere(Func<int, RectInt, bool, bool> drop, bool fogged = true)
         {
+            int dropped = 0;
             m_finished.Clear();
             foreach (KeyValuePair<long, Tile> entry in m_tiles)
-                if (drop(entry.Value.m_level, entry.Value.m_region)) m_finished.Add(entry.Key);
+                if (drop(entry.Value.m_level, entry.Value.m_region, entry.Value.m_unjudged)) m_finished.Add(entry.Key);
             foreach (long key in m_finished)
             {
                 Destroy(m_tiles[key]);
                 m_tiles.Remove(key);
             }
+            dropped += m_finished.Count;
             m_finished.Clear();
             // Tested under the fog they were laid under (FogChange.Affects reads more than
             // UnderFog, so a change there drops them).
-            foreach (long key in m_fogged)
-                if (drop((int)(key >> 40), Region(key))) m_finished.Add(key);
+            if (fogged)
+                foreach (long key in m_fogged)
+                    if (drop((int)(key >> 40), Region(key), false)) m_finished.Add(key);
             foreach (long key in m_finished) m_fogged.Remove(key);
+            dropped += m_finished.Count;
             m_finished.Clear();
             foreach (KeyValuePair<long, Running> entry in m_running)
-                if (drop((int)(entry.Key >> 40), entry.Value.m_region)) m_finished.Add(entry.Key);
+                if (drop((int)(entry.Key >> 40), entry.Value.m_region, entry.Value.m_unjudged)) m_finished.Add(entry.Key);
             // Cancelled; whatever still runs on its worker is never collected.
             foreach (long key in m_finished)
             {
                 m_running[key].m_cancel.Cancel();
                 m_running.Remove(key);
             }
+            dropped += m_finished.Count;
             m_finished.Clear();
-            m_ready.RemoveAll(done => drop(done.m_level, done.m_region));
+            dropped += m_ready.RemoveAll(done => drop(done.m_level, done.m_region, done.m_unjudged));
+            return dropped;
         }
 
         private static bool Touches(RectInt region, List<RectInt> changed)
@@ -514,6 +539,9 @@ namespace Atlas
                 byte[] glimpse = m_glimpse;
                 FogEdge edge = m_edge;
                 HashSet<int> hiddenGroups = HiddenGroups(record);
+                // After a pin change the fog has not judged the new record's marks yet: such a
+                // tile leaves out none of its glyphs and goes when the fog's decisions come.
+                bool unjudged = edge != null && edge.m_marks != null && !edge.Matches(record);
                 Func<byte[]> work = () => WithMips(DetailTile.Render(record, paper, world, samples, region, scale, GridPixels, 1, cancel, glimpse, edge, hiddenGroups));
                 m_running[key] = new Running
                 {
@@ -522,6 +550,7 @@ namespace Atlas
                     m_cancel = source,
                     m_first = first,
                     m_wanted = m_frame,
+                    m_unjudged = unjudged,
                 };
                 if (first) inView++;
             }
@@ -597,6 +626,7 @@ namespace Atlas
             {
                 Task<byte[]> task = m_running[key].m_task;
                 RectInt region = m_running[key].m_region;
+                bool unjudged = m_running[key].m_unjudged;
                 m_running.Remove(key);
                 if (task.IsCanceled) continue;
                 if (task.IsFaulted)
@@ -613,7 +643,7 @@ namespace Atlas
                     }
                     continue;
                 }
-                m_ready.Add(new Done { m_key = key, m_level = (int)(key >> 40), m_region = region, m_rgba = task.Result });
+                m_ready.Add(new Done { m_key = key, m_level = (int)(key >> 40), m_region = region, m_rgba = task.Result, m_unjudged = unjudged });
             }
         }
 
@@ -658,7 +688,7 @@ namespace Atlas
                 image.raycastTarget = false;
                 image.color = new Color(1f, 1f, 1f, 0f);
                 go.SetActive(false);
-                m_tiles[done.m_key] = new Tile { m_level = done.m_level, m_region = done.m_region, m_texture = texture, m_image = image, m_used = m_frame };
+                m_tiles[done.m_key] = new Tile { m_level = done.m_level, m_region = done.m_region, m_texture = texture, m_image = image, m_used = m_frame, m_unjudged = done.m_unjudged };
             }
         }
 

@@ -62,6 +62,7 @@ latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5
 | `b0a26e1` | Cached files start while the world loads; the ink is laid once per record; at most one upload or minimap capture per frame | Fifth timing run: ready at 3.4 s; work starts before the character arrives; one ink lay per change |
 | `3df66ec` | The pin-free start of a paint (everything before the dead trees) kept with the groundwork, about 24 MB | Repaint for new pins 2.6 -> 1.2 s offline (byte-identical); about 2.7 s of the 6.3 s in game by the sixth run's stages, not yet measured in game |
 | `40f8a54` | Swamp dead trees give way to pins by cover as trees do instead of being refused a place, so no glyph placement reads the pins and the kept start covers all of it | Repaint 1.2 -> 1.1 s offline (byte-identical); dead trees near pins drawn differently (`InkCache.Version` 3) |
+| `0fe6c5a` | After a pin change the fog's band is kept and only the new sheet's marks are judged on it (`Paper.Redecide`); the ink is laid again only over the 32² blocks whose inputs changed, coarse levels from a kept premultiplied level 5 (`Paper.LayInk`); the changed 256² tiles go to the GPU as one small packed upload and `Graphics.CopyTexture` (`InkPatch`), the whole texture as before if that is not supported or fails | Offline (*measured*, Velen): fog 65-130 ms -> about 8 ms, ink 125-130 ms -> 10-20 ms (4-116 of 16384 blocks, 1-21 tiles), byte-identical to a fresh fog and a whole lay for pins removed, moved and ticked, more explored, Glimpse on and off; not checked under Mono; the GPU copy untested in game |
 | `0aca2ee` | A repaint runs the painter from the kept start on a record-only canvas and draws again only the 64 px cells whose calls changed (`InkPainter.Repaint`), on windows of the sheet; the tick re-check uses windows too | Repaint 1.1 -> 0.73 s offline (*measured*, sheet and record byte-identical to fresh paints under .NET for three pin sets, not checked under Mono); 7-20 cell rectangles (41-135 thousand pixels) drawn for one pin; not yet measured in game |
 
 ## Where a paint's time goes
@@ -118,6 +119,15 @@ first after a tick re-check, whose record is a copy), record sealed
 0.07 s, glyphs recorded 0.08-0.10 s. The minimap capture took 61 ms of one frame and the first
 opening 41 ms.
 
+Offline after `0fe6c5a` (Velen, *measured* with a temporary check in the preview, .NET): the
+fog's marks judged again on the kept band took 7-8 ms against 64-131 ms for a fresh fog, and
+the ink laid again over the changed blocks 9-20 ms against 121-134 ms for a whole lay (both
+byte-identical). Removing one of the start island's eleven pins changed 116 blocks in 21 tiles
+(20 repaint rectangles, the sort's reordering included), moving one 60 m 4 blocks in one tile,
+ticking one 2-4 blocks; exploring a 600 m disc more 55-71 blocks in 4 tiles. Scaled by the
+in-game ratios (fog 0.55 s, ink 1.0 s), the fog and ink after a pin change should drop from
+about 1.5 s to under 0.2 s; not yet measured in game.
+
 ## Why painting was slower in game than offline
 
 | Cause | Share | Evidence |
@@ -173,8 +183,12 @@ pins are built, in 5-17 ms under Mono.
    11, byte-identical, but holds about 208 MB more between paints and changed no measured time.
    Take it only if the timing shows collections still hurt.
 5. The ink upload costs 25-55 ms of one frame (Unity uploads the whole texture with its mips at
-   once); uploading only changed 256² tiles with `Graphics.CopyTexture` would need checking in
-   game.
+   once). Since `0fe6c5a` a lay that changed at most 24 256² tiles (a pin change: 1-21 offline)
+   uploads only a packed image of them (512 x 256 per tile plus 64 rows, about 0.5 MB a tile)
+   and copies the pieces with `Graphics.CopyTexture`; not yet run in game. The next timing build
+   logs which path ran (`ink upload: patch ...` or `whole texture`) and the "ink laid and
+   uploaded" frame cost; a warning in the log means it fell back. The first ink of a session,
+   a new sheet from the cache or a full paint still go up whole.
 6. The background repaint takes about 9 s in game (Mono, collections); it no longer blocks
    opening.
 7. Close-ups took about 85 ms each in game before the rasterizer change; not re-measured.

@@ -60,6 +60,7 @@ latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5
 | `ced7325` | Parchment cached; snapshot decoded on a worker; the first paint without a cache in the priority lane | No parchment wait before the fog; no 95 ms frame reading the snapshot |
 | `c5e2a20` | Closing the table's map takes the current pins into the snapshot | Pin edits reach the atlas without a record |
 | `b0a26e1` | Cached files start while the world loads; the ink is laid once per record; at most one upload or minimap capture per frame | Fifth timing run: ready at 3.4 s; work starts before the character arrives; one ink lay per change |
+| `3df66ec` | The pin-free start of a paint (everything before the dead trees) kept with the groundwork, about 24 MB | Repaint for new pins 2.6 -> 1.2 s offline (byte-identical); about 2.7 s of the 6.3 s in game by the sixth run's stages, not yet measured in game |
 
 ## Where a paint's time goes
 

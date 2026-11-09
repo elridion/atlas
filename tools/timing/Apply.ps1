@@ -44,7 +44,14 @@ function Edit-File([string]$path, [string]$a, [string]$b)
     if (-not $t.Contains($a)) { "MISSING in ${path}: $a"; return }
     [IO.File]::WriteAllText($p, $t.Replace($a, $b), $enc)
 }
-Edit-File 'src\AtlasMap.cs' "                UploadFog(done.Result);`n            }" "                Timing.BlockBegin();`n                UploadFog(done.Result);`n                Timing.BlockEnd(""fog uploaded"");`n            }"
+Edit-File 'src\AtlasMap.cs' "                if (done.Result.m_redecided) KeepDecisions(done.Result);`n                else UploadFog(done.Result);`n" "                Timing.BlockBegin();`n                if (done.Result.m_redecided) KeepDecisions(done.Result);`n                else UploadFog(done.Result);`n                Timing.BlockEnd(done.Result.m_redecided ? (done.Result.m_fogChanged ? ""fog: marks judged again, lifts changed, fog texture uploaded"" : ""fog: marks judged again, band and texture kept"") : ""fog uploaded"");`n"
+# The fog's worker: laid whole (Paper.Fog) or only its marks judged again (Paper.Redecide).
+Edit-File 'src\AtlasMap.cs' "                FogEdge edge = Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, sheetMarks, glimpseBand);`n" "                var fogWatch = System.Diagnostics.Stopwatch.StartNew();`n                FogEdge edge = Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, sheetMarks, glimpseBand);`n                Timing.Mark(`$""fog laid whole on the worker in {fogWatch.ElapsedMilliseconds} ms"");`n"
+Edit-File 'src\AtlasMap.cs' "                    FogEdge edge = Paper.Redecide(last, fog, laidGlimpse, seaMarks, judged);`n" "                    var fogWatch = System.Diagnostics.Stopwatch.StartNew();`n                    FogEdge edge = Paper.Redecide(last, fog, laidGlimpse, seaMarks, judged);`n                    Timing.Mark(`$""fog: marks judged again on the last band on the worker in {fogWatch.ElapsedMilliseconds} ms (fog not laid again)"");`n"
+# The ink's worker: laid whole or again over some blocks (Paper.LayInk), and the upload's path.
+Edit-File 'src\AtlasMap.cs' "                Paper.LaidInk laid = Paper.LayInk(sheet, from, redrawn, marks, glimpse, edge);`n" "                var inkWatch = System.Diagnostics.Stopwatch.StartNew();`n                Paper.LaidInk laid = Paper.LayInk(sheet, from, redrawn, marks, glimpse, edge);`n                Timing.Mark(laid.m_tiles == null ? `$""ink laid whole on the worker in {inkWatch.ElapsedMilliseconds} ms"" : `$""ink laid again over {laid.m_blocksLaid} of 16384 blocks ({System.Array.FindAll(laid.m_tiles, t => t).Length} of 256 tiles) on the worker in {inkWatch.ElapsedMilliseconds} ms"");`n"
+Edit-File 'src\AtlasMap.cs' "                if (copied)`n                {`n" "                if (copied)`n                {`n                    Timing.Mark(`$""ink upload: patch of {ready.m_patch.Tiles} tiles copied on the GPU"");`n"
+Edit-File 'src\AtlasMap.cs' "            byte[] data = laid.m_data;`n            Texture2D old = s_ink;`n" "            byte[] data = laid.m_data;`n            Timing.Mark(laid.m_tiles == null ? ""ink upload: whole texture (laid whole)"" : ""ink upload: whole texture (patch not used)"");`n            Texture2D old = s_ink;`n"
 Edit-File 'src\AtlasMap.cs' "                    s_wash = done.Result;`n" "                    s_wash = done.Result;`n                    Timing.Once(""wash laid"");`n"
 Edit-File 'src\AtlasMap.cs' "            s_paper.LoadRawTextureData(paper);" "            Timing.BlockBegin();`n            s_paper.LoadRawTextureData(paper);"
 Edit-File 'src\AtlasMap.cs' "            s_paper.Apply(updateMipmaps: false, makeNoLongerReadable: true);" "            s_paper.Apply(updateMipmaps: false, makeNoLongerReadable: true);`n            Timing.BlockEnd(""paper uploaded"");"
@@ -60,7 +67,7 @@ Edit-File 'src\AtlasPlugin.cs' "                AtlasMap.Update();" "           
 Edit-File 'src\NameBanner.cs' "                Drawn drawn = task.Result;`n                try`n                {" "                Drawn drawn = task.Result;`n                Timing.BlockBegin();`n                try`n                {"
 Edit-File 'src\NameBanner.cs' "                    uploaded = true;`n" "                    uploaded = true;`n                    Timing.BlockEnd(`$""name banner {drawn.m_width}x{drawn.m_height} uploaded"");`n"
 $p = (Resolve-Path 'src\Paper.cs').Path; $t = [IO.File]::ReadAllText($p)
-$t = [regex]::Replace($t, "(public static byte\[\] InkWithMips\([^\n]*\n\s*\{\n)", "`$1            Timing.Mark(""ink job started (worker)"");`n")
+$t = [regex]::Replace($t, "(public static LaidInk LayInk\([^\n]*\n\s*\{\n)", "`$1            Timing.Mark(""ink job started (worker)"");`n")
 $t = [regex]::Replace($t, "(public static FogEdge Fog\([^\n]*\n[^\n]*\n\s*\{\n)", "`$1            Timing.Mark(""fog job started (worker)"");`n")
 [IO.File]::WriteAllText($p, $t, $enc)
 $p = (Resolve-Path 'src\Ink\InkPainter.cs').Path; $t = [IO.File]::ReadAllText($p)

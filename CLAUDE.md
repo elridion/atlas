@@ -173,7 +173,16 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   about 0.73 s instead of 1.1 s offline, with 7-20 cells' rectangles drawn for one pin. Over
   `RepaintMostCells` (a quarter of the cells), on any failure (logged) or without the record, a
   full paint. Pins change cells far from them too: `m_glyphs.Sort` has no tie-break, so adding a
-  glyph reorders equal feet elsewhere. Except a list that differs only in ticks (same pins, order, places, glyphs; `InkPainter.OnlyChecksDiffer`): a tick changes only the pin plane in that pin's box, so `InkPainter.Recheck` patches a copy of the record (`InkRecord.WithChecks`) and replays it over each ticked pin's box (on a window of the sheet, `InkCanvas.Window`). The sheet's marks take the new key, the fog stays, and `DetailTiles.NewChecks` drops only tiles over those pins. Byte-identical to a full paint offline, about 15 ms. If `FindMarks`' pin placement changes, `SheetPinBox` must follow, or every tick quietly falls back to a full paint. The game's own marks are drawn into the sheet wherever they
+  glyph reorders equal feet elsewhere. After a repaint the fog is not laid again: its band
+  (opacity before lifts, thinning, glimpse) depends only on the snapshot, the glimpses and the
+  `Glimpse` setting, so `Paper.Redecide` judges the new sheet's marks and sea illustrations on
+  the last fog's band (`FogEdge.m_base`, a `FogBase`) exactly as `Paper.Fog` would (about 8 ms
+  instead of 65-130 ms offline), and only the fog's texture goes up again, only if the relief
+  lifted out of it changed (`AtlasMap.KeepDecisions`). Anything else that dirties the fog (a
+  record, a new player or snapshot, other glimpses, the setting, a failed fog) sets
+  `s_fogFull` and lays the band again. The ink is laid again only over the 32² blocks whose
+  inputs changed and the changed tiles copied on the GPU (`Paper.LayInk`, `InkPatch`, below).
+  Except a list that differs only in ticks (same pins, order, places, glyphs; `InkPainter.OnlyChecksDiffer`): a tick changes only the pin plane in that pin's box, so `InkPainter.Recheck` patches a copy of the record (`InkRecord.WithChecks`) and replays it over each ticked pin's box (on a window of the sheet, `InkCanvas.Window`). The sheet's marks take the new key, the fog stays, and `DetailTiles.NewChecks` drops only tiles over those pins. Byte-identical to a full paint offline, about 15 ms. If `FindMarks`' pin placement changes, `SheetPinBox` must follow, or every tick quietly falls back to a full paint. The game's own marks are drawn into the sheet wherever they
   are (`AtlasView.InSheet`, `IsGameMark`); out in unexplored land the fog opens a glimpse round
   them (`Glimpsed`, `AtlasMap.s_glimpses`). The player's own pins in unexplored land and traced
   icons (other mods') stay markers in `AtlasView`, sized as the sheet's pins in sheet units
@@ -285,6 +294,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   of `vfx_odin_despawn`'s particle material; untested in game.
 - `src/Snapshot.cs` the recorded exploration and pins, in `Player.m_customData`.
 - `src/Paper.cs` parchment, the biome wash, fog and the ink texture's pixel data (mip chain).
+  `src/InkPatch.cs` packs a lay's changed tiles for a GPU copy into the shown ink texture.
 - `src/SheetEdge.cs` the parchment's outer edge, trimmed by hand (the user's design, chosen
   over a deckle and an out-of-square skin edge): a cut wandering a few pixels in and out
   (`Wander`, `Uneven`, `Fibre`), worn round corners of `CornerMin`-`CornerMax`, a few small
@@ -329,7 +339,11 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   sprite name, checked) must stay readable once released.
 - **Nothing heavy on the main thread.** The main thread only copies vanilla's three minimap textures
   once per world (`WorldSource.Capture`) and uploads finished pixels: the ink sheet once per world
-  (`LoadRawTextureData`, made unreadable after), the washed paper once per world, the 2048² fog
+  (`LoadRawTextureData`, made unreadable after; a lay that changed at most `InkPatch.MostTiles`
+  256² tiles goes up instead as one small packed image, made on the worker, whose pieces
+  `Graphics.CopyTexture` copies into the shown texture per tile and level, the levels from 64²
+  down whole, falling back to the whole upload if the device cannot copy or a copy throws, with
+  one warning a session), the washed paper once per world, the 2048² fog
   once per recording. Decoding the world, painting, the wash, the fog, parchment, mips, the
   cache and close-up tiles run on the atlas's own threads (`Workers`: half the cores, at most 4,
   below normal priority), never the shared ThreadPool, and `Parallel.For` passes
@@ -613,7 +627,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   ends on the explored land's own edge: the fade starts on the explored pixels and the fog closes
   about 30 m past them, and the glimpse takes the fog's opacity before the lifts, so no wash
   shows round a lifted peak. About 0.8 s offline for the fog with Velen's 25,600 trees, 2,800
-  glyphs and 4,400 wave strokes, and about 0.5 s more for the sheet's ink. `Paper.Fog` writes full opacity and thinning without the fBm past depth `1 + EdgeFade/2 + EdgeWobble/band`, reads the snapshot only within its explored bounds, and runs in parallel bands, byte-identical (now about 0.08-0.17 s). `InkWithMips` leaves 32Â² blocks wholly under opaque fog (`FoggedBlocks`: `m_edge` 255 over the block plus one fog pixel) clear, and `HiddenInk` skips marks lying there; level 0 is identical wherever the fog shows anything, and only coarse mips near the edge lose the ink under the fog. Mips are built in place in the result, which `AtlasMap.UploadInk` hands back through `Paper.ReturnInk` for the next lay (about 89 MB kept between lays). With the edge it takes about 0.12-0.15 s offline. The fog is 2048²
+  glyphs and 4,400 wave strokes, and about 0.5 s more for the sheet's ink. `Paper.Fog` writes full opacity and thinning without the fBm past depth `1 + EdgeFade/2 + EdgeWobble/band`, reads the snapshot only within its explored bounds, and runs in parallel bands, byte-identical (now about 0.08-0.17 s). `InkWithMips` leaves 32Â² blocks wholly under opaque fog (`FoggedBlocks`: `m_edge` 255 over the block plus one fog pixel) clear, and `HiddenInk` skips marks lying there; level 0 is identical wherever the fog shows anything, and only coarse mips near the edge lose the ink under the fog. Mips are built in place in the result, which `AtlasMap.UploadInk` hands back through `Paper.ReturnInk` for the next lay (a `Paper.LaidInk`: the pixels, about 89 MB, with what they were laid from, the cleared ink mask, 16 MB, the fogged blocks, the shown sea marks' washes and the premultiplied level 5). With the edge it takes about 0.12-0.15 s offline. The next lay (`Paper.LayInk`) lays again only the 32² blocks where a first-level texel's inputs can differ: the sheet's rectangles a repaint or tick re-check drew again (`AtlasMap.s_sheetRedrawn`, against the sheet they were drawn into a copy of), the cleared ink, the fogged flag, the glimpse's alpha one fog pixel round the block, and the washes of sea marks shown in one lay and not the other; anything else (another sheet, a glimpse appearing or going) lays it whole. The stored levels are un-premultiplied and averaging them rounds otherwise, so the changed blocks' levels up to 5 (a texel a block) are made from their own premultiplied texels and every coarser level from the kept premultiplied level 5. Byte-identical to a whole `InkWithMips` offline (pins removed, moved and ticked, more explored, Glimpse on and off, and back again); about 10-20 ms instead of 125-130 ms offline. Its changed 256² tiles (`LaidInk.m_tiles`) are what `InkPatch` copies; a patch is copied only onto the lay it was made against (`LaidInk.m_from`, `AtlasMap.s_inkSerial`). The GPU copy is untested in game. The fog is 2048²
   (10.5 m a pixel), so close in its edge softens over a pixel; a finer fog would cost a four
   times bigger upload per recording.
   Each mark has two washes (`SeaWash`, the user's "take 3"), so it stands out from the sea: a

@@ -29,7 +29,7 @@ namespace Atlas
         private static Task<PaintResult> s_paintTask;
         // Whether s_paintTask only draws ticked pins again (InkPainter.Recheck), well under a second.
         private static bool s_paintRechecks;
-        private static Task<byte[]> s_mipsTask;
+        private static Task<InkReady> s_mipsTask;
         // Set once this frame uploaded a texture or captured the minimap: the next such step
         // waits a frame, so two never stack up in one (the ink, 37 ms, and the capture, 11 ms,
         // made a 50 ms frame at the opening).
@@ -86,6 +86,9 @@ namespace Atlas
         private static byte[] s_fogPixels;
         private static Task<FogLaid> s_fogTask;
         private static bool s_fogDirty;
+        // Whether the next fog lays its band again (a new snapshot, glimpses or Glimpse setting,
+        // or a failed fog); otherwise only the sheet changed and its marks are judged again.
+        private static bool s_fogFull = true;
         private static Texture2D s_paper;
         private static Texture2D s_fog;
 
@@ -148,7 +151,7 @@ namespace Atlas
                 // Only the text is read here; decoding it took the worst frame after joining.
                 if (Snapshot.Saved(player, worldUid, out string explored, out string savedPins))
                     s_snapshotTask = Workers.RunFirst(() => Snapshot.Decode(worldUid, explored, savedPins));
-                s_fogDirty = true;
+                s_fogDirty = s_fogFull = true;
                 s_pinsDirty = true;
             }
             if (s_snapshotTask != null && s_snapshotTask.IsCompleted)
@@ -156,7 +159,7 @@ namespace Atlas
                 // Decode logs and returns null itself when the text cannot be read.
                 s_snapshot = s_snapshotTask.IsFaulted ? null : s_snapshotTask.Result;
                 s_snapshotTask = null;
-                s_fogDirty = true;
+                s_fogDirty = s_fogFull = true;
                 s_pinsDirty = true;
             }
 
@@ -217,7 +220,7 @@ namespace Atlas
             // A saved snapshot still being decoded is older than this one.
             s_snapshotTask = null;
             s_snapshot.Save(player, ZNet.instance.GetWorldUID());
-            s_fogDirty = true;
+            s_fogDirty = s_fogFull = true;
             s_pinsDirty = true;
             // The snapshot is still saved for the next session, but nothing would end the sparkles.
             if (!s_stopped) s_sparkles.Begin(table);
@@ -401,12 +404,13 @@ namespace Atlas
                 {
                     InkRecord record = null;
                     byte[] ink = null;
-                    System.Collections.Generic.List<RectInt> changed = null;
+                    System.Collections.Generic.List<RectInt> changed = null, redrawn = null;
                     if (sheetRecord != null)
                     {
                         changed = new System.Collections.Generic.List<RectInt>();
                         ink = InkPainter.Recheck(sheetInk, sheetRecord, pins, key, cancel, changed, out record);
                         if (ink == null) changed = null;
+                        redrawn = changed;
                     }
                     if (ink == null && lastRecord != null)
                     {
@@ -414,13 +418,15 @@ namespace Atlas
                         try
                         {
                             record = new InkRecord();
-                            ink = InkPainter.Repaint(source, cancel, sheetInk, lastRecord, record, pins, null);
+                            redrawn = new System.Collections.Generic.List<RectInt>();
+                            ink = InkPainter.Repaint(source, cancel, sheetInk, lastRecord, record, pins, redrawn);
                         }
                         catch (Exception e) when (!(e is OperationCanceledException))
                         {
                             Jotunn.Logger.LogWarning($"The atlas could not repaint only the changed part: {e}");
                             ink = null;
                         }
+                        if (ink == null) redrawn = null;
                     }
                     if (ink == null)
                     {
@@ -432,7 +438,11 @@ namespace Atlas
                     bool save = (!hasCache || cachedKey != key) && source.m_grove != null;
                     // A tick leaves the terrain's ink, which the density is taken from, as it was.
                     InkDensity density = changed != null ? sheetDensity : InkDensity.FromSheet(ink);
-                    return new PaintResult { m_ink = ink, m_record = record, m_density = density, m_key = key, m_saved = save, m_changed = changed, m_seed = source.m_seed };
+                    return new PaintResult
+                    {
+                        m_ink = ink, m_record = record, m_density = density, m_key = key, m_saved = save, m_changed = changed, m_seed = source.m_seed,
+                        m_from = redrawn != null ? sheetInk : null, m_redrawn = redrawn,
+                    };
                 };
                 // With no sheet to show the paint is the opening's own work (its loops too), ahead
                 // of the dirt, the edge and the close-ups; behind a shown sheet it waits its turn.
@@ -485,21 +495,26 @@ namespace Atlas
                 // (SetSheet with the same marks), and the ink is laid with the fog's decisions.
                 s_marks.m_key = result.m_key;
                 s_tiles.NewChecks(result.m_record, result.m_changed);
-                SetSheet(result.m_ink, s_sheetMarks, s_marks, result.m_density, result.m_key);
+                SetSheet(result.m_ink, s_sheetMarks, s_marks, result.m_density, result.m_key, result.m_from, result.m_redrawn);
                 return;
             }
             s_tiles.NewRecord();
             if (s_sheet != null && result.m_key == s_rawKey) return;
-            SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_record.m_marks, result.m_density, result.m_key);
+            SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_record.m_marks, result.m_density, result.m_key, result.m_from, result.m_redrawn);
         }
 
         // A painted (or cached) sheet's planes, kept for the session so its ink texture can be
-        // laid again when the glimpse changes (Paper.InkWithMips), with its sea illustrations,
-        // density and pins key. The fog is laid again for its sea illustrations.
-        private static void SetSheet(byte[] sheet, SeaMark[] marks, SheetMarks sheetMarks, InkDensity density, long key)
+        // laid again when the glimpse changes (Paper.LayInk), with its sea illustrations,
+        // density and pins key, and the sheet it was redrawn from with the rectangles redrawn
+        // (null when painted whole), so the ink is laid again only there. The fog judges the new
+        // marks again (Paper.Redecide).
+        private static void SetSheet(byte[] sheet, SeaMark[] marks, SheetMarks sheetMarks, InkDensity density, long key,
+            byte[] from = null, System.Collections.Generic.List<RectInt> redrawn = null)
         {
             // A sheet with the marks it replaces (pins ticked, InkPainter.Recheck) keeps the fog.
             if (sheetMarks != s_marks || marks != s_seaMarks) s_fogDirty = true;
+            s_sheetFrom = from;
+            s_sheetRedrawn = redrawn;
             s_sheet = sheet;
             s_marks = sheetMarks;
             s_sheetMarks = marks;
@@ -513,10 +528,19 @@ namespace Atlas
         // laid twice after login.
         private static void KeepMips()
         {
+            // A patch that failed part way: the whole texture goes up a frame later.
+            if (s_wholeInk != null)
+            {
+                if (s_uploaded) return;
+                Paper.LaidInk whole = s_wholeInk;
+                s_wholeInk = null;
+                UploadWhole(whole);
+                return;
+            }
             if (s_mipsTask != null)
             {
                 if (!s_mipsTask.IsCompleted || s_uploaded) return;
-                Task<byte[]> done = s_mipsTask;
+                Task<InkReady> done = s_mipsTask;
                 s_mipsTask = null;
                 if (done.IsFaulted)
                 {
@@ -549,8 +573,36 @@ namespace Atlas
             s_mipsGlimpse = s_glimpseSerial;
             s_mipsDensity = s_sheetDensity;
             s_mipsKey = s_rawKey;
-            s_mipsTask = Workers.RunFirst(() => Paper.InkWithMips(sheet, marks, glimpse, edge));
+            byte[] from = s_sheetFrom;
+            System.Collections.Generic.List<RectInt> redrawn = s_sheetRedrawn;
+            bool pack = !s_patchOff;
+            // Laid again only where it can differ from the last lay (Paper.LayInk), and those
+            // tiles packed for the GPU copy (InkPatch).
+            s_mipsTask = Workers.RunFirst(() =>
+            {
+                Paper.LaidInk laid = Paper.LayInk(sheet, from, redrawn, marks, glimpse, edge);
+                return new InkReady { m_laid = laid, m_patch = pack ? InkPatch.Pack(laid) : null };
+            });
         }
+
+        // A laid ink and its changed tiles packed for the GPU (null: upload it whole).
+        private sealed class InkReady
+        {
+            public Paper.LaidInk m_laid;
+            public InkPatch m_patch;
+        }
+
+        // The serial of the lay the ink texture holds (Paper.LaidInk.m_serial), so a patch is
+        // copied only onto the lay it was made against.
+        private static int s_inkSerial;
+        // Set once copying a patch failed or is not supported: the ink goes up whole from then on
+        // (for the game session; the warning is logged once).
+        private static bool s_patchOff;
+        // A lay to upload whole next frame, after a patch failed part way.
+        private static Paper.LaidInk s_wholeInk;
+        // The sheet the shown one was redrawn from and the rectangles redrawn (SetSheet).
+        private static byte[] s_sheetFrom;
+        private static System.Collections.Generic.List<RectInt> s_sheetRedrawn;
 
         // The sheet's planes (SetSheet), and the planes and glimpse (s_glimpseSerial) the
         // uploaded ink and the ink being laid were made from.
@@ -585,6 +637,10 @@ namespace Atlas
             // The pixels of the pins drawn again when only ticks changed (InkPainter.Recheck), or
             // null for a whole paint.
             public System.Collections.Generic.List<RectInt> m_changed;
+            // The sheet a repaint or re-check drew into a copy of and the rectangles it drew
+            // again (InkPainter.Repaint, Recheck), or null for a whole paint.
+            public byte[] m_from;
+            public System.Collections.Generic.List<RectInt> m_redrawn;
         }
 
         // A fog laid on a worker: the parchment it was laid on and where its drawing stops.
@@ -596,6 +652,10 @@ namespace Atlas
             // changed for the close-ups since the fog before (null: everything).
             public byte[] m_glimpse;
             public FogChange m_change;
+            // Only the marks judged again on the last fog's band (Paper.Redecide): the glimpse is
+            // the one laid before, and the fog's texture changed only if m_fogChanged.
+            public bool m_redecided;
+            public bool m_fogChanged;
         }
 
         // Whether reading the world waits for the atlas to open: while the cache is still being
@@ -646,7 +706,7 @@ namespace Atlas
             if (!SameGlimpses(glimpses))
             {
                 s_glimpses = glimpses.ToArray();
-                s_fogDirty = true;
+                s_fogDirty = s_fogFull = true;
             }
         }
 
@@ -676,11 +736,48 @@ namespace Atlas
         }
 
         // A sheet laid again, for new pins or a new glimpse, replaces the old one, in an open
-        // atlas too.
-        private static void UploadInk(byte[] data, InkDensity density, long key)
+        // atlas too. A lay that changed only a few tiles of the one shown is copied into the
+        // shown texture on the GPU (InkPatch); otherwise, or if that fails, the whole texture
+        // goes up as a new one.
+        private static void UploadInk(InkReady ready, InkDensity density, long key)
         {
             s_density = density;
             s_sheetKey = key;
+            Paper.LaidInk laid = ready.m_laid;
+            if (ready.m_patch != null && s_ink && !s_patchOff && laid.m_from == s_inkSerial)
+            {
+                bool copied;
+                try
+                {
+                    copied = ready.m_patch.CopyInto(s_ink);
+                }
+                catch (Exception e)
+                {
+                    // The texture may be half patched, so the whole of it goes up next frame.
+                    Jotunn.Logger.LogWarning($"The atlas could not patch its ink texture and uploads it whole from now on: {e.Message}");
+                    s_patchOff = true;
+                    s_wholeInk = laid;
+                    s_uploaded = true;
+                    return;
+                }
+                if (copied)
+                {
+                    s_inkSerial = laid.m_serial;
+                    // The texture holds this lay now; the next lay starts from these pixels.
+                    Paper.ReturnInk(laid);
+                    s_view.SetSheet(s_ink, s_density);
+                    s_uploaded = true;
+                    return;
+                }
+                Jotunn.Logger.LogWarning("The atlas cannot copy between textures on this device and uploads its ink whole.");
+                s_patchOff = true;
+            }
+            UploadWhole(laid);
+        }
+
+        private static void UploadWhole(Paper.LaidInk laid)
+        {
+            byte[] data = laid.m_data;
             Texture2D old = s_ink;
             s_ink = new Texture2D(InkPainter.CanvasSize, InkPainter.CanvasSize, TextureFormat.RGBA32, mipChain: true)
             {
@@ -692,8 +789,9 @@ namespace Atlas
             s_ink.LoadRawTextureData(data);
             // Uploads once and drops the CPU copy; a new sheet is a new texture.
             s_ink.Apply(updateMipmaps: false, makeNoLongerReadable: true);
-            // The texture holds its own copy now; the next lay fills these pixels again.
-            Paper.ReturnInk(data);
+            // The texture holds its own copy now; the next lay starts from these pixels.
+            s_inkSerial = laid.m_serial;
+            Paper.ReturnInk(laid);
             s_view.SetSheet(s_ink, s_density);
             if (old) UnityEngine.Object.Destroy(old);
             s_uploaded = true;
@@ -709,18 +807,21 @@ namespace Atlas
                 if (done.IsFaulted)
                 {
                     Jotunn.Logger.LogError($"The atlas fog could not be laid: {done.Exception?.GetBaseException()}");
-                    // The sheet's ink is laid without a glimpse rather than not at all.
+                    // The sheet's ink is laid without a glimpse rather than not at all. The fog's
+                    // buffer may be half written, so the next fog is laid whole.
                     s_fogFailed = true;
+                    s_fogFull = true;
                     return;
                 }
                 s_parchment = done.Result.m_parchment;
                 s_edge = done.Result.m_edge;
                 s_fogMarks = s_fogTaskMarks;
-                UploadFog(done.Result);
+                if (done.Result.m_redecided) KeepDecisions(done.Result);
+                else UploadFog(done.Result);
             }
             // The glimpse switched on or off: the fog is laid again, and with it the sheet's ink
             // and the close-ups (UploadFog).
-            if (AtlasPlugin.Glimpse.Value != s_fogGlimpse) s_fogDirty = true;
+            if (AtlasPlugin.Glimpse.Value != s_fogGlimpse) s_fogDirty = s_fogFull = true;
             // The fog opens a glimpse round the pins' game marks, so it waits for the pins
             // (KeepPins, earlier in the same frame once the snapshot is decoded).
             if (!s_fogDirty || s_snapshotTask != null || s_pinsDirty) return;
@@ -729,6 +830,25 @@ namespace Atlas
             // again. Without a sheet coming, it is laid at once.
             if (s_sheet == null && !s_inkFailed && !s_decodeFailed) return;
             s_fogDirty = false;
+            // Only the sheet changed (new pins): the band does not depend on it, so the last
+            // fog's band judges the new sheet's marks (Paper.Redecide), well under a tenth of
+            // laying the band.
+            bool redecide = !s_fogFull && s_edge?.m_base != null && s_glimpseCopy != null && s_parchment != null && s_fogPixels != null;
+            s_fogFull = false;
+            if (redecide)
+            {
+                FogEdge last = s_edge;
+                byte[] fog = s_fogPixels, laidGlimpse = s_glimpseCopy, paper = s_parchment;
+                SeaMark[] seaMarks = s_fogTaskMarks = s_seaMarks;
+                SheetMarks judged = s_marks;
+                s_fogTask = Workers.RunFirst(() =>
+                {
+                    FogEdge edge = Paper.Redecide(last, fog, laidGlimpse, seaMarks, judged);
+                    bool lifted = !SameBytes(edge.m_edge, last.m_edge);
+                    return new FogLaid { m_edge = edge, m_parchment = paper, m_glimpse = laidGlimpse, m_redecided = true, m_fogChanged = lifted };
+                });
+                return;
+            }
             bool glimpseBand = s_fogGlimpse = AtlasPlugin.Glimpse.Value;
             Snapshot snapshot = s_snapshot;
             int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
@@ -981,6 +1101,30 @@ namespace Atlas
             s_uploaded = true;
         }
 
+        // The fog's band judged again for a new sheet's marks (Paper.Redecide): the glimpse is the
+        // one laid before, so only the fog's texture goes up again, and only when the relief
+        // lifted out of it changed. The close-ups take the new decisions.
+        private static void KeepDecisions(FogLaid laid)
+        {
+            if (laid.m_fogChanged && s_fog)
+            {
+                s_fog.LoadRawTextureData(s_fogPixels);
+                s_fog.Apply(updateMipmaps: false);
+                s_uploaded = true;
+            }
+            s_tiles.SetGlimpse(s_glimpseCopy, s_edge, laid.m_change);
+            if (s_view.IsOpen) s_view.Refresh(s_fog, s_snapshot);
+        }
+
+        private static bool SameBytes(byte[] a, byte[] b)
+        {
+            if (a == b) return true;
+            if (a == null || b == null || a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+                if (a[i] != b[i]) return false;
+            return true;
+        }
+
         // The glimpse round the explored land and the game's marks out in the unexplored:
         // bare parchment with no wash over the paper, under the ink (Paper.Fog).
         private static byte[] s_glimpsePixels;
@@ -1033,6 +1177,11 @@ namespace Atlas
             s_samples = null;
             s_fogTask = null;
             s_fogDirty = false;
+            s_fogFull = true;
+            s_inkSerial = 0;
+            s_wholeInk = null;
+            s_sheetFrom = null;
+            s_sheetRedrawn = null;
             s_parchment = null;
             s_parchmentTask = null;
             s_dirtTask = null;

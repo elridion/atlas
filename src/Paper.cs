@@ -844,7 +844,56 @@ namespace Atlas
         // Levels are averaged premultiplied, so ink and body mix rightly. With an edge, blocks
         // lying wholly under its opaque fog (FoggedBlocks) are left clear: nothing of them shows,
         // so only the coarsest levels, whose texels reach past the fog's edge, see the difference.
-        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks, byte[] glimpse, FogEdge edge = null)
+        public static byte[] InkWithMips(byte[] sheet, IList<SeaMark> marks, byte[] glimpse, FogEdge edge = null) =>
+            Lay(null, null, sheet, null, null, marks, glimpse, edge).m_data;
+
+        // Worker thread. The ink InkWithMips lays, byte for byte, laid again only where it can
+        // differ from the last lay handed back (ReturnInk), into that lay's own pixels. The sheet
+        // is that lay's own, or fromSheet with only the changed rectangles (sheet pixels) drawn
+        // again (InkPainter.Repaint, Recheck). With no lay handed back, one laid from another
+        // sheet, or a glimpse where it had none (or none where it had one), it is laid whole.
+        public static LaidInk LayInk(byte[] sheet, byte[] fromSheet, IList<RectInt> changed, IList<SeaMark> marks, byte[] glimpse, FogEdge edge)
+        {
+            LaidInk last = Interlocked.Exchange(ref s_spareInk, null);
+            return Lay(last, last?.m_data, sheet, fromSheet, changed, marks, glimpse, edge);
+        }
+
+        /// <summary>
+        /// The ink texture's pixels as laid (Paper.LayInk), with what they were laid from: the
+        /// sheet, glimpse, cleared ink (HiddenInk), fogged blocks, the sea illustrations shown and
+        /// their washes, and the premultiplied level KeptLevel, from which the coarser levels are
+        /// made. The stored levels are un-premultiplied, and averaging those rounds otherwise,
+        /// so a lay that changes some blocks makes their levels up to KeptLevel from their own
+        /// pixels and every coarser level from the kept one. Handed back once uploaded
+        /// (ReturnInk), the next lay starts from it (about 89 MB of pixels, 16 MB of cleared ink).
+        /// </summary>
+        public sealed class LaidInk
+        {
+            public byte[] m_data;
+            // Counts the lays; m_from is the serial of the lay this one changed, 0 when laid whole.
+            public int m_serial;
+            public int m_from;
+            // 256 px tiles (TilesAcross square, rows from the south) laid again over that lay,
+            // null when laid whole; and how many InkBlock blocks were.
+            public bool[] m_tiles;
+            public int m_blocksLaid;
+            internal byte[] m_sheet;
+            internal byte[] m_glimpse;
+            internal byte[] m_hidden;
+            internal bool[] m_fogged;
+            internal byte[] m_coarse;
+            internal List<SeaMark> m_washMarks;
+            internal List<SeaWash> m_washes;
+        }
+
+        // The texture's tiles (InkPatch) are TilePixels square on the first level.
+        public const int TilePixels = 256;
+        public const int TilesAcross = InkPainter.CanvasSize / TilePixels;
+        // The level whose premultiplied texels are kept with a lay: one texel per InkBlock block.
+        private const int KeptLevel = 5;
+        private static int s_laySerial;
+
+        private static LaidInk Lay(LaidInk last, byte[] data, byte[] sheet, byte[] fromSheet, IList<RectInt> changed, IList<SeaMark> marks, byte[] glimpse, FogEdge edge)
         {
             int n = InkPainter.CanvasSize;
             bool[] fogged = FoggedBlocks(edge?.m_edge);
@@ -853,9 +902,22 @@ namespace Atlas
             int plane = n * n;
             int total = 0;
             for (int size = n; size >= 1; size /= 2) total += size * size;
-            // Every byte is written below, so a returned buffer (ReturnInk) serves as a new one.
-            byte[] data = Interlocked.Exchange(ref s_spareInk, null);
+            // Every byte is written below when laid whole, so a returned buffer serves as a new one.
             if (data == null || data.Length != total * 4) data = new byte[total * 4];
+            // The sea illustrations shown and their washes, each built once and kept with the lay.
+            var shown = new List<SeaMark>();
+            var washes = new List<SeaWash>();
+            if (marks != null)
+            {
+                foreach (SeaMark mark in marks)
+                {
+                    if (edge != null && edge.HidesSea(mark)) continue;
+                    shown.Add(mark);
+                    washes.Add(KeptWash(last, mark) ?? SeaWash.Build(mark));
+                }
+            }
+            // The blocks to lay again (rows from the south), or null for all.
+            bool[] dirty = data == last?.m_data ? Unlaid(last, sheet, fromSheet, changed, glimpse, fogged, hidden, shown, washes) : null;
             Color32 peak = BodyColor(BodyKind.Mountain), northPeak = BodyColor(BodyKind.North);
             MistInk(out float mistAlpha, out float mistR, out float mistG, out float mistB);
             // A sheet missing a plane has no body of that kind.
@@ -882,11 +944,13 @@ namespace Atlas
             // data; each level is then made from the one before and un-premultiplied in place.
             Parallel.For(0, blocks, Workers.LoopOptions(), by =>
             {
+                if (dirty != null && Array.IndexOf(dirty, true, by * blocks, blocks) < 0) return;
                 for (int y = by * InkBlock; y < (by + 1) * InkBlock; y++)
                 {
                     int from = (n - 1 - y) * n;
                     for (int bx = 0; bx < blocks; bx++)
                     {
+                        if (dirty != null && !dirty[by * blocks + bx]) continue;
                         int x0 = bx * InkBlock;
                         if (fogged != null && fogged[by * blocks + bx])
                         {
@@ -925,49 +989,96 @@ namespace Atlas
             });
             // The sea marks' washes under their ink: the body's grey, the blue wedge over it. They
             // stand in open water far from any peak, so only the ink lies over them.
-            if (marks != null)
+            for (int k = 0; k < shown.Count; k++)
             {
-                foreach (SeaMark mark in marks)
+                SeaWash wash = washes[k];
+                int x0 = Math.Max(0, (int)wash.Left), x1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Right));
+                int y0 = Math.Max(0, (int)wash.Top), y1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Bottom));
+                for (int sy = y0; sy <= y1; sy++)
                 {
-                    if (edge != null && edge.HidesSea(mark)) continue;
-                    SeaWash wash = SeaWash.Build(mark);
-                    int x0 = Math.Max(0, (int)wash.Left), x1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Right));
-                    int y0 = Math.Max(0, (int)wash.Top), y1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Bottom));
-                    for (int sy = y0; sy <= y1; sy++)
+                    int from = sy * n, y = n - 1 - sy;
+                    for (int x = x0; x <= x1; x++)
                     {
-                        int from = sy * n, y = n - 1 - sy;
-                        for (int x = x0; x <= x1; x++)
-                        {
-                            if (fogged != null && fogged[y / InkBlock * blocks + x / InkBlock]) continue;
-                            float bu = wash.At(x + 0.5f, sy + 0.5f) * bodyAlpha;
-                            float wu = wash.WedgeAt(x + 0.5f, sy + 0.5f) * wedgeAlpha;
-                            if (bu <= 0f && wu <= 0f) continue;
-                            float a = ink[from + x] / 255f * (hidden != null ? 1f - hidden[from + x] / 255f : 1f);
-                            float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
-                            float keep = (1f - a) * (1f - g);
-                            bu *= keep;
-                            wu *= keep;
-                            // Premultiplied: the wedge over the body, the ink over both.
-                            float pr = wedgeR * wu + bodyR * bu * (1f - wu);
-                            float pg = wedgeG * wu + bodyG * bu * (1f - wu);
-                            float pb = wedgeB * wu + bodyB * bu * (1f - wu);
-                            float su = wu + bu * (1f - wu);
-                            // A pin's red (pins stand over the sea marks) lies over the washes and
-                            // under black ink, as in the main pass; this pass rewrites the pixel.
-                            float red = pinInkAt >= 0 ? sheet[pinInkAt + from + x] / 255f * (1f - a) : 0f;
-                            float under = 1f - red;
-                            float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
-                            float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
-                            float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
-                            int o = (y * n + x) * 4;
-                            data[o] = ToByte(pr * under + PinInkColor.r * red + inkR * a);
-                            data[o + 1] = ToByte(pg * under + PinInkColor.g * red + inkG * a);
-                            data[o + 2] = ToByte(pb * under + PinInkColor.b * red + inkB * a);
-                            data[o + 3] = ToByte(Math.Min(1f, su * under + red + a) * 255f);
-                        }
+                        if (dirty != null && !dirty[y / InkBlock * blocks + x / InkBlock]) continue;
+                        if (fogged != null && fogged[y / InkBlock * blocks + x / InkBlock]) continue;
+                        float bu = wash.At(x + 0.5f, sy + 0.5f) * bodyAlpha;
+                        float wu = wash.WedgeAt(x + 0.5f, sy + 0.5f) * wedgeAlpha;
+                        if (bu <= 0f && wu <= 0f) continue;
+                        float a = ink[from + x] / 255f * (hidden != null ? 1f - hidden[from + x] / 255f : 1f);
+                        float g = GlimpseAt(glimpse, x + 0.5f, y + 0.5f);
+                        float keep = (1f - a) * (1f - g);
+                        bu *= keep;
+                        wu *= keep;
+                        // Premultiplied: the wedge over the body, the ink over both.
+                        float pr = wedgeR * wu + bodyR * bu * (1f - wu);
+                        float pg = wedgeG * wu + bodyG * bu * (1f - wu);
+                        float pb = wedgeB * wu + bodyB * bu * (1f - wu);
+                        float su = wu + bu * (1f - wu);
+                        // A pin's red (pins stand over the sea marks) lies over the washes and
+                        // under black ink, as in the main pass; this pass rewrites the pixel.
+                        float red = pinInkAt >= 0 ? sheet[pinInkAt + from + x] / 255f * (1f - a) : 0f;
+                        float under = 1f - red;
+                        float inkR = InkColor.r + (GlimpseInkColor.r - InkColor.r) * g;
+                        float inkG = InkColor.g + (GlimpseInkColor.g - InkColor.g) * g;
+                        float inkB = InkColor.b + (GlimpseInkColor.b - InkColor.b) * g;
+                        int o = (y * n + x) * 4;
+                        data[o] = ToByte(pr * under + PinInkColor.r * red + inkR * a);
+                        data[o + 1] = ToByte(pg * under + PinInkColor.g * red + inkG * a);
+                        data[o + 2] = ToByte(pb * under + PinInkColor.b * red + inkB * a);
+                        data[o + 3] = ToByte(Math.Min(1f, su * under + red + a) * 255f);
                     }
                 }
             }
+            var laid = new LaidInk
+            {
+                m_data = data,
+                m_serial = Interlocked.Increment(ref s_laySerial),
+                m_sheet = sheet,
+                m_glimpse = glimpse,
+                m_hidden = hidden,
+                m_fogged = fogged,
+                m_washMarks = shown,
+                m_washes = washes,
+                m_coarse = last?.m_coarse != null && last.m_coarse.Length == blocks * blocks * 4 ? last.m_coarse : new byte[blocks * blocks * 4],
+            };
+            if (dirty == null) MipsWhole(data, laid.m_coarse);
+            else
+            {
+                laid.m_from = last.m_serial;
+                laid.m_tiles = new bool[TilesAcross * TilesAcross];
+                var laidBlocks = new List<int>();
+                int perTile = TilePixels / InkBlock;
+                for (int b = 0; b < dirty.Length; b++)
+                {
+                    if (!dirty[b]) continue;
+                    laidBlocks.Add(b);
+                    laid.m_tiles[b / blocks / perTile * TilesAcross + b % blocks / perTile] = true;
+                }
+                laid.m_blocksLaid = laidBlocks.Count;
+                if (laidBlocks.Count > 0) MipsOfBlocks(data, laid.m_coarse, laidBlocks);
+            }
+            return laid;
+        }
+
+        // Each level's offset in a laid ink's pixels (RGBA), the first level first.
+        private static int[] LevelOffsets()
+        {
+            int n = InkPainter.CanvasSize;
+            var offsets = new List<int>();
+            int offset = 0;
+            for (int size = n; size >= 1; size /= 2)
+            {
+                offsets.Add(offset);
+                offset += size * size * 4;
+            }
+            return offsets.ToArray();
+        }
+
+        // Makes every level from the first (premultiplied, in place) and un-premultiplies them all,
+        // keeping a premultiplied copy of level KeptLevel in coarse.
+        private static void MipsWhole(byte[] data, byte[] coarse)
+        {
+            int n = InkPainter.CanvasSize, kept = n >> KeptLevel;
             int offset = 0;
             for (int size = n; ; size /= 2)
             {
@@ -986,33 +1097,195 @@ namespace Atlas
                         }
                     }
                 });
+                if (size == kept) Buffer.BlockCopy(data, at, coarse, 0, size * size * 4);
                 MipRows(size, (from, to) =>
                 {
-                    for (int o = at + from * size * 4; o < at + to * size * 4; o += 4)
-                    {
-                        int alpha = data[o + 3];
-                        if (alpha == 0)
-                        {
-                            data[o] = data[o + 1] = data[o + 2] = 0;
-                            continue;
-                        }
-                        data[o] = (byte)Math.Min(255, data[o] * 255 / alpha);
-                        data[o + 1] = (byte)Math.Min(255, data[o + 1] * 255 / alpha);
-                        data[o + 2] = (byte)Math.Min(255, data[o + 2] * 255 / alpha);
-                    }
+                    for (int o = at + from * size * 4; o < at + to * size * 4; o += 4) Unpremultiply(data, o);
                 });
                 offset = below;
                 if (size == 1) break;
             }
-            return data;
         }
 
-        // A laid ink's pixels (InkWithMips's result) handed back once uploaded, so the next lay
-        // fills them again instead of allocating about 89 MB; null lets a kept one go. The caller
-        // must not touch them after.
-        public static void ReturnInk(byte[] data) => Interlocked.Exchange(ref s_spareInk, data);
+        // Makes the levels again over the blocks laid again (their first level premultiplied, in
+        // place): up to KeptLevel from each block's own texels, as MipsWhole averages the same
+        // texels in the same way, then every coarser level whole from the kept premultiplied
+        // level (coarse, updated for the blocks).
+        private static void MipsOfBlocks(byte[] data, byte[] coarse, List<int> laidBlocks)
+        {
+            int n = InkPainter.CanvasSize, blocks = n / InkBlock;
+            int[] offsets = LevelOffsets();
+            Parallel.For(0, laidBlocks.Count, Workers.LoopOptions(), j =>
+            {
+                int bx = laidBlocks[j] % blocks, by = laidBlocks[j] / blocks;
+                for (int k = 1; k <= KeptLevel; k++)
+                {
+                    int size = n >> k, above = n >> (k - 1), side = InkBlock >> k;
+                    int at = offsets[k - 1], below = offsets[k];
+                    for (int y = by * side; y < (by + 1) * side; y++)
+                    {
+                        for (int x = bx * side; x < (bx + 1) * side; x++)
+                        {
+                            int a = at + ((2 * y) * above + 2 * x) * 4, b = a + above * 4;
+                            int o = below + (y * size + x) * 4;
+                            for (int c = 0; c < 4; c++)
+                                data[o + c] = (byte)((data[a + c] + data[a + 4 + c] + data[b + c] + data[b + 4 + c] + 2) / 4);
+                        }
+                    }
+                }
+                Buffer.BlockCopy(data, offsets[KeptLevel] + laidBlocks[j] * 4, coarse, laidBlocks[j] * 4, 4);
+                for (int k = 0; k <= KeptLevel; k++)
+                {
+                    int size = n >> k, side = InkBlock >> k;
+                    for (int y = by * side; y < (by + 1) * side; y++)
+                        for (int x = bx * side; x < (bx + 1) * side; x++) Unpremultiply(data, offsets[k] + (y * size + x) * 4);
+                }
+            });
+            byte[] level = coarse;
+            for (int k = KeptLevel + 1; k < offsets.Length; k++)
+            {
+                int size = n >> k, above = size * 2;
+                var next = new byte[size * size * 4];
+                for (int y = 0; y < size; y++)
+                {
+                    for (int x = 0; x < size; x++)
+                    {
+                        int a = ((2 * y) * above + 2 * x) * 4, b = a + above * 4;
+                        int o = (y * size + x) * 4;
+                        for (int c = 0; c < 4; c++)
+                            next[o + c] = (byte)((level[a + c] + level[a + 4 + c] + level[b + c] + level[b + 4 + c] + 2) / 4);
+                    }
+                }
+                Buffer.BlockCopy(next, 0, data, offsets[k], next.Length);
+                for (int o = 0; o < next.Length; o += 4) Unpremultiply(data, offsets[k] + o);
+                level = next;
+            }
+        }
 
-        private static byte[] s_spareInk;
+        // A premultiplied RGBA texel as the texture stores it, straight.
+        private static void Unpremultiply(byte[] data, int o)
+        {
+            int alpha = data[o + 3];
+            if (alpha == 0)
+            {
+                data[o] = data[o + 1] = data[o + 2] = 0;
+                return;
+            }
+            data[o] = (byte)Math.Min(255, data[o] * 255 / alpha);
+            data[o + 1] = (byte)Math.Min(255, data[o + 1] * 255 / alpha);
+            data[o + 2] = (byte)Math.Min(255, data[o + 2] * 255 / alpha);
+        }
+
+        // The blocks (rows from the south) where a lay of sheet, glimpse, fogged, hidden and the
+        // sea washes shown can differ from last's, or null when it is to be laid whole. A texel of
+        // the first level reads only its own sheet pixel's planes and cleared ink, its block's
+        // fog flag, the glimpse round it and the washes over it, so it is the same wherever all
+        // of those are.
+        private static bool[] Unlaid(LaidInk last, byte[] sheet, byte[] fromSheet, IList<RectInt> changed, byte[] glimpse, bool[] fogged, byte[] hidden,
+            List<SeaMark> shown, List<SeaWash> washes)
+        {
+            if (last?.m_data == null || last.m_coarse == null || last.m_sheet == null || last.m_washMarks == null) return null;
+            bool sameSheet = last.m_sheet == sheet;
+            if (!sameSheet && (changed == null || last.m_sheet != fromSheet || fromSheet.Length != sheet.Length)) return null;
+            if ((last.m_glimpse == null) != (glimpse == null)) return null;
+            int n = InkPainter.CanvasSize, blocks = n / InkBlock;
+            var dirty = new bool[blocks * blocks];
+            // Sheet rectangles run from the north.
+            if (!sameSheet)
+                foreach (RectInt r in changed) MarkBlocks(dirty, r.xMin, n - r.yMax, r.xMax - 1, n - 1 - r.yMin);
+            for (int i = 0; i < dirty.Length; i++)
+                if ((last.m_fogged != null && last.m_fogged[i]) != (fogged != null && fogged[i])) dirty[i] = true;
+            byte[] lastHidden = last.m_hidden, lastGlimpse = last.m_glimpse;
+            bool hiddenChanged = lastHidden != hidden, glimpseChanged = lastGlimpse != glimpse;
+            // A block reads the glimpse's fog pixels from one before its own to one after.
+            int fogPerBlock = InkBlock * FogSize / n;
+            if (hiddenChanged || glimpseChanged) Parallel.For(0, blocks, Workers.LoopOptions(), by =>
+            {
+                // Each iteration writes its own row of blocks only.
+                if (hiddenChanged)
+                {
+                    for (int y = by * InkBlock; y < (by + 1) * InkBlock; y++)
+                    {
+                        int from = (n - 1 - y) * n;
+                        for (int x = 0; x < n; x++)
+                        {
+                            byte was = lastHidden != null ? lastHidden[from + x] : (byte)0, now = hidden != null ? hidden[from + x] : (byte)0;
+                            if (was == now) continue;
+                            dirty[by * blocks + x / InkBlock] = true;
+                            x = (x / InkBlock + 1) * InkBlock - 1;
+                        }
+                    }
+                }
+                if (glimpseChanged)
+                {
+                    int fy0 = Math.Max(0, by * fogPerBlock - 1), fy1 = Math.Min(FogSize - 1, (by + 1) * fogPerBlock);
+                    for (int fy = fy0; fy <= fy1; fy++)
+                    {
+                        for (int fx = 0; fx < FogSize; fx++)
+                        {
+                            int a = (fy * FogSize + fx) * 4 + 3;
+                            if (lastGlimpse[a] == glimpse[a]) continue;
+                            int bx0 = Math.Max(0, (fx + fogPerBlock - 1) / fogPerBlock - 1), bx1 = Math.Min(blocks - 1, (fx + 1) / fogPerBlock);
+                            for (int bx = bx0; bx <= bx1; bx++) dirty[by * blocks + bx] = true;
+                        }
+                    }
+                }
+            });
+            // Washes shown in one lay and not the other. Those shown in both are the same washes
+            // over the same pixels: sea illustrations stand far apart, so no two washes overlap.
+            for (int k = 0; k < last.m_washMarks.Count; k++)
+                if (IndexOf(shown, last.m_washMarks[k]) < 0) MarkWash(dirty, last.m_washes[k]);
+            for (int k = 0; k < shown.Count; k++)
+                if (IndexOf(last.m_washMarks, shown[k]) < 0) MarkWash(dirty, washes[k]);
+            return dirty;
+        }
+
+        // Marks the blocks over the first level's texels x0 to x1, y0 to y1 (rows from the south).
+        private static void MarkBlocks(bool[] dirty, int x0, int y0, int x1, int y1)
+        {
+            int n = InkPainter.CanvasSize, blocks = n / InkBlock;
+            x0 = Math.Max(0, x0);
+            y0 = Math.Max(0, y0);
+            x1 = Math.Min(n - 1, x1);
+            y1 = Math.Min(n - 1, y1);
+            for (int by = y0 / InkBlock; by <= y1 / InkBlock && x0 <= x1; by++)
+                for (int bx = x0 / InkBlock; bx <= x1 / InkBlock; bx++) dirty[by * blocks + bx] = true;
+        }
+
+        // Marks the blocks a sea wash is laid over (the pixels InkWithMips' sea pass visits).
+        private static void MarkWash(bool[] dirty, SeaWash wash)
+        {
+            int n = InkPainter.CanvasSize;
+            int x0 = Math.Max(0, (int)wash.Left), x1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Right));
+            int y0 = Math.Max(0, (int)wash.Top), y1 = Math.Min(n - 1, (int)Math.Ceiling(wash.Bottom));
+            MarkBlocks(dirty, x0, n - 1 - y1, x1, n - 1 - y0);
+        }
+
+        // A sea illustration's wash as last laid it, or null when it showed no such mark.
+        private static SeaWash KeptWash(LaidInk last, SeaMark mark)
+        {
+            if (last?.m_washMarks == null) return null;
+            int k = IndexOf(last.m_washMarks, mark);
+            return k < 0 ? null : last.m_washes[k];
+        }
+
+        private static int IndexOf(List<SeaMark> marks, SeaMark mark)
+        {
+            for (int k = 0; k < marks.Count; k++)
+            {
+                SeaMark m = marks[k];
+                if (m.m_west == mark.m_west && m.m_east == mark.m_east && m.m_south == mark.m_south && m.m_north == mark.m_north && m.m_kind == mark.m_kind
+                    && m.m_x == mark.m_x && m.m_y == mark.m_y && m.m_scale == mark.m_scale && m.m_mirror == mark.m_mirror) return k;
+            }
+            return -1;
+        }
+
+        // A lay handed back once uploaded, so the next lay fills its pixels again instead of
+        // allocating about 89 MB and lays again only what changed; null lets a kept one go. The
+        // caller must not touch it after.
+        public static void ReturnInk(LaidInk laid) => Interlocked.Exchange(ref s_spareInk, laid);
+
+        private static LaidInk s_spareInk;
 
         // Runs body(from, to) over a mip level's rows: in bands on the workers for the large
         // levels, at once for the small ones, where a parallel loop costs more than it saves.
@@ -1164,16 +1437,45 @@ namespace Atlas
                     beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
                 }
             });
-            var result = new FogEdge { m_marks = sheetMarks, m_edge = opacity, m_thin = thin };
-            if (marks != null)
-                foreach (SeaMark mark in marks)
-                    if (snapshot == null || !SeaMarkSeen(snapshot, mark)) result.HideSea(mark);
-            if (sheetMarks != null) Decide(result, rgba, beyond);
+            // Kept for Redecide; without the glimpse its alpha is overwritten below, so the marks
+            // are judged against a copy of it.
+            var laid = new FogBase { m_opacity = opacity, m_thin = thin, m_snapshot = snapshot, m_beyond = glimpseBand ? null : (byte[])beyond.Clone() };
+            FogEdge result = Judge(laid, rgba, marks, sheetMarks, beyond);
             // Without the glimpse it takes the band's opacity: wherever it would show, the fog
             // lies over it. Not the fog's own once relief is lifted out of it: through the lift
             // the unexplored ground's wash would show round the peak.
             if (!glimpseBand)
                 for (int i = 0; i < n * n; i++) beyond[i * 4 + 3] = opacity[i];
+            return result;
+        }
+
+        // Worker thread. The fog last laid (its FogEdge, from Fog or Redecide) judged again for
+        // other sheet marks and sea illustrations, exactly as Fog would lay it for them with the
+        // same snapshot, glimpses and Glimpse setting: the band itself does not depend on the
+        // sheet, only which marks it leaves out and the relief lifted out of it (Decide). rgba is
+        // the fog buffer Fog laid (its colour is kept, its alpha laid again with the new lifts);
+        // glimpse the glimpse it laid (read only). About as cheap as Decide; Fog spends its time
+        // on the band (the snapshot's samples, the distance field, the blurs and the noise).
+        public static FogEdge Redecide(FogEdge last, byte[] rgba, byte[] glimpse, IList<SeaMark> marks, SheetMarks sheetMarks)
+        {
+            FogBase laid = last.m_base;
+            int n = FogSize;
+            Bands(n, FogRows, (from, to) =>
+            {
+                for (int i = from * n; i < to * n; i++) rgba[i * 4 + 3] = laid.m_opacity[i];
+            });
+            return Judge(laid, rgba, marks, sheetMarks, laid.m_beyond ?? glimpse);
+        }
+
+        // The band's decisions on the sea illustrations and the sheet's marks (lifting relief out
+        // of rgba's alpha), against beyond, the glimpse as the band laid it.
+        private static FogEdge Judge(FogBase laid, byte[] rgba, IList<SeaMark> marks, SheetMarks sheetMarks, byte[] beyond)
+        {
+            var result = new FogEdge { m_marks = sheetMarks, m_edge = laid.m_opacity, m_thin = laid.m_thin, m_base = laid };
+            if (marks != null)
+                foreach (SeaMark mark in marks)
+                    if (laid.m_snapshot == null || !SeaMarkSeen(laid.m_snapshot, mark)) result.HideSea(mark);
+            if (sheetMarks != null) Decide(result, rgba, beyond);
             return result;
         }
 

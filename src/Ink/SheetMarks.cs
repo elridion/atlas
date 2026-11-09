@@ -72,6 +72,8 @@ namespace Atlas
         // a box overlapping one names it.
         public List<Vector4> m_hiddenSea;
         private List<float> m_hiddenSeaFeet;
+        // The band this was judged on, so other marks can be judged on it (Paper.Redecide).
+        public FogBase m_base;
 
         public void HideSea(SeaMark mark)
         {
@@ -141,6 +143,21 @@ namespace Atlas
             }
             return groups;
         }
+    }
+
+    /// <summary>
+    /// The band Paper.Fog laid before judging any mark: its opacity before relief is lifted out
+    /// of it, its thinning, the snapshot the sea illustrations are judged on and, with the
+    /// Glimpse setting off, the glimpse as the marks are judged against it (with it on, that is
+    /// the laid glimpse itself). None of it depends on the sheet, so a new sheet's marks are
+    /// judged on it again (Paper.Redecide) instead of laying the band again. Read-only.
+    /// </summary>
+    internal sealed class FogBase
+    {
+        public byte[] m_opacity;
+        public byte[] m_thin;
+        public Snapshot m_snapshot;
+        public byte[] m_beyond;
     }
 
     /// <summary>

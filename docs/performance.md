@@ -66,6 +66,7 @@ latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5
 | `0aca2ee` | A repaint runs the painter from the kept start on a record-only canvas and draws again only the 64 px cells whose calls changed (`InkPainter.Repaint`), on windows of the sheet; the tick re-check uses windows too | Repaint 1.1 -> 0.73 s offline (*measured*, sheet and record byte-identical to fresh paints under .NET for three pin sets, not checked under Mono); 7-20 cell rectangles (41-135 thousand pixels) drawn for one pin; not yet measured in game |
 | `94478fb` | The waves' layout and the sea marks' candidates kept with the kept start; each paint keeps its sea mark placement with a hash of the calls over every window it tested for ink (`SeaPlan`, `InkRecord.WindowHashes`), and the next paint draws it again unless a window's calls changed (about 220 KB kept per world, the marks' 1.2 MB of washes shared with the sheet's record) | Repaint 0.70-0.80 -> 0.39-0.54 s offline (*measured*, Velen, .NET): waves 195 -> 20 ms, sea marks 170 -> 22 ms when the placement holds, about 180 ms when a pin inks a tested window (a pin on a figure or a stand-in); sheet and record byte-identical to fresh paints for repaints and kept-start paints between pin sets A, A less one, and none (start island, swamp and Mistlands, a pin on a serpent coil, on a leaping fish, on open water); not checked under Mono, not yet measured in game |
 | `d0bbd55` | After a pin change the close-ups the change cannot reach are kept (`RecordChange`: the replayed calls, groups and feet per cell, the changed groups whole, the lists a tile reads, the changed pins against the area a tile scatters its trees over), and the fog's new decisions are compared mark by mark across the two sheets (`FogChange`); before, every tile was dropped twice | Offline (*measured*, Velen, .NET, kept tiles byte-identical to fresh ones): of the 4x and 2x tiles round a changed pin, 87-95 % kept (start island 383-386 of 432 per pin; swamp and Mistlands 440-469 of 480-494; a pin on a sea figure 392-398 of 432; two changes before one fog 464 of 534 and 813 of 878); comparing the records 9-30 ms on the paint's worker; most dropped tiles would have come out the same; not yet measured in game |
+| `6925b92` | The first paint (and a full paint after a fallback) decides everything on a record-only canvas, then replays the whole sealed record into the sheet in 256² tiles on the workers (`InkPainter.Rasterize`); the kept start keeps no canvas planes (no painter reads them now), about 16 MB less | Offline (*measured*, Velen, .NET, 4 workers): first paint 3.69-3.78 -> 3.41-3.55 s (record-only part 3.15-3.22 s, tiled replay 0.29 s, which replays about 0.6 s of single-thread raster), a paint from the kept start 0.86-0.91 -> 0.64-0.70 s; sea marks 99 -> about 200 ms on the first paint, as the ink tests now replay the record (`InkIn`); sheet (all 6 planes, SHA256) and record (deep hash) byte-identical to the live paint for the start island, swamp and Mistlands and sea pin sets and two subsets each; not checked under Mono, not yet measured in game |
 
 ## Where a paint's time goes
 
@@ -129,6 +130,17 @@ more than the ink they replace), fills after placement 0.56 s, waves 0.30 s, cel
 first after a tick re-check, whose record is a copy), record sealed
 0.07 s, glyphs recorded 0.08-0.10 s. The minimap capture took 61 ms of one frame and the first
 opening 41 ms.
+
+Offline after `6925b92` (Velen, *measured* with temporary timers, .NET, 4 workers): the first
+paint records 3.15-3.22 s and replays its record into the sheet in 0.29 s, 3.41-3.55 s in all
+against 3.69-3.78 s painted live (same harness, nine paints a pin set). The live paint's raster
+was about 0.55 s of it; replaying the whole record on one thread takes about 0.62 s, so the 256
+tiles run about 2.1 times as fast on 4 workers (calls crossing a tile's edge are drawn once per
+tile, and the cell hashes, which the next repaint would otherwise work out, are made first). By
+that ratio the 2.6 s of raster in game would take about 1.2 s (*estimated*), less what the sea
+marks' ink tests now cost by replaying the record (about +0.1 s offline, +0.3 s under Mono by
+the eighth run). The next timing build logs both parts (`paint: record-only part`, `paint: whole
+record replayed`). 256 px tiles beat 128 (0.32 s) and 512 (0.32-0.35 s).
 
 Offline after `0fe6c5a` (Velen, *measured* with a temporary check in the preview, .NET): the
 fog's marks judged again on the kept band took 7-8 ms against 64-131 ms for a fresh fog, and

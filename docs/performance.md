@@ -64,6 +64,7 @@ latest changes). The atlas's own main-thread cost while loading is about 0.2-0.5
 | `40f8a54` | Swamp dead trees give way to pins by cover as trees do instead of being refused a place, so no glyph placement reads the pins and the kept start covers all of it | Repaint 1.2 -> 1.1 s offline (byte-identical); dead trees near pins drawn differently (`InkCache.Version` 3) |
 | `0fe6c5a` | After a pin change the fog's band is kept and only the new sheet's marks are judged on it (`Paper.Redecide`); the ink is laid again only over the 32² blocks whose inputs changed, coarse levels from a kept premultiplied level 5 (`Paper.LayInk`); the changed 256² tiles go to the GPU as one small packed upload and `Graphics.CopyTexture` (`InkPatch`), the whole texture as before if that is not supported or fails | Offline (*measured*, Velen): fog 65-130 ms -> about 8 ms, ink 125-130 ms -> 10-20 ms (4-116 of 16384 blocks, 1-21 tiles), byte-identical to a fresh fog and a whole lay for pins removed, moved and ticked, more explored, Glimpse on and off; not checked under Mono; the GPU copy untested in game |
 | `0aca2ee` | A repaint runs the painter from the kept start on a record-only canvas and draws again only the 64 px cells whose calls changed (`InkPainter.Repaint`), on windows of the sheet; the tick re-check uses windows too | Repaint 1.1 -> 0.73 s offline (*measured*, sheet and record byte-identical to fresh paints under .NET for three pin sets, not checked under Mono); 7-20 cell rectangles (41-135 thousand pixels) drawn for one pin; not yet measured in game |
+| `94478fb` | The waves' layout and the sea marks' candidates kept with the kept start; each paint keeps its sea mark placement with a hash of the calls over every window it tested for ink (`SeaPlan`, `InkRecord.WindowHashes`), and the next paint draws it again unless a window's calls changed (about 220 KB kept per world, the marks' 1.2 MB of washes shared with the sheet's record) | Repaint 0.70-0.80 -> 0.39-0.54 s offline (*measured*, Velen, .NET): waves 195 -> 20 ms, sea marks 170 -> 22 ms when the placement holds, about 180 ms when a pin inks a tested window (a pin on a figure or a stand-in); sheet and record byte-identical to fresh paints for repaints and kept-start paints between pin sets A, A less one, and none (start island, swamp and Mistlands, a pin on a serpent coil, on a leaping fish, on open water); not checked under Mono, not yet measured in game |
 
 ## Where a paint's time goes
 
@@ -106,6 +107,15 @@ Fills after placement 165 ms, glyphs recorded (sort included) 80 ms (530 ms inke
 sealed 30 ms, cell hashes 37 ms (the old record's are kept with it), changed cells drawn 15 ms.
 What is left is decisions, not pixels; the waves' layout does not read the pins and could be
 kept with the groundwork (about 0.2 s offline).
+
+Offline after `94478fb` (Velen, *measured* with temporary stage timers, .NET): with the waves'
+layout and the sea mark placement kept, a repaint takes 0.39-0.54 s (0.70-0.80 s before, same
+harness). Waves 195-217 ms -> 19-36 ms (inking the 4341 kept strokes into the record); sea marks
+169-187 ms -> 22-24 ms when the kept placement holds (hashing the 384 tested windows), 176-206
+ms when a pin inks a tested window and the marks are placed again. A pin on open water away
+from every tested window, and pins on land, keep the placement. A whole paint from the kept
+start went 1.09-1.13 s -> 0.82-0.87 s; the first paint's sea stage grew 99 -> 118-162 ms by
+keeping its plan.
 
 Eighth timing run (`310de73`, the cell repaint; Velen with its cache), *measured*: the atlas
 could open at 3.18 s. Three pin changes took the cell repaint, none fell back: 2.02-2.12 s

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 namespace Atlas
@@ -1019,12 +1020,13 @@ namespace Atlas
             public float m_shore, m_water, m_woodDistance;
         }
 
-        // recordOnly: a painter whose canvas only records (Repaint).
-        private InkPainter(WorldSource world, CancellationToken cancel, bool recordOnly = false)
+        // A painter for the whole sheet. Its canvas only records: the pixels are drawn from the
+        // record afterwards (Paint's Rasterize, Repaint's changed cells).
+        private InkPainter(WorldSource world, CancellationToken cancel)
         {
             m_world = world;
             m_cancel = cancel;
-            m_canvas = recordOnly ? InkCanvas.RecordOnly(CanvasSize) : new InkCanvas(CanvasSize);
+            m_canvas = InkCanvas.RecordOnly(CanvasSize);
             m_right = m_bottom = CanvasSize;
         }
 
@@ -1047,33 +1049,65 @@ namespace Atlas
         }
 
         // Throws OperationCanceledException between stages once cancel is set, so a drawing for a
-        // world the player already left stops instead of holding its memory to the end. When record
-        // is given, every pen call is kept in it (and indexed) for sharp detail tiles.
-        // pins are drawn in as glyphs of their own, in clearings (FindMarks).
+        // world the player already left stops instead of holding its memory to the end. Every pen
+        // call is kept in record (and indexed) for sharp detail tiles; a record is made when none
+        // is given. pins are drawn in as glyphs of their own, in clearings (FindMarks).
+        // The painter only records (every decision is made from the record, never from pixels,
+        // "The record is the drawing" in CLAUDE.md), then the whole record is replayed into the
+        // sheet in tiles on the workers (Rasterize): byte for byte the sheet a canvas painted as
+        // it went would hold, with the pixels spread over the workers instead of one thread.
         public static byte[] Paint(WorldSource world, CancellationToken cancel, InkRecord record, IList<SheetPin> pins)
         {
+            if (record == null) record = new InkRecord();
             var painter = new InkPainter(world, cancel);
             painter.FindMarks(pins);
-            if (record != null)
-            {
-                painter.m_canvas.Record(record);
-                if (pins != null) record.m_pins = new List<SheetPin>(pins).ToArray();
-                record.m_marks.m_key = SheetPin.Key(record.m_pins);
-            }
+            painter.m_canvas.Record(record);
+            if (pins != null) record.m_pins = new List<SheetPin>(pins).ToArray();
+            record.m_marks.m_key = SheetPin.Key(record.m_pins);
             painter.m_record = record;
             painter.Run();
-            record?.Seal(CanvasSize);
-            // The sheet: ink coverage, then the body masks in BodyKind order (mountain, Deep
-            // North, Mistlands, wood), one byte a pixel each.
-            int n = CanvasSize * CanvasSize;
-            var sheet = new byte[n * SheetPlanes];
-            Buffer.BlockCopy(painter.m_canvas.m_ink, 0, sheet, 0, n);
-            Buffer.BlockCopy(painter.m_canvas.m_body, 0, sheet, n, n);
-            Buffer.BlockCopy(painter.m_canvas.m_bodyNorth, 0, sheet, 2 * n, n);
-            Buffer.BlockCopy(painter.m_canvas.m_bodyMist, 0, sheet, 3 * n, n);
-            Buffer.BlockCopy(painter.m_canvas.m_bodyWood, 0, sheet, 4 * n, n);
-            Buffer.BlockCopy(painter.m_canvas.m_pinInk, 0, sheet, 5 * n, n);
+            record.Seal(CanvasSize);
+            cancel.ThrowIfCancellationRequested();
+            byte[] sheet = Rasterize(record, cancel);
             return sheet;
+        }
+
+        // The side of the tiles a whole record is replayed in: 16 x 16 of them on the sheet, enough
+        // to keep every worker busy while calls crossing a tile's edge are drawn only a few times.
+        private const int ReplayTile = 256;
+
+        // The sheet a sealed record draws: ink coverage, then the body masks in BodyKind order
+        // (mountain, Deep North, Mistlands, wood), then the pins' red, one byte a pixel each.
+        // Each tile is a window of the sheet replayed exactly (InkRecord.ReplayClipped), so the
+        // tiles join without a seam.
+        private static byte[] Rasterize(InkRecord record, CancellationToken cancel)
+        {
+            int n = CanvasSize;
+            var sheet = new byte[n * n * SheetPlanes];
+            // Works out the base fades ReplayClipped restores once, before the workers share the
+            // record; the hashes are kept with it for the next repaint's comparison.
+            record.CellHashes();
+            int across = (n + ReplayTile - 1) / ReplayTile;
+            Parallel.For(0, across * across, Workers.LoopOptions(cancel), k =>
+            {
+                int x = k % across * ReplayTile, y = k / across * ReplayTile;
+                var r = new RectInt(x, y, Math.Min(ReplayTile, n - x), Math.Min(ReplayTile, n - y));
+                InkCanvas canvas = InkCanvas.Window(n, r.xMin, r.yMin, r.width, r.height);
+                record.ReplayClipped(canvas, r.xMin, r.yMin, r.xMax, r.yMax);
+                CopyWindow(canvas, r, sheet);
+            });
+            cancel.ThrowIfCancellationRequested();
+            return sheet;
+        }
+
+        // Copies a window canvas's planes into their place in a whole sheet (SheetPlanes planes).
+        private static void CopyWindow(InkCanvas canvas, RectInt r, byte[] sheet)
+        {
+            int n = CanvasSize;
+            byte[][] planes = { canvas.m_ink, canvas.m_body, canvas.m_bodyNorth, canvas.m_bodyMist, canvas.m_bodyWood, canvas.m_pinInk };
+            for (int p = 0; p < planes.Length; p++)
+                for (int y = 0; y < r.height; y++)
+                    Buffer.BlockCopy(planes[p], y * r.width, sheet, p * n * n + (r.yMin + y) * n + r.xMin, r.width);
         }
 
         private void Run()

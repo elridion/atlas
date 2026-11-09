@@ -34,7 +34,7 @@ namespace Atlas
             InkRecord record, IList<SheetPin> pins, List<RectInt> changed)
         {
             if (sheet == null || sheetRecord == null || record == null || record.Count != 0) return null;
-            var painter = new InkPainter(world, cancel, recordOnly: true);
+            var painter = new InkPainter(world, cancel);
             painter.FindMarks(pins);
             painter.m_canvas.Record(record);
             if (pins != null) record.m_pins = new List<SheetPin>(pins).ToArray();
@@ -66,10 +66,7 @@ namespace Atlas
                 RectInt r = rects[k];
                 InkCanvas canvas = InkCanvas.Window(n, r.xMin, r.yMin, r.width, r.height);
                 record.ReplayClipped(canvas, r.xMin, r.yMin, r.xMax, r.yMax);
-                byte[][] planes = { canvas.m_ink, canvas.m_body, canvas.m_bodyNorth, canvas.m_bodyMist, canvas.m_bodyWood, canvas.m_pinInk };
-                for (int p = 0; p < planes.Length; p++)
-                    for (int y = 0; y < r.height; y++)
-                        Buffer.BlockCopy(planes[p], y * r.width, ink, p * n * n + (r.yMin + y) * n + r.xMin, r.width);
+                CopyWindow(canvas, r, ink);
             });
             changed?.AddRange(rects);
             return ink;

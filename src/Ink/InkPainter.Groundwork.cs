@@ -41,9 +41,11 @@ namespace Atlas
         /// only test of pins while placing is ClearOfMarks in Add, which passes relief, trees and
         /// dead trees (GivesWayAsTree), so pins limit glyphs only afterwards (PlaceGlyphs), where
         /// ClearOfMarks can still take out mist banks alone. The
-        /// canvas planes are kept whole (bodies that are still blank as null), the glyph and mark
-        /// lists as copies, the record's calls as InkRecord.Start; the peak bases and mist banks
-        /// are filed again from the record's own lists, which were added in the same order.
+        /// glyph and mark lists are kept as copies, the record's calls as InkRecord.Start; the peak
+        /// bases and mist banks are filed again from the record's own lists, which were added in
+        /// the same order. No pixels are kept: every sheet painter only records and its pixels
+        /// are drawn from the whole record afterwards (Paint, Repaint), so the start's calls are
+        /// all a later paint needs of what was drawn.
         /// The first paint from it also keeps what comes later but reads no pins either: the
         /// waves as laid out (m_waves) and the open-water spots the sea's marks are placed on
         /// (m_seaSpots); and every paint keeps its sea marks' placement with the ink tests it made
@@ -59,7 +61,6 @@ namespace Atlas
             // The last placement of the sea marks (SeaPlan), replaced by each paint that places
             // them again.
             public volatile SeaPlan m_sea;
-            public byte[][] m_planes;
             public byte[] m_riverMask;
             public Glyph[] m_glyphs;
             public Glyph[] m_mist;
@@ -72,11 +73,6 @@ namespace Atlas
             public InkRecord.Start m_record;
         }
 
-        private byte[][] CanvasPlanes() => new[]
-        {
-            m_canvas.m_ink, m_canvas.m_body, m_canvas.m_bodyNorth, m_canvas.m_bodyMist, m_canvas.m_bodyWood,
-        };
-
         // Starts this paint where the last paint of the world left its pin-free stages; false when
         // there is none (or this paint records nothing, as the kept start includes its record).
         private bool TakeStartwork()
@@ -84,10 +80,6 @@ namespace Atlas
             Startwork start = m_groundwork?.m_start;
             if (start == null || m_record == null || m_record.Count != 0) return false;
             m_start = start;
-            // A record-only canvas has no planes to restore (Repaint).
-            byte[][] planes = CanvasPlanes();
-            for (int k = 0; k < planes.Length && !m_canvas.RecordsOnly; k++)
-                if (start.m_planes[k] != null) Buffer.BlockCopy(start.m_planes[k], 0, planes[k], 0, planes[k].Length);
             m_riverMask = start.m_riverMask;
             m_glyphs.AddRange(start.m_glyphs);
             m_mist.AddRange(start.m_mist);
@@ -103,25 +95,11 @@ namespace Atlas
             return true;
         }
 
-        // A plain loop: Array.Exists calls a delegate per byte, about 100 ms under Mono over the
-        // four body planes, which are still blank here and so scanned to the end.
-        private static bool IsBlank(byte[] plane)
-        {
-            for (int i = 0; i < plane.Length; i++)
-                if (plane[i] != 0) return false;
-            return true;
-        }
-
         private void KeepStartwork()
         {
-            if (m_groundwork == null || m_record == null || m_record.CurrentGroup != -1 || m_canvas.RecordsOnly) return;
-            byte[][] planes = CanvasPlanes();
-            var kept = new byte[planes.Length][];
-            for (int k = 0; k < planes.Length; k++)
-                if (!IsBlank(planes[k])) kept[k] = (byte[])planes[k].Clone();
+            if (m_groundwork == null || m_record == null || m_record.CurrentGroup != -1) return;
             m_groundwork.m_start = m_start = new Startwork
             {
-                m_planes = kept,
                 // Written only by DrawRivers, before this point.
                 m_riverMask = m_riverMask,
                 m_glyphs = m_glyphs.ToArray(),

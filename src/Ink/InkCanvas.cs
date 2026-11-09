@@ -99,11 +99,10 @@ namespace Atlas
             m_scale = scale;
         }
 
-        // A canvas that only records its calls, with no pixels at all (InkPainter.Repaint, which
-        // rasterizes only where the new record differs from the last one). Its planes are empty.
+        // A canvas that only records its calls, with no pixels at all (the sheet's painter, whose
+        // record is rasterized afterwards: InkPainter.Paint whole, Repaint where the new record
+        // differs from the last one). Its planes are empty.
         private readonly bool m_recordOnly;
-
-        public bool RecordsOnly => m_recordOnly;
 
         public static InkCanvas RecordOnly(int size) => new InkCanvas(size, true);
 

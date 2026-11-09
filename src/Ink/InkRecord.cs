@@ -366,7 +366,7 @@ namespace Atlas
         }
 
         // Builds the spatial index once painting is done.
-        // A record-only paint (InkPainter.Repaint) also seals what it has so far before the sea's
+        // The sheet's painter (record-only) also seals what it has so far before the sea's
         // illustrations, which test for ink near them (InkIn); the calls after that are scanned
         // in full until the final seal indexes everything again.
         public void Seal(int sheetSize)
@@ -799,7 +799,7 @@ namespace Atlas
         }
 
         // Whether any ink lies on the sheet pixels x0..x1, y0..y1 (inclusive) as the calls
-        // recorded so far draw it: what a record-only paint (InkPainter.Repaint) reads instead
+        // recorded so far draw it: what the sheet's record-only painter (InkPainter) reads instead
         // of its canvas. Replayed on a scratch canvas from the index of the last Seal and the
         // calls after it. The ink plane does not depend on the base fade, so none is restored.
         public bool InkIn(int x0, int y0, int x1, int y1)

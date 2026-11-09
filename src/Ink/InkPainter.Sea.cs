@@ -132,8 +132,9 @@ namespace Atlas
                 m_canvas.m_layer = layer;
                 return;
             }
-            // A record-only paint has no ink to read: InkNear asks the record, indexed so far.
-            if (m_canvas.RecordsOnly) m_record.Seal(CanvasSize);
+            // The painter only records, so there is no ink to read: InkNear asks the record,
+            // indexed so far.
+            m_record.Seal(CanvasSize);
             m_seaWindows = start != null ? new List<int>() : null;
             int firstMark = m_record?.m_seaMarks.Count ?? 0;
 
@@ -460,8 +461,9 @@ namespace Atlas
             return new InkBox { m_left = left - x, m_top = top - y, m_right = right + 1 - x, m_bottom = bottom + 1 - y };
         }
 
-        // Whether any ink lies on the sheet within gap of the box. A record-only paint (Repaint)
-        // replays the calls so far over those pixels instead, which ink them as the sheet does.
+        // Whether any ink lies on the sheet within gap of the box. The sheet's painter only records,
+        // so the calls so far are replayed over those pixels (InkRecord.InkIn), which inks them as
+        // the sheet does.
         private bool InkNear(InkBox box, float gap)
         {
             int x0 = Mathf.Max(0, Mathf.FloorToInt(box.m_left - gap)), x1 = Mathf.Min(CanvasSize - 1, Mathf.CeilToInt(box.m_right + gap));
@@ -473,11 +475,7 @@ namespace Atlas
                 m_seaWindows.Add(x1);
                 m_seaWindows.Add(y1);
             }
-            if (m_canvas.RecordsOnly) return m_record.InkIn(x0, y0, x1, y1);
-            for (int y = y0; y <= y1; y++)
-                for (int x = x0; x <= x1; x++)
-                    if (m_canvas.m_ink[y * CanvasSize + x] != 0) return true;
-            return false;
+            return m_record.InkIn(x0, y0, x1, y1);
         }
     }
 }

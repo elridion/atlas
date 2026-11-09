@@ -182,6 +182,46 @@ namespace Atlas
             if (--t_rasterDepth == 0) t_raster += Ms(Stopwatch.GetTimestamp() - t_rasterAt);
         }
 
+        // Close-ups kept on screen stale after a change (DetailTiles.DropWhere's keepStale), until
+        // the last one in view takes its redraw; and the closed atlas's catch-up on every worker.
+        // Main thread.
+        private static readonly Stopwatch s_stale = new Stopwatch();
+        private static readonly Stopwatch s_catchUp = new Stopwatch();
+        private static int s_catchUpTiles;
+
+        [Conditional(Define)]
+        public static void ChangeKept(string what, int held, int stale, int gone)
+        {
+            if (!s_since.IsRunning) return;
+            Log($"{what}: {stale} drawn kept on screen stale, {gone} dropped (drawn, under fog, running or done), {held - gone - stale} untouched");
+            if (stale > 0) s_stale.Restart();
+        }
+
+        [Conditional(Define)]
+        public static void StaleInViewDone(bool open)
+        {
+            if (!s_since.IsRunning || !s_stale.IsRunning) return;
+            s_stale.Stop();
+            Log($"close-ups: last stale tile in view swapped {s_stale.Elapsed.TotalMilliseconds:F0} ms after the change ({(open ? "open" : "closed")}"
+                + (s_catchUpTiles > 0 ? $"; closed catch-up started {s_catchUpTiles} tiles, the first {s_catchUp.Elapsed.TotalMilliseconds:F0} ms ago)" : ")"));
+        }
+
+        [Conditional(Define)]
+        public static void CatchUpStarted()
+        {
+            if (s_catchUpTiles == 0) s_catchUp.Restart();
+            s_catchUpTiles++;
+        }
+
+        [Conditional(Define)]
+        public static void CatchUpEnded(string why)
+        {
+            if (s_catchUpTiles == 0) return;
+            if (s_since.IsRunning)
+                Log($"closed catch-up ended ({why}): {s_catchUpTiles} stale tiles redrawn on every worker in {s_catchUp.Elapsed.TotalMilliseconds:F0} ms from the first start");
+            s_catchUpTiles = 0;
+        }
+
         // Every line carries the time since joining and the collections since then (gen 0, which
         // under Mono's Boehm GC counts every full collection).
         private static void Log(string text) =>

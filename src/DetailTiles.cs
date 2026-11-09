@@ -75,6 +75,15 @@ namespace Atlas
         // about 2.5 us offline for a 2x tile under fog), so a view that opens far out in the fog
         // never stalls a frame.
         private const int FogTestsPerFrame = 64;
+        // A change (pins, ticks, fog) keeps the drawn tiles it reaches in or near the view on
+        // screen, stale, until each one's redraw swaps in (Upload): dropped at once, the blurry
+        // sheet showed through until each was drawn again. While closed, the stale tiles of the
+        // view and ring it will open on are drawn again on every worker, up to CatchUpMost a
+        // change; on one worker a view of them took about 2 s, shown blurry on opening.
+        private const int CatchUpMost = 48;
+        // Stale tiles wait for the fog to judge a new record's marks before they are drawn again
+        // (else they were drawn twice), but at most this long, in case no fog follows (a failed one).
+        private const float JudgeWaitSeconds = 3f;
 
         private sealed class Tile
         {
@@ -87,6 +96,9 @@ namespace Atlas
             public float m_shown;
             // Drawn under a fog judged for other marks than its record's (Unjudged).
             public bool m_unjudged;
+            // Still shown but out of date: a change reached it, and its redraw replaces the
+            // texture in place when it comes (Upload).
+            public bool m_stale;
         }
 
         private sealed class Done
@@ -138,6 +150,11 @@ namespace Atlas
         private RectTransform m_parent;
         private long m_frame;
         private bool m_broken;
+        // Stale tiles the closed atlas may still draw again on every worker (CatchUpMost a change).
+        private int m_catchUp;
+        // When Start first found stale tiles waiting for the fog's judgement (JudgeWaitSeconds),
+        // or a negative value while none wait.
+        private float m_judgeWait = -1f;
 
         private InkRecord m_record;
         private Paper.Wash m_paper;
@@ -174,6 +191,7 @@ namespace Atlas
         // explores a little more, or new pins judged on the same band, do not redraw every
         // close-up. Tiles drawn from a record the fog had not judged (after a pin change, before
         // its marks were judged again) go too: they left nothing out. Without it every tile goes.
+        // Drawn tiles in or near the view stay shown, stale, until their redraw replaces them.
         public void SetGlimpse(byte[] glimpse, FogEdge edge, FogChange change)
         {
             bool partial = change != null && m_record != null && change.m_fromGlimpse == m_glimpse && change.m_fromEdge == m_edge;
@@ -181,11 +199,12 @@ namespace Atlas
             m_edge = edge;
             if (!partial)
             {
-                DropTiles();
+                DropWhere((level, region, unjudged) => true, keepStale: true);
+                m_tracking = false;
                 return;
             }
             InkRecord record = m_record;
-            DropWhere((level, region, unjudged) => unjudged || change.Affects(region, DetailTile.FogReach(record, region, s_scales[level])));
+            DropWhere((level, region, unjudged) => unjudged || change.Affects(region, DetailTile.FogReach(record, region, s_scales[level])), keepStale: true);
         }
 
         // A new painting of the same world: its tiles are drawn again from the new record. With
@@ -196,38 +215,53 @@ namespace Atlas
         // (SetGlimpse). Without a change every tile goes, until SetSource gives the record; the
         // glimpse and fog stay, or close-ups were drawn without the glimpse's bare parchment and
         // greyer ink until the next fog, since the world is painted after login and finishes
-        // after the fog is laid.
+        // after the fog is laid. Drawn tiles in or near the view stay shown, stale, until their
+        // redraw replaces them; it waits for the fog's judgement of the new marks (Start).
         public void NewRecord(InkRecord record, RecordChange change)
         {
             if (change == null || m_record == null || change.m_from != m_record)
             {
-                DropTiles();
+                DropWhere((level, region, unjudged) => true, keepStale: true);
+                m_tracking = false;
                 m_record = null;
                 return;
             }
-            DropWhere((level, region, unjudged) => change.Affects(record, region, s_scales[level]), fogged: false);
+            DropWhere((level, region, unjudged) => change.Affects(record, region, s_scales[level]), fogged: false, keepStale: true);
             m_record = record;
         }
 
         // The same painting with pins ticked or unticked (InkPainter.Recheck): only the tiles over
         // the redrawn pins (changed, sheet pixels) are drawn again, from the new record; the rest
         // are the same in both records, so they stay, and tiles still being drawn from the old
-        // one elsewhere are kept too. Those over the pins are dropped, running or done.
+        // one elsewhere are kept too. Those over the pins are dropped, running or done (drawn
+        // ones in or near the view stay shown, stale, until redrawn).
         public void NewChecks(InkRecord record, List<RectInt> changed)
         {
-            DropWhere((level, region, unjudged) => Touches(region, changed));
+            DropWhere((level, region, unjudged) => Touches(region, changed), keepStale: true);
             m_record = record;
         }
 
         // Drops the tiles, done, running or queued, for which drop (level, sheet region, drawn
         // unjudged) holds, and those tested under the fog unless fogged is false; returns how
-        // many went.
-        private int DropWhere(Func<int, RectInt, bool, bool> drop, bool fogged = true)
+        // many went. With keepStale a drawn tile it matches that was used lately (in or near the
+        // view) stays shown, stale (m_marked counts them), until its redraw replaces it; the
+        // others go. Not once close-ups have broken: nothing would replace them.
+        private int DropWhere(Func<int, RectInt, bool, bool> drop, bool fogged = true, bool keepStale = false)
         {
             int dropped = 0;
+            m_marked = 0;
             m_finished.Clear();
             foreach (KeyValuePair<long, Tile> entry in m_tiles)
-                if (drop(entry.Value.m_level, entry.Value.m_region, entry.Value.m_unjudged)) m_finished.Add(entry.Key);
+            {
+                Tile tile = entry.Value;
+                if (!drop(tile.m_level, tile.m_region, tile.m_unjudged)) continue;
+                if (keepStale && !m_broken && tile.m_image && Recent(tile))
+                {
+                    tile.m_stale = true;
+                    m_marked++;
+                }
+                else m_finished.Add(entry.Key);
+            }
             foreach (long key in m_finished)
             {
                 Destroy(m_tiles[key]);
@@ -235,6 +269,7 @@ namespace Atlas
             }
             dropped += m_finished.Count;
             m_finished.Clear();
+            if (m_marked > 0) m_catchUp = CatchUpMost;
             // Tested under the fog they were laid under (FogChange.Affects reads more than
             // UnderFog, so a change there drops them).
             if (fogged)
@@ -256,6 +291,21 @@ namespace Atlas
             dropped += m_ready.RemoveAll(done => drop(done.m_level, done.m_region, done.m_unjudged));
             return dropped;
         }
+
+        // Tiles the last DropWhere kept on screen as stale.
+        private int m_marked;
+
+        // Whether a tile was used within CancelAfterFrames or lies in or one tile round the part
+        // in view (or the one the closed atlas opens on): while closed and held for a record's fog
+        // and ink, no frame uses the tiles of the remembered view, yet they are the ones shown on
+        // opening.
+        private bool Recent(Tile tile)
+        {
+            if (m_frame - tile.m_used <= CancelAfterFrames) return true;
+            return m_inView.width > 0 && tile.m_region.Overlaps(Grow(m_inView, TileSize(tile.m_level)));
+        }
+
+        private bool Stale(long key) => m_tiles.TryGetValue(key, out Tile tile) && tile.m_stale;
 
         private static bool Touches(RectInt region, List<RectInt> changed)
         {
@@ -293,6 +343,8 @@ namespace Atlas
             m_running.Clear();
             m_ready.Clear();
             m_tracking = false;
+            m_catchUp = 0;
+            m_judgeWait = -1f;
         }
 
         public void Update(AtlasView view)
@@ -322,9 +374,10 @@ namespace Atlas
                 if (HoldWhileClosed) return;
                 if (m_frame % ClosedPlanFrames != 0)
                 {
-                    // Between plans the next of the last plan's tiles starts once its worker is
-                    // free, so the one worker is kept busy rather than idle until the next plan.
-                    if (m_running.Count < ClosedWorkers && m_wanted.Count > 0) Start(false);
+                    // Between plans the next of the last plan's tiles starts once a worker is
+                    // free, so the one worker (every worker for stale tiles, CatchUpMost a
+                    // change) is kept busy rather than idle until the next plan.
+                    if (m_running.Count < (m_catchUp > 0 ? Workers.Count : ClosedWorkers) && m_wanted.Count > 0) Start(false);
                     return;
                 }
                 if (!view.RememberedRegion(out visible, out onScreen, out pointer)) return;
@@ -498,37 +551,66 @@ namespace Atlas
         // never waits in front of one in view. Closed, ClosedWorkers in the normal lane. Tiles
         // wholly under opaque fog are done at once with no texture (UnderFog), taking no worker.
         // Tiles being drawn that the view has left are cancelled.
+        // A stale tile (shown, out of date) counts as missing, but waits until the fog has judged
+        // the record's marks (at most JudgeWaitSeconds): drawn before, it was drawn again once
+        // the judgement came. Closed, stale tiles of the view and ring take every worker, up to
+        // CatchUpMost a change. Stale tiles not wanted for CancelAfterFrames go.
         private void Start(bool open)
         {
             foreach (long key in m_wanted)
             {
                 if (m_tiles.TryGetValue(key, out Tile tile)) tile.m_used = m_frame;
-                else if (m_running.TryGetValue(key, out Running running)) running.m_wanted = m_frame;
+                if (m_running.TryGetValue(key, out Running running)) running.m_wanted = m_frame;
             }
+            DropUnusedStale();
             Cancel();
 
+            bool judged = m_edge == null || m_edge.m_marks == null || m_edge.Matches(m_record);
+            if (judged) m_judgeWait = -1f;
+            else if (m_judgeWait < 0f) m_judgeWait = Time.unscaledTime;
+            else if (Time.unscaledTime - m_judgeWait > JudgeWaitSeconds) judged = true;
             int limit = open ? Workers.Count : ClosedWorkers;
             int inView = 0;
             foreach (Running running in m_running.Values)
                 if (running.m_first) inView++;
             int fogTests = 0;
-            foreach (long key in m_wanted)
+            for (int index = 0; index < m_wanted.Count; index++)
             {
-                if (m_tiles.ContainsKey(key) || m_fogged.Contains(key) || m_running.ContainsKey(key) || Queued(key)) continue;
+                long key = m_wanted[index];
+                bool stale = m_tiles.TryGetValue(key, out Tile shown) && shown.m_stale;
+                if ((shown != null && !stale) || m_fogged.Contains(key) || m_running.ContainsKey(key) || Queued(key)) continue;
+                if (stale && !judged) continue;
                 int level = (int)(key >> 40);
                 RectInt region = Region(key);
                 bool first = open && region.Overlaps(m_inView);
-                // The wanted tiles come in view first, so once one cannot start none after can.
-                if (first ? inView >= Workers.Count : m_running.Count >= limit) break;
+                bool catchUp = !open && stale && index < m_core && m_catchUp > 0;
+                if (first)
+                {
+                    // The wanted tiles come in view first, so once one cannot start none after can.
+                    if (inView >= Workers.Count) break;
+                }
+                else if (m_running.Count >= (catchUp ? Workers.Count : limit))
+                {
+                    // Closed, a stale tile further on may still take a worker the others may not.
+                    if (open || m_running.Count >= Workers.Count || m_catchUp <= 0) break;
+                    continue;
+                }
                 if (m_edge != null)
                 {
                     if (fogTests++ >= FogTestsPerFrame) break;
                     if (UnderFog(m_edge.m_edge, region))
                     {
+                        // The fog now covers all it would show.
+                        if (stale)
+                        {
+                            Destroy(shown);
+                            m_tiles.Remove(key);
+                        }
                         m_fogged.Add(key);
                         continue;
                     }
                 }
+                if (catchUp) m_catchUp--;
                 InkRecord record = m_record;
                 Paper.Wash paper = m_paper;
                 WorldSource world = m_world;
@@ -554,6 +636,30 @@ namespace Atlas
                 };
                 if (first) inView++;
             }
+            // No stale tile left in the view and ring: the closed atlas is back to one worker.
+            if (!open && m_catchUp > 0 && !StaleInCore()) m_catchUp = 0;
+        }
+
+        private bool StaleInCore()
+        {
+            for (int i = 0; i < m_core && i < m_wanted.Count; i++)
+                if (Stale(m_wanted[i])) return true;
+            return false;
+        }
+
+        // Stale tiles no longer wanted (the view left them) go rather than wait for a redraw
+        // that is not coming.
+        private void DropUnusedStale()
+        {
+            m_finished.Clear();
+            foreach (KeyValuePair<long, Tile> entry in m_tiles)
+                if (entry.Value.m_stale && m_frame - entry.Value.m_used > CancelAfterFrames) m_finished.Add(entry.Key);
+            foreach (long key in m_finished)
+            {
+                Destroy(m_tiles[key]);
+                m_tiles.Remove(key);
+            }
+            m_finished.Clear();
         }
 
         // Cancels the tiles being drawn that have not been wanted for CancelAfterFrames: a tile
@@ -622,6 +728,7 @@ namespace Atlas
             m_finished.Clear();
             foreach (KeyValuePair<long, Running> entry in m_running)
                 if (entry.Value.m_task.IsCompleted) m_finished.Add(entry.Key);
+            bool broken = m_broken;
             foreach (long key in m_finished)
             {
                 Task<byte[]> task = m_running[key].m_task;
@@ -645,6 +752,10 @@ namespace Atlas
                 }
                 m_ready.Add(new Done { m_key = key, m_level = (int)(key >> 40), m_region = region, m_rgba = task.Result, m_unjudged = unjudged });
             }
+            // Broken: nothing will be drawn again, and Update no longer shows or hides the tiles,
+            // so they all go (stale ones would stay up for good, and the rest showed while the
+            // markers took the sheet's size again).
+            if (m_broken && !broken) DropTiles();
         }
 
         // Uploads finished tiles, those in view first, within the frame's budget (UploadsPerFrame,
@@ -658,16 +769,27 @@ namespace Atlas
             for (int n = 0; n < most && m_ready.Count > 0; n++)
             {
                 if (n > 0 && System.Diagnostics.Stopwatch.GetTimestamp() - started >= budget) break;
-                int pick = 0;
-                for (int i = 0; i < m_ready.Count; i++)
+                // In view and missing first (the sheet shows there), then in view and stale.
+                int pick = 0, best = 2;
+                for (int i = 0; i < m_ready.Count && best > 0; i++)
                 {
                     if (!m_ready[i].m_region.Overlaps(m_inView)) continue;
+                    int rank = Stale(m_ready[i].m_key) ? 1 : 0;
+                    if (rank >= best) continue;
                     pick = i;
-                    break;
+                    best = rank;
                 }
                 Done done = m_ready[pick];
                 m_ready.RemoveAt(pick);
-                if (!m_parent || m_tiles.ContainsKey(done.m_key)) continue;
+                if (!m_parent) continue;
+                m_tiles.TryGetValue(done.m_key, out Tile old);
+                if (old != null && (!old.m_stale || !old.m_image))
+                {
+                    if (!old.m_stale) continue;
+                    Destroy(old);
+                    m_tiles.Remove(done.m_key);
+                    old = null;
+                }
                 var texture = new Texture2D(TilePixels, TilePixels, TextureFormat.RGBA32, mipChain: true)
                 {
                     name = "Atlas tile",
@@ -676,6 +798,18 @@ namespace Atlas
                 };
                 texture.LoadRawTextureData(done.m_rgba);
                 texture.Apply(updateMipmaps: false, makeNoLongerReadable: true);
+                if (old != null)
+                {
+                    // A stale tile takes its redraw in place, at once, keeping its fade: a fade
+                    // from nothing would show the sheet through it again.
+                    old.m_image.texture = texture;
+                    if (old.m_texture) UnityEngine.Object.Destroy(old.m_texture);
+                    old.m_texture = texture;
+                    old.m_stale = false;
+                    old.m_unjudged = done.m_unjudged;
+                    old.m_used = m_frame;
+                    continue;
+                }
                 var go = new GameObject("Tile", typeof(RectTransform), typeof(RawImage));
                 var rect = (RectTransform)go.transform;
                 rect.SetParent(m_layers[done.m_level], false);

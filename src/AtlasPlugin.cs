@@ -21,7 +21,7 @@ namespace Atlas
     {
         public const string PluginGuid = "elridion.atlas";
         public const string PluginName = "Atlas";
-        public const string PluginVersion = "0.1.3";
+        public const string PluginVersion = "0.1.4";
 
         private const string TranslationPrefix = "Atlas.translations.";
 

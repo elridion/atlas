@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.4
+
+- Adding, removing or moving a pin redraws the map sooner.
+- Swamp dead trees near a pin may now stand partly in front of it, as other trees do,
+  instead of leaving a clearing round it. Your map is drawn again once after updating.
+
 ## 0.1.3
 
 - Joining a server no longer switches the atlas off until the game is restarted: it waits

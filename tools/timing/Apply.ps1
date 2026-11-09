@@ -71,7 +71,7 @@ $t = [regex]::Replace($t, "(public static LaidInk LayInk\([^\n]*\n\s*\{\n)", "`$
 $t = [regex]::Replace($t, "(public static FogEdge Fog\([^\n]*\n[^\n]*\n\s*\{\n)", "`$1            Timing.Mark(""fog job started (worker)"");`n")
 [IO.File]::WriteAllText($p, $t, $enc)
 $p = (Resolve-Path 'src\Ink\InkPainter.cs').Path; $t = [IO.File]::ReadAllText($p)
-$t = [regex]::Replace($t, "(public static byte\[\] Paint\([^\n]*\n\s*\{\n)", "`$1            Timing.Mark(""paint job started (worker)"");`n            Timing.StagesBegin();`n")
+$t = [regex]::Replace($t, "(public static byte\[\] Paint\([^\n]*\n\s*\{\n)", "`$1            Timing.Mark(""paint job started (worker)"");`n            Timing.StagesBegin();`n            var paintWatch = System.Diagnostics.Stopwatch.StartNew();`n")
 [IO.File]::WriteAllText($p, $t, $enc)
 
 # A paint's stages, and the share of each spent filling pixels. Each anchor is one exact line that
@@ -113,10 +113,15 @@ Around $ip '            DrawWaves(waterLines);' 'waterwork' 'waves'
 Around $ip '            foreach (Glyph floe in m_floes) DrawGlyph(floe);' '' 'floes'
 Around $ip '            DrawIllustrations();' '' 'illustrations'
 Around $ip '            DrawFrame();' '' 'frame'
-Around $ip '            record?.Seal(CanvasSize);' '' 'record sealed'
-Around $ip '            Buffer.BlockCopy(painter.m_canvas.m_pinInk, 0, sheet, 5 * n, n);' '' 'planes copied'
+# The first paint (and a full paint after a fallback) only records; the stages above are its
+# decisions, so their raster is only InkIn's scratch replays for the sea marks. Then the whole
+# record is replayed into the sheet in 256 px tiles on the workers (Rasterize): its stage is wall
+# time, as the tiles' raster runs on other threads.
+Around $ip '            record.Seal(CanvasSize);' '' 'record sealed'
+Edit-File $ip "            byte[] sheet = Rasterize(record, cancel);`n" "            Timing.Mark(`$""paint: record-only part {paintWatch.ElapsedMilliseconds} ms"");`n            var replayWatch = System.Diagnostics.Stopwatch.StartNew();`n            byte[] sheet = Rasterize(record, cancel);`n            Timing.Mark(`$""paint: whole record replayed in 256 tiles on the workers in {replayWatch.ElapsedMilliseconds} ms"");`n"
+Around $ip '            byte[] sheet = Rasterize(record, cancel);' '' 'tiles replayed'
 $p = (Resolve-Path $ip).Path; $t = [IO.File]::ReadAllText($p)
-$t = [regex]::Replace($t, "(Timing\.Stage\(""planes copied""\);(\r?\n))", "`$1            Timing.StagesEnd();`$2")
+$t = [regex]::Replace($t, "(Timing\.Stage\(""tiles replayed""\);(\r?\n))", "`$1            Timing.StagesEnd();`$2")
 [IO.File]::WriteAllText($p, $t, $enc)
 # Whether the waves' layout and the sea marks' placement were kept from the last paint or made again.
 Edit-File $ip "                foreach (InkRecord.Wave wave in kept) DrawWave(wave);`n" "                Timing.Mark(`$""waves: kept layout reused ({kept.Length} strokes)"");`n                foreach (InkRecord.Wave wave in kept) DrawWave(wave);`n"

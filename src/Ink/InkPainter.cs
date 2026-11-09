@@ -788,19 +788,25 @@ namespace Atlas
         // in order of their feet, north first, each adding the points it newly covers, and the
         // rest are left out. A close-up decides alike, as it scatters every tree that can reach a
         // pin near it (ScatterArea) and takes each pin's order and relief cover from the record.
-        private void LimitMarkCover(int first)
+        // With deadTrees the sheet's dead trees are limited so instead, before the trees, and the
+        // cover of those kept joins the pin's m_cover: close-ups replay the dead trees the sheet
+        // kept and take that cover from the record with the relief's, so their own trees get the
+        // same share as the sheet's.
+        private void LimitMarkCover(int first, bool deadTrees = false)
         {
             if (m_marks.Count == 0) return;
             var dropped = new HashSet<int>();
             var candidates = new List<int>();
-            foreach (Glyph mark in m_marks)
+            for (int m = 0; m < m_marks.Count; m++)
             {
+                Glyph mark = m_marks[m];
                 Vector4 pin = GlyphBox(mark);
                 candidates.Clear();
                 for (int i = first; i < m_glyphs.Count; i++)
                 {
                     Glyph g = m_glyphs[i];
-                    if (!IsTree(g.m_kind) || Order(g) <= mark.m_order || dropped.Contains(i)) continue;
+                    bool limited = deadTrees ? g.m_kind == Kind.DeadTree : IsTree(g.m_kind);
+                    if (!limited || Order(g) <= mark.m_order || dropped.Contains(i)) continue;
                     if (Overlap(GlyphBox(g), pin) > 0f) candidates.Add(i);
                 }
                 candidates.Sort((a, b) =>
@@ -814,6 +820,9 @@ namespace Atlas
                 int limit = CoverLimit(mark);
                 foreach (int i in candidates)
                     if (!AddCover(m_glyphs[i], mark, pin, covered, ref count, limit)) dropped.Add(i);
+                if (!deadTrees) continue;
+                mark.m_cover = covered;
+                m_marks[m] = mark;
             }
             if (dropped.Count == 0) return;
             int write = first;
@@ -838,7 +847,7 @@ namespace Atlas
                 for (int i = first; i < m_glyphs.Count; i++)
                 {
                     Glyph g = m_glyphs[i];
-                    if (!IsTree(g.m_kind) || Order(g) > mark.m_order || dropped.Contains(i)) continue;
+                    if (!GivesWayAsTree(g.m_kind) || Order(g) > mark.m_order || dropped.Contains(i)) continue;
                     if (Overlap(GlyphBox(g), pin) <= 0f) continue;
                     int shown = 0;
                     for (int k = 0; k < HiddenSamples; k++)
@@ -944,11 +953,11 @@ namespace Atlas
         }
 
         // Whether a glyph may stand where it is: one drawn after a mark (its foot further south)
-        // must not reach the mark's core. Relief always may (OrderMarks); trees are limited by
-        // how much of the pin they cover together instead (LimitMarkCover).
+        // must not reach the mark's core. Relief always may (OrderMarks); trees and dead trees are
+        // limited by how much of the pin they cover together instead (LimitMarkCover).
         private bool ClearOfMarks(Glyph g)
         {
-            if (m_markCells.Count == 0 || IsMark(g.m_kind) || IsRelief(g.m_kind) || IsTree(g.m_kind)) return true;
+            if (m_markCells.Count == 0 || IsMark(g.m_kind) || IsRelief(g.m_kind) || GivesWayAsTree(g.m_kind)) return true;
             Vector4 box = GlyphBox(g);
             int x0 = (int)Math.Floor(box.x / PeakCell), x1 = (int)Math.Floor(box.z / PeakCell);
             int y0 = (int)Math.Floor(box.y / PeakCell), y1 = (int)Math.Floor(box.w / PeakCell);
@@ -1195,6 +1204,13 @@ namespace Atlas
         private static bool IsTree(Kind kind) =>
             kind == Kind.Broadleaf || kind == Kind.Conifer || kind == Kind.PlainsTree || kind == Kind.GiantTree
             || kind == Kind.SmallTree || kind == Kind.Oak;
+
+        // The glyphs a pin limits by how much of it they cover (LimitMarkCover,
+        // DropHiddenBehindMarks), never by refusing them a place: the trees and the swamp's dead
+        // trees, which close-ups replay from the sheet. Refused while placing, a dead tree let the
+        // next one in its gap stand and so on along the row, so a pin moved dead trees far from
+        // it and no placement could be kept for other pins (Startwork).
+        private static bool GivesWayAsTree(Kind kind) => IsTree(kind) || kind == Kind.DeadTree;
 
         // The coastline is traced on vanilla's own heights, unsmoothed, so it runs where vanilla's
         // map puts the water's edge: every island, lake, pond and swamp pool stays. Only single map
@@ -2733,7 +2749,8 @@ namespace Atlas
         // every close-up draw the same trees, each at its level's size, the middle between its
         // foot and its crown's centre on the pixel (CopseLift) with a hashed jitter inside it
         // (CopseJitter), so it is true to the 12 m pixel. Kept off the shore, rivers, steep ground
-        // (as the Meadows' woods), the hills and peaks (ClearOfPlaced) and the pins (Add).
+        // (as the Meadows' woods) and the hills and peaks (ClearOfPlaced); the pins limit them as
+        // every tree afterwards (LimitMarkCover).
         private void PlaceCopses()
         {
             int[] copses = m_world.m_copses;
@@ -2940,7 +2957,8 @@ namespace Atlas
             });
         }
 
-        // The glyphs no pin can take out (Startwork): relief, trees and mist banks.
+        // Every glyph but the pins, placed without reading them (Startwork): the pins take out or
+        // limit what they must afterwards (PlaceGlyphs).
         private void PlacePinFree()
         {
             PlaceSummitsAndHills();
@@ -2954,11 +2972,6 @@ namespace Atlas
             }
             PlaceTrees();
             PlaceMist();
-        }
-
-        // The glyphs placed after PlacePinFree's, and the pins among them all.
-        private void PlaceGlyphs()
-        {
             PlaceDeadTrees();
             // Mistlands: crags on the real summits (PlaceSummitSpire) and filler crags on the steep,
             // broken ground only, clear of the summits; high flat plateaus are not crags. Some
@@ -3008,14 +3021,19 @@ namespace Atlas
                 if (s.m_water < FloeRadius(G, s.m_seed) + FloeShoreGap || !m_world.IsIceWater(s.m_worldX, s.m_worldZ)) return;
                 m_floes.Add(new Glyph { m_x = s.m_x, m_y = s.m_y, m_size = G, m_kind = Kind.IceFloe, m_seed = s.m_seed });
             });
-            // The pins among the rest: glyphs placed without Add that would hide one give way too;
-            // the relief in front of each takes its share of the cover first (OrderMarks), the
-            // trees the rest (LimitMarkCover). Close-ups take the order and the relief's cover
-            // from the record.
+        }
+
+        // The pins among the rest: glyphs that would hide one give way (ClearOfMarks); the relief
+        // in front of each takes its share of the cover first (OrderMarks), the dead trees and
+        // then the trees the rest (LimitMarkCover). Close-ups take the order and the cover of the
+        // relief and dead trees from the record.
+        private void PlaceGlyphs()
+        {
             if (m_marks.Count > 0)
             {
                 m_glyphs.RemoveAll(g => !ClearOfMarks(g));
                 OrderMarks();
+                LimitMarkCover(0, deadTrees: true);
                 LimitMarkCover(0);
                 DropHiddenBehindMarks(0);
                 if (m_record != null)

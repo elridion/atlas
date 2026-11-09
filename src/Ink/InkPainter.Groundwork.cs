@@ -35,15 +35,14 @@ namespace Atlas
 
         /// <summary>
         /// Everything a paint has done when its pin-free stages end (StartPinFree: the mist, the
-        /// ground fills laid before any glyph, lava, rivers, coast, and the placing of the
-        /// summits, hills, massifs, trees and mist banks), kept with the groundwork so a repaint
-        /// for other pins starts there: about 2.7 s of a 6.3 s repaint in game. No pin is read
-        /// before that point: the only test of pins while placing is ClearOfMarks in Add, which
-        /// passes every relief and tree glyph, so the first glyphs a pin can take out are the dead
-        /// trees placed right after. The canvas planes are kept whole (bodies that are still blank
-        /// as null), the glyph and mark lists as copies, the record's calls as InkRecord.Start;
-        /// the peak bases and mist banks are filed again from the record's own lists, which were
-        /// added in the same order.
+        /// ground fills laid before any glyph, lava, rivers, coast, and the placing of every glyph
+        /// but the pins), kept with the groundwork so a repaint for other pins starts at the pins:
+        /// about 2.8 s of a 6.3 s repaint in game. No pin is read before that point: the only test
+        /// of pins while placing is ClearOfMarks in Add, which passes relief, trees and dead trees
+        /// (GivesWayAsTree), so pins take out or limit glyphs only afterwards (PlaceGlyphs). The
+        /// canvas planes are kept whole (bodies that are still blank as null), the glyph and mark
+        /// lists as copies, the record's calls as InkRecord.Start; the peak bases and mist banks
+        /// are filed again from the record's own lists, which were added in the same order.
         /// </summary>
         private sealed class Startwork
         {
@@ -55,6 +54,8 @@ namespace Atlas
             public Vector4[] m_hillBoxes;
             public Vector3[] m_spires;
             public float[] m_massifPeaks;
+            public Glyph[] m_thorns;
+            public Glyph[] m_floes;
             public InkRecord.Start m_record;
         }
 
@@ -79,6 +80,8 @@ namespace Atlas
             m_hillBoxes.AddRange(start.m_hillBoxes);
             m_spires.AddRange(start.m_spires);
             m_massifPeaks.AddRange(start.m_massifPeaks);
+            m_thorns.AddRange(start.m_thorns);
+            m_floes.AddRange(start.m_floes);
             start.m_record.CopyInto(m_record);
             foreach (Vector3 bank in start.m_record.m_mistBanks) AddMistBank(bank);
             foreach (Vector4 peak in start.m_record.m_peaks) AddPeakBase(peak);
@@ -103,6 +106,8 @@ namespace Atlas
                 m_hillBoxes = m_hillBoxes.ToArray(),
                 m_spires = m_spires.ToArray(),
                 m_massifPeaks = m_massifPeaks.ToArray(),
+                m_thorns = m_thorns.ToArray(),
+                m_floes = m_floes.ToArray(),
                 m_record = new InkRecord.Start(m_record),
             };
         }

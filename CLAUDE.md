@@ -152,9 +152,9 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   kept, so the record keeps each pin's order and the cover of the relief and dead trees in front
   (`m_pinOrders`, `m_pinCovers`), and a close-up scatters every tree that can reach a pin near it
   (`ScatterArea`, `PinInfluence` round each pin, the ground sampled that far too), so tiles
-  decide alike. Any other glyph drawn after a pin whose footprint reaches its
-  core (`MarkCore` 0.3 of its box in from each side) is left out once every glyph is placed
-  (`ClearOfMarks`; cores filed in `PeakCell` squares). A broad clearing round
+  decide alike. A mist bank drawn after a pin whose footprint reaches its core (`MarkCore`
+  0.3 of its box in from each side) is left out once every glyph is placed (`ClearOfMarks`,
+  cores filed in `PeakCell` squares); every other kind is relief, a tree or a dead tree. A broad clearing round
   every pin was too aggressive. Relief (peaks, hills, spires, sea thorns, `IsRelief`) is never
   left out, as a range must still read as one (the user's requirement); a pin drawn in front of
   a peak scrapes only what lies under its body.
@@ -1269,7 +1269,7 @@ Stack, build, verification and git workflow are shared by all mods: see `../CLAU
   the water, giving way to a higher-priority neighbour within `ScarpGap` of their lengths
   (`ScarpCrowded`, hashes only). Its edge follows `Downhill`, the heights a map pixel either
   side (the world's on the sheet, the tile's own in close-ups), so the marks follow the terrain.
-  Scarps keep off mist banks' lines (`ClearOfMist`; the banks are found before the ground fills,
+  Scarps keep off mist banks' lines (`ClearOfMist`; the banks are found first,
   `FindMist`, and recorded, `InkRecord.AddMist`, for close-ups), off river courses, and
   `ScarpClear` off every placed glyph's drawn footprint (`ClearOfGlyphs`, `GlyphBox`; a giant
   tree's as its crown and its trunk apart, `GiantCrownFoot`, `GiantTrunkHalf`): placed among

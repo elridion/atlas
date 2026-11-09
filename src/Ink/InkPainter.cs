@@ -3096,8 +3096,8 @@ namespace Atlas
         // read as heavy padding. Banks lie in the mist area's hollows and thin out with height over
         // the ground round them, as the game's mist fills the hollows and leaves the knolls clear,
         // and keep off steep crag ground. Found on the sheet only; close-ups replay them.
-        // The banks are found before the ground fills (FindMist), so the scarps can keep off them,
-        // and join the glyphs here.
+        // The banks are found first (FindMist) and join the glyphs here; the scarps, laid once every
+        // glyph is placed, keep off their lines (ClearOfMist).
         private void PlaceMist() => m_glyphs.AddRange(m_mist);
 
         private void FindMist()

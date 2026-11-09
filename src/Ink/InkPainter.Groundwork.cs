@@ -37,9 +37,10 @@ namespace Atlas
         /// Everything a paint has done when its pin-free stages end (StartPinFree: the mist, the
         /// ground fills laid before any glyph, lava, rivers, coast, and the placing of every glyph
         /// but the pins), kept with the groundwork so a repaint for other pins starts at the pins:
-        /// about 2.8 s of a 6.3 s repaint in game. No pin is read before that point: the only test
-        /// of pins while placing is ClearOfMarks in Add, which passes relief, trees and dead trees
-        /// (GivesWayAsTree), so pins take out or limit glyphs only afterwards (PlaceGlyphs). The
+        /// a repaint went from 6.3 to 3.7 s in game with it. No pin is read before that point: the
+        /// only test of pins while placing is ClearOfMarks in Add, which passes relief, trees and
+        /// dead trees (GivesWayAsTree), so pins limit glyphs only afterwards (PlaceGlyphs), where
+        /// ClearOfMarks can still take out mist banks alone. The
         /// canvas planes are kept whole (bodies that are still blank as null), the glyph and mark
         /// lists as copies, the record's calls as InkRecord.Start; the peak bases and mist banks
         /// are filed again from the record's own lists, which were added in the same order.
@@ -89,13 +90,22 @@ namespace Atlas
             return true;
         }
 
+        // A plain loop: Array.Exists calls a delegate per byte, about 100 ms under Mono over the
+        // four body planes, which are still blank here and so scanned to the end.
+        private static bool IsBlank(byte[] plane)
+        {
+            for (int i = 0; i < plane.Length; i++)
+                if (plane[i] != 0) return false;
+            return true;
+        }
+
         private void KeepStartwork()
         {
             if (m_groundwork == null || m_record == null || m_record.CurrentGroup != -1 || m_canvas.RecordsOnly) return;
             byte[][] planes = CanvasPlanes();
             var kept = new byte[planes.Length][];
             for (int k = 0; k < planes.Length; k++)
-                if (Array.Exists(planes[k], b => b != 0)) kept[k] = (byte[])planes[k].Clone();
+                if (!IsBlank(planes[k])) kept[k] = (byte[])planes[k].Clone();
             m_groundwork.m_start = new Startwork
             {
                 m_planes = kept,

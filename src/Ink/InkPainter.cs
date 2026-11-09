@@ -1078,18 +1078,13 @@ namespace Atlas
                 m_cancel.ThrowIfCancellationRequested();
                 KeepGroundwork();
             }
-            FindMist();
-            m_canvas.m_layer = InkLayer.Background;
-            DrawBackground();
-            m_canvas.m_layer = InkLayer.Lava;
-            DrawLava();
-            // Rivers and the coast go under the glyphs, so a crown standing over a bank or a
-            // shore hides the line behind it instead of being cut by it. Trees keep off the
-            // rivers' courses (m_riverMask), so streams still run between them.
-            m_canvas.m_layer = InkLayer.River;
-            DrawRivers();
-            m_canvas.m_layer = InkLayer.Coast;
-            DrawCoast();
+            // Nothing up to the end of StartPinFree reads the pins either: a repaint starts from
+            // where the last paint of the world left it (Startwork).
+            if (!TakeStartwork())
+            {
+                StartPinFree();
+                KeepStartwork();
+            }
             m_cancel.ThrowIfCancellationRequested();
             PlaceGlyphs();
             m_cancel.ThrowIfCancellationRequested();
@@ -1150,6 +1145,24 @@ namespace Atlas
             m_cancel.ThrowIfCancellationRequested();
             m_canvas.m_layer = InkLayer.Frame;
             DrawFrame();
+        }
+
+        private void StartPinFree()
+        {
+            FindMist();
+            m_canvas.m_layer = InkLayer.Background;
+            DrawBackground();
+            m_canvas.m_layer = InkLayer.Lava;
+            DrawLava();
+            // Rivers and the coast go under the glyphs, so a crown standing over a bank or a
+            // shore hides the line behind it instead of being cut by it. Trees keep off the
+            // rivers' courses (m_riverMask), so streams still run between them.
+            m_canvas.m_layer = InkLayer.River;
+            DrawRivers();
+            m_canvas.m_layer = InkLayer.Coast;
+            DrawCoast();
+            m_cancel.ThrowIfCancellationRequested();
+            PlacePinFree();
         }
 
         // The rough shape of a glyph's ink in its footprint (GlyphBox), over which the sheet's ink
@@ -2927,7 +2940,8 @@ namespace Atlas
             });
         }
 
-        private void PlaceGlyphs()
+        // The glyphs no pin can take out (Startwork): relief, trees and mist banks.
+        private void PlacePinFree()
         {
             PlaceSummitsAndHills();
             PlaceMassifs();
@@ -2940,6 +2954,11 @@ namespace Atlas
             }
             PlaceTrees();
             PlaceMist();
+        }
+
+        // The glyphs placed after PlacePinFree's, and the pins among them all.
+        private void PlaceGlyphs()
+        {
             PlaceDeadTrees();
             // Mistlands: crags on the real summits (PlaceSummitSpire) and filler crags on the steep,
             // broken ground only, clear of the summits; high flat plateaus are not crags. Some

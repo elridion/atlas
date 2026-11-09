@@ -199,6 +199,40 @@ namespace Atlas
             return copy;
         }
 
+        /// <summary>
+        /// What a paint recorded up to the end of its pin-free stages (InkPainter's Startwork), so
+        /// a later paint of the same world can start from it: the calls and points so far and the
+        /// peaks and mist banks. Taken while no group is open and before any wave, glyph box, sea
+        /// mark or fog mark is recorded, so nothing else needs keeping.
+        /// </summary>
+        internal sealed class Start
+        {
+            private Call[] m_calls;
+            private Vector2[] m_points;
+            private float[] m_groupFeet;
+            public Vector4[] m_peaks;
+            public Vector3[] m_mistBanks;
+
+            public Start(InkRecord from)
+            {
+                m_calls = from.m_calls.ToArray();
+                m_points = from.m_points.ToArray();
+                m_groupFeet = from.m_groupFeet.ToArray();
+                m_peaks = from.m_peaks.ToArray();
+                m_mistBanks = from.m_mistBanks.ToArray();
+            }
+
+            // Only into a fresh record, before anything is recorded.
+            public void CopyInto(InkRecord to)
+            {
+                to.m_calls.AddRange(m_calls);
+                to.m_points.AddRange(m_points);
+                to.m_groupFeet.AddRange(m_groupFeet);
+                to.m_peaks.AddRange(m_peaks);
+                to.m_mistBanks.AddRange(m_mistBanks);
+            }
+        }
+
         // Calls visit with the ends and width of every stroke of a layer touching the sheet
         // rectangle (each once). Scrapes are left out.
         public void Strokes(InkLayer layer, float left, float top, float right, float bottom, Action<Vector2, Vector2, float> visit)

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -28,6 +29,82 @@ namespace Atlas
             public Islet[] m_islets;
             // Set by the first paint that traces the water lines; null until then.
             public volatile Waterwork m_water;
+            // Set by the first paint that gets past its pin-free stages; null until then.
+            public volatile Startwork m_start;
+        }
+
+        /// <summary>
+        /// Everything a paint has done when its pin-free stages end (StartPinFree: the mist, the
+        /// ground fills laid before any glyph, lava, rivers, coast, and the placing of the
+        /// summits, hills, massifs, trees and mist banks), kept with the groundwork so a repaint
+        /// for other pins starts there: about 2.7 s of a 6.3 s repaint in game. No pin is read
+        /// before that point: the only test of pins while placing is ClearOfMarks in Add, which
+        /// passes every relief and tree glyph, so the first glyphs a pin can take out are the dead
+        /// trees placed right after. The canvas planes are kept whole (bodies that are still blank
+        /// as null), the glyph and mark lists as copies, the record's calls as InkRecord.Start;
+        /// the peak bases and mist banks are filed again from the record's own lists, which were
+        /// added in the same order.
+        /// </summary>
+        private sealed class Startwork
+        {
+            public byte[][] m_planes;
+            public byte[] m_riverMask;
+            public Glyph[] m_glyphs;
+            public Glyph[] m_mist;
+            public Vector4[] m_summits;
+            public Vector4[] m_hillBoxes;
+            public Vector3[] m_spires;
+            public float[] m_massifPeaks;
+            public InkRecord.Start m_record;
+        }
+
+        private byte[][] CanvasPlanes() => new[]
+        {
+            m_canvas.m_ink, m_canvas.m_body, m_canvas.m_bodyNorth, m_canvas.m_bodyMist, m_canvas.m_bodyWood,
+        };
+
+        // Starts this paint where the last paint of the world left its pin-free stages; false when
+        // there is none (or this paint records nothing, as the kept start includes its record).
+        private bool TakeStartwork()
+        {
+            Startwork start = m_groundwork?.m_start;
+            if (start == null || m_record == null || m_record.Count != 0) return false;
+            byte[][] planes = CanvasPlanes();
+            for (int k = 0; k < planes.Length; k++)
+                if (start.m_planes[k] != null) Buffer.BlockCopy(start.m_planes[k], 0, planes[k], 0, planes[k].Length);
+            m_riverMask = start.m_riverMask;
+            m_glyphs.AddRange(start.m_glyphs);
+            m_mist.AddRange(start.m_mist);
+            m_summits.AddRange(start.m_summits);
+            m_hillBoxes.AddRange(start.m_hillBoxes);
+            m_spires.AddRange(start.m_spires);
+            m_massifPeaks.AddRange(start.m_massifPeaks);
+            start.m_record.CopyInto(m_record);
+            foreach (Vector3 bank in start.m_record.m_mistBanks) AddMistBank(bank);
+            foreach (Vector4 peak in start.m_record.m_peaks) AddPeakBase(peak);
+            return true;
+        }
+
+        private void KeepStartwork()
+        {
+            if (m_groundwork == null || m_record == null || m_record.CurrentGroup != -1) return;
+            byte[][] planes = CanvasPlanes();
+            var kept = new byte[planes.Length][];
+            for (int k = 0; k < planes.Length; k++)
+                if (Array.Exists(planes[k], b => b != 0)) kept[k] = (byte[])planes[k].Clone();
+            m_groundwork.m_start = new Startwork
+            {
+                m_planes = kept,
+                // Written only by DrawRivers, before this point.
+                m_riverMask = m_riverMask,
+                m_glyphs = m_glyphs.ToArray(),
+                m_mist = m_mist.ToArray(),
+                m_summits = m_summits.ToArray(),
+                m_hillBoxes = m_hillBoxes.ToArray(),
+                m_spires = m_spires.ToArray(),
+                m_massifPeaks = m_massifPeaks.ToArray(),
+                m_record = new InkRecord.Start(m_record),
+            };
         }
 
         private sealed class Waterwork

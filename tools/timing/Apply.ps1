@@ -112,6 +112,13 @@ $p = (Resolve-Path $ip).Path; $t = [IO.File]::ReadAllText($p)
 $t = [regex]::Replace($t, "(Timing\.Stage\(""planes copied""\);(\r?\n))", "`$1            Timing.StagesEnd();`$2")
 [IO.File]::WriteAllText($p, $t, $enc)
 
+# The cell repaint (InkPainter.Repaint): its record-only run logs the stages above.
+$rp = 'src\Ink\InkPainter.Repaint.cs'
+Around $rp '            record.Seal(CanvasSize);' '' 'repaint: record sealed'
+Around $rp '            List<RectInt> rects = DirtyRects(dirty, record.CellsAcross);' '' 'repaint: cells compared'
+Edit-File $rp "            if (sheet == null || sheetRecord == null || record == null || record.Count != 0) return null;" "            Timing.Mark(""cell repaint started (worker)"");`n            Timing.StagesBegin();`n            if (sheet == null || sheetRecord == null || record == null || record.Count != 0) return null;"
+Edit-File $rp "            changed?.AddRange(rects);" "            Timing.Stage(""repaint: cells drawn"");`n            Timing.StagesEnd();`n            Timing.Mark(`$""repaint: {count} of {after.Length} cells, {rects.Count} rectangles"");`n            changed?.AddRange(rects);"
+
 # InkCanvas's pixel loops: each renamed <Name>Raw behind a wrapper that times it.
 $cp = (Resolve-Path 'src\Ink\InkCanvas.cs').Path; $t = [IO.File]::ReadAllText($cp)
 $nl = if ($t.Contains("`r`n")) { "`r`n" } else { "`n" }

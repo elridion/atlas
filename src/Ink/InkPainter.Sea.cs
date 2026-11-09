@@ -86,6 +86,8 @@ namespace Atlas
         private void DrawIllustrations()
         {
             int salt = unchecked(m_world.m_seed + IllustrationSalt * 7919);
+            // A record-only paint has no ink to read: InkNear asks the record, indexed so far.
+            if (m_canvas.RecordsOnly) m_record.Seal(CanvasSize);
             int n = CanvasSize / OpenCell;
             float centre = CanvasSize * 0.5f, ring = EdgeRadius / MetresPerPixel - FrameGap;
             var open = new byte[n * n];
@@ -256,9 +258,10 @@ namespace Atlas
                 if (SeaAt(box.m_left, box.m_top) != sea || SeaAt(box.m_right, box.m_top) != sea
                     || SeaAt(box.m_left, box.m_bottom) != sea || SeaAt(box.m_right, box.m_bottom) != sea) continue;
                 // The frame is inked after the marks, so InkNear cannot see it: the whole box,
-                // not only its spot, keeps StandInClear inside the frame's inner ring.
-                if (!InsideRing(box, centre, ring) || InkNear(box, StandInClear)) continue;
-                if (Crowded(figures, at, StandInFigureGap) || Crowded(standIns, at, StandInSpacing)) continue;
+                // not only its spot, keeps StandInClear inside the frame's inner ring. The
+                // spacings first: they are cheap, and InkNear in a record-only paint is not.
+                if (!InsideRing(box, centre, ring) || Crowded(figures, at, StandInFigureGap) || Crowded(standIns, at, StandInSpacing)) continue;
+                if (InkNear(box, StandInClear)) continue;
                 standIns.Add(at);
                 m_canvas.BeginGroup(at.y);
                 SeaGlyphs.Draw(m_canvas, kind, at.x, at.y);
@@ -378,11 +381,13 @@ namespace Atlas
             return new InkBox { m_left = left - x, m_top = top - y, m_right = right + 1 - x, m_bottom = bottom + 1 - y };
         }
 
-        // Whether any ink lies on the sheet within gap of the box.
+        // Whether any ink lies on the sheet within gap of the box. A record-only paint (Repaint)
+        // replays the calls so far over those pixels instead, which ink them as the sheet does.
         private bool InkNear(InkBox box, float gap)
         {
             int x0 = Mathf.Max(0, Mathf.FloorToInt(box.m_left - gap)), x1 = Mathf.Min(CanvasSize - 1, Mathf.CeilToInt(box.m_right + gap));
             int y0 = Mathf.Max(0, Mathf.FloorToInt(box.m_top - gap)), y1 = Mathf.Min(CanvasSize - 1, Mathf.CeilToInt(box.m_bottom + gap));
+            if (m_canvas.RecordsOnly) return m_record.InkIn(x0, y0, x1, y1);
             for (int y = y0; y <= y1; y++)
                 for (int x = x0; x <= x1; x++)
                     if (m_canvas.m_ink[y * CanvasSize + x] != 0) return true;

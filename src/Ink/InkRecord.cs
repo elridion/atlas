@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using UnityEngine;
 
 namespace Atlas
@@ -46,8 +47,11 @@ namespace Atlas
     {
         // Index cells, in sheet pixels. Calls spanning more than MaxCells cells (the frame rings)
         // go in a short list checked for every region instead.
-        private const int CellSize = 64;
+        internal const int CellSize = 64;
         private const int MaxCells = 16;
+        // How far past a call's Bounds the clipped replay and the cell hashes reach: Bounds keep a
+        // pixel for anti-aliasing, and a stretched ellipse's coverage can reach a little further.
+        private const float ReplaySlack = 2f;
 
         private enum Op : byte
         {
@@ -191,6 +195,10 @@ namespace Atlas
                 copy.m_calls[calls[k]] = c;
             }
             copy.m_pins = (SheetPin[])pins.Clone();
+            // The ticked pins' calls changed, so their cells hash differently.
+            copy.m_hashLock = new object();
+            copy.m_cellHashes = null;
+            copy.m_fades = null;
             // The fog's marks do not change with a tick (pins are not among them), only their key.
             copy.m_marks = new SheetMarks { m_key = key };
             copy.m_marks.m_trees.AddRange(m_marks.m_trees);
@@ -353,10 +361,15 @@ namespace Atlas
         }
 
         // Builds the spatial index once painting is done.
+        // A record-only paint (InkPainter.Repaint) also seals what it has so far before the sea's
+        // illustrations, which test for ink near them (InkIn); the calls after that are scanned
+        // in full until the final seal indexes everything again.
         public void Seal(int sheetSize)
         {
             m_cellsAcross = (sheetSize + CellSize - 1) / CellSize;
             m_cells = new List<int>[m_cellsAcross * m_cellsAcross];
+            m_wide.Clear();
+            m_sealed = m_calls.Count;
             for (int i = 0; i < m_calls.Count; i++)
             {
                 Bounds(m_calls[i], out float minX, out float minY, out float maxX, out float maxY);
@@ -505,6 +518,182 @@ namespace Atlas
                     break;
                 case Op.Pin: canvas.Pin((PinGlyph)(int)c.m_d, c.m_a, c.m_b, c.m_c, c.m_e > 0f); break;
             }
+        }
+
+        // The calls indexed by the last Seal (m_cells and m_wide hold no later ones).
+        private int m_sealed;
+        // Per index cell, an order-sensitive hash of every call that can touch the cell's pixels
+        // (CellHashes), and per body-marking erase drawn under a base fade the tint that set it.
+        private ulong[] m_cellHashes;
+        private Dictionary<int, int> m_fades;
+        // Not readonly only so WithChecks can give its copy a lock of its own.
+        private object m_hashLock = new object();
+
+        public int CellsAcross => m_cellsAcross;
+
+        // Per index cell (CellSize, rows of CellsAcross), a hash of the calls that can touch its
+        // pixels, in order, with what they draw (group ids left out: they shift as glyphs are
+        // added or left out elsewhere). Two sealed records whose hashes agree on a cell ink it
+        // alike, so a repaint for other pins (InkPainter.Repaint) draws again only the cells that
+        // differ. An erase that marks a body under a base fade also hashes the tint that set the
+        // fade, as that tint may lie outside the cell. Worked out once per record; the record must
+        // be sealed and is not changed after.
+        public ulong[] CellHashes()
+        {
+            lock (m_hashLock)
+            {
+                if (m_cellHashes != null) return m_cellHashes;
+                var hashes = new ulong[m_cellsAcross * m_cellsAcross];
+                var fades = new Dictionary<int, int>();
+                int tint = -1;
+                bool ramp = false;
+                for (int i = 0; i < m_calls.Count; i++)
+                {
+                    Call c = m_calls[i];
+                    ulong h = CallHash(c);
+                    if (MarksBody(c) && ramp)
+                    {
+                        fades[i] = tint;
+                        h = Mix(h ^ (CallHash(m_calls[tint]) * 0xC2B2AE3D27D4EB4FUL));
+                    }
+                    if (c.m_op == Op.Tint)
+                    {
+                        tint = i;
+                        if (c.m_body == BodyKind.Keep) ramp = true;
+                    }
+                    else if (c.m_op == Op.EraseOutline)
+                    {
+                        ramp = false;
+                    }
+                    Bounds(c, out float minX, out float minY, out float maxX, out float maxY);
+                    int x0 = Cell(minX - ReplaySlack), x1 = Cell(maxX + ReplaySlack);
+                    int y0 = Cell(minY - ReplaySlack), y1 = Cell(maxY + ReplaySlack);
+                    for (int y = y0; y <= y1; y++)
+                    {
+                        for (int x = x0; x <= x1; x++)
+                        {
+                            int cell = y * m_cellsAcross + x;
+                            hashes[cell] = (hashes[cell] ^ h) * 0x9E3779B97F4A7C15UL + 1UL;
+                        }
+                    }
+                }
+                m_fades = fades;
+                m_cellHashes = hashes;
+                return hashes;
+            }
+        }
+
+        // Draws onto canvas every call that can touch the sheet pixels [left, right) x [top,
+        // bottom), in order, so those pixels come out as a paint of the whole sheet left them:
+        // canvas is blank and a window of the sheet (InkCanvas.Window), since a canvas with an
+        // origin of its own rounds the shapes differently. Unlike Replay, it restores the base
+        // fade each body-marking erase saw when painted, which a tint outside the area may set.
+        public void ReplayClipped(InkCanvas canvas, int left, int top, int right, int bottom)
+        {
+            CellHashes();
+            var polygon = new List<Vector2>(16);
+            InkLayer was = canvas.m_layer;
+            foreach (int i in Picked(left - ReplaySlack, top - ReplaySlack, right + ReplaySlack, bottom + ReplaySlack))
+            {
+                Call c = m_calls[i];
+                if (!Touches(c, left, top, right, bottom)) continue;
+                if (MarksBody(c))
+                {
+                    if (m_fades.TryGetValue(i, out int t))
+                    {
+                        Call tint = m_calls[t];
+                        polygon.Clear();
+                        for (int k = 0; k < (int)tint.m_b; k++) polygon.Add(m_points[(int)tint.m_a + k]);
+                        canvas.RestoreFade(polygon, tint.m_c, tint.m_d, tint.m_f);
+                    }
+                    else
+                    {
+                        canvas.EndFade();
+                    }
+                }
+                canvas.m_layer = c.m_layer;
+                Draw(canvas, c, polygon);
+            }
+            canvas.m_layer = was;
+        }
+
+        // Whether any ink lies on the sheet pixels x0..x1, y0..y1 (inclusive) as the calls
+        // recorded so far draw it: what a record-only paint (InkPainter.Repaint) reads instead
+        // of its canvas. Replayed on a scratch canvas from the index of the last Seal and the
+        // calls after it. The ink plane does not depend on the base fade, so none is restored.
+        public bool InkIn(int x0, int y0, int x1, int y1)
+        {
+            int width = x1 + 1 - x0, height = y1 + 1 - y0;
+            if (width <= 0 || height <= 0) return false;
+            var canvas = InkCanvas.Window(m_cellsAcross * CellSize, x0, y0, width, height);
+            List<int> picked = Picked(x0 - ReplaySlack, y0 - ReplaySlack, x1 + 1 + ReplaySlack, y1 + 1 + ReplaySlack);
+            for (int i = m_sealed; i < m_calls.Count; i++) picked.Add(i);
+            var polygon = new List<Vector2>(16);
+            foreach (int i in picked)
+            {
+                Call c = m_calls[i];
+                if (!Touches(c, x0, y0, x1 + 1, y1 + 1)) continue;
+                canvas.m_layer = c.m_layer;
+                Draw(canvas, c, polygon);
+            }
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++)
+                    if (canvas.m_ink[(y - y0) * width + x - x0] != 0) return true;
+            return false;
+        }
+
+        // Whether a call's Bounds, grown by ReplaySlack, reach the pixels [left, right) x [top, bottom).
+        private bool Touches(Call c, int left, int top, int right, int bottom)
+        {
+            Bounds(c, out float minX, out float minY, out float maxX, out float maxY);
+            return maxX + ReplaySlack >= left && minX - ReplaySlack <= right && maxY + ReplaySlack >= top && minY - ReplaySlack <= bottom;
+        }
+
+        // An erase that marks a body, which a base fade set before it changes (InkCanvas.Lighten).
+        private static bool MarksBody(Call c) =>
+            (c.m_op == Op.Erase || c.m_op == Op.EraseEllipse || c.m_op == Op.EraseOutline)
+            && c.m_body != BodyKind.None && c.m_body != BodyKind.Keep;
+
+        private ulong CallHash(Call c)
+        {
+            ulong h = Mix(((ulong)c.m_op << 24) | ((ulong)c.m_layer << 16) | ((ulong)c.m_body << 8) | (ulong)c.m_land);
+            bool points = c.m_op == Op.Fill || c.m_op == Op.Erase || c.m_op == Op.Tint || c.m_op == Op.EraseOutline;
+            if (points)
+            {
+                int first = (int)c.m_a, count = (int)c.m_b;
+                h = Mix(h ^ (ulong)count);
+                for (int k = 0; k < count; k++)
+                {
+                    Vector2 p = m_points[first + k];
+                    h = Mix(h ^ Bits(p.x, p.y));
+                }
+            }
+            else
+            {
+                h = Mix(h ^ Bits(c.m_a, c.m_b));
+                h = Mix(h ^ Bits(c.m_c, c.m_d));
+            }
+            h = Mix(h ^ Bits(points ? c.m_c : 0f, points ? c.m_d : 0f));
+            return Mix(h ^ Bits(c.m_e, c.m_f));
+        }
+
+        private static ulong Bits(float a, float b) =>
+            ((ulong)new FloatBits { m_float = a }.m_bits << 32) | new FloatBits { m_float = b }.m_bits;
+
+        // A float's bits without allocating (BitConverter's bytes would, a million times a repaint).
+        [StructLayout(LayoutKind.Explicit)]
+        private struct FloatBits
+        {
+            [FieldOffset(0)] public float m_float;
+            [FieldOffset(0)] public uint m_bits;
+        }
+
+        // SplitMix64's finalizer.
+        private static ulong Mix(ulong z)
+        {
+            z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9UL;
+            z = (z ^ (z >> 27)) * 0x94D049BB133111EBUL;
+            return z ^ (z >> 31);
         }
 
         private int Cell(float coordinate) => Mathf.Clamp((int)(coordinate / CellSize), 0, m_cellsAcross - 1);

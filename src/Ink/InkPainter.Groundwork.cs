@@ -70,8 +70,9 @@ namespace Atlas
         {
             Startwork start = m_groundwork?.m_start;
             if (start == null || m_record == null || m_record.Count != 0) return false;
+            // A record-only canvas has no planes to restore (Repaint).
             byte[][] planes = CanvasPlanes();
-            for (int k = 0; k < planes.Length; k++)
+            for (int k = 0; k < planes.Length && !m_canvas.RecordsOnly; k++)
                 if (start.m_planes[k] != null) Buffer.BlockCopy(start.m_planes[k], 0, planes[k], 0, planes[k].Length);
             m_riverMask = start.m_riverMask;
             m_glyphs.AddRange(start.m_glyphs);
@@ -90,7 +91,7 @@ namespace Atlas
 
         private void KeepStartwork()
         {
-            if (m_groundwork == null || m_record == null || m_record.CurrentGroup != -1) return;
+            if (m_groundwork == null || m_record == null || m_record.CurrentGroup != -1 || m_canvas.RecordsOnly) return;
             byte[][] planes = CanvasPlanes();
             var kept = new byte[planes.Length][];
             for (int k = 0; k < planes.Length; k++)

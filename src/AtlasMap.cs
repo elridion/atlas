@@ -389,6 +389,12 @@ namespace Atlas
                 bool recheck = s_sheet != null && s_marks != null && s_record != null && s_record.m_marks.m_key == s_rawKey
                     && InkPainter.OnlyChecksDiffer(s_record.m_pins, pins);
                 InkRecord sheetRecord = recheck ? s_record : null;
+                // Other pins: the shown sheet and its record, when they belong together, let the
+                // repaint draw again only where the drawing changes (InkPainter.Repaint). A cached
+                // sheet shown while the world's alt biomes were not read in this session may not
+                // be the drawing its record makes, so then the whole sheet is painted.
+                InkRecord lastRecord = !recheck && s_sheet != null && s_record != null && s_record.m_marks.m_key == s_rawKey
+                    && source.m_grove != null ? s_record : null;
                 byte[] sheetInk = s_sheet;
                 InkDensity sheetDensity = s_sheetDensity;
                 Func<PaintResult> paint = () =>
@@ -401,6 +407,20 @@ namespace Atlas
                         changed = new System.Collections.Generic.List<RectInt>();
                         ink = InkPainter.Recheck(sheetInk, sheetRecord, pins, key, cancel, changed, out record);
                         if (ink == null) changed = null;
+                    }
+                    if (ink == null && lastRecord != null)
+                    {
+                        // Any failure here only costs the time: the whole sheet is painted instead.
+                        try
+                        {
+                            record = new InkRecord();
+                            ink = InkPainter.Repaint(source, cancel, sheetInk, lastRecord, record, pins, null);
+                        }
+                        catch (Exception e) when (!(e is OperationCanceledException))
+                        {
+                            Jotunn.Logger.LogWarning($"The atlas could not repaint only the changed part: {e}");
+                            ink = null;
+                        }
                     }
                     if (ink == null)
                     {

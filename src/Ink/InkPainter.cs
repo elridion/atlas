@@ -1019,11 +1019,12 @@ namespace Atlas
             public float m_shore, m_water, m_woodDistance;
         }
 
-        private InkPainter(WorldSource world, CancellationToken cancel)
+        // recordOnly: a painter whose canvas only records (Repaint).
+        private InkPainter(WorldSource world, CancellationToken cancel, bool recordOnly = false)
         {
             m_world = world;
             m_cancel = cancel;
-            m_canvas = new InkCanvas(CanvasSize);
+            m_canvas = recordOnly ? InkCanvas.RecordOnly(CanvasSize) : new InkCanvas(CanvasSize);
             m_right = m_bottom = CanvasSize;
         }
 
@@ -1094,6 +1095,12 @@ namespace Atlas
                 StartPinFree();
                 KeepStartwork();
             }
+            RunFromPins();
+        }
+
+        // The paint from the pins on: everything Run does once the pin-free start is drawn.
+        private void RunFromPins()
+        {
             m_cancel.ThrowIfCancellationRequested();
             PlaceGlyphs();
             m_cancel.ThrowIfCancellationRequested();

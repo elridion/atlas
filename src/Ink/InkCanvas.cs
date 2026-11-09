@@ -86,6 +86,8 @@ namespace Atlas
         {
             m_width = width;
             m_height = height;
+            m_extentWidth = width;
+            m_extentHeight = height;
             m_ink = new byte[width * height];
             m_body = new byte[width * height];
             m_bodyNorth = new byte[width * height];
@@ -95,6 +97,47 @@ namespace Atlas
             m_originX = originX;
             m_originY = originY;
             m_scale = scale;
+        }
+
+        // A canvas that only records its calls, with no pixels at all (InkPainter.Repaint, which
+        // rasterizes only where the new record differs from the last one). Its planes are empty.
+        private readonly bool m_recordOnly;
+
+        public bool RecordsOnly => m_recordOnly;
+
+        public static InkCanvas RecordOnly(int size) => new InkCanvas(size, true);
+
+        private InkCanvas(int size, bool recordOnly)
+        {
+            m_width = size;
+            m_height = size;
+            m_extentWidth = size;
+            m_extentHeight = size;
+            m_ink = m_body = m_bodyNorth = m_bodyMist = m_bodyWood = m_pinInk = new byte[0];
+            m_scale = 1f;
+            m_recordOnly = recordOnly;
+        }
+
+        // A window's first pixel on the sheet, and the size of the whole sheet it is part of. A
+        // canvas of the whole sheet (or with an origin of its own) has its first pixel at 0, 0 and
+        // is its own extent.
+        private readonly int m_left, m_top;
+        private readonly int m_extentWidth, m_extentHeight;
+
+        // Part of a sheet canvas (origin 0, scale 1, extent pixels a side): only the pixels
+        // [left, left + width) x [top, top + height) are kept, each drawn exactly as a canvas of
+        // the whole sheet draws it. A canvas with its own origin draws the same calls a hair
+        // differently: subtracting the origin rounds the shapes' coordinates.
+        public static InkCanvas Window(int extent, int left, int top, int width, int height) =>
+            new InkCanvas(extent, left, top, width, height);
+
+        private InkCanvas(int extent, int left, int top, int width, int height)
+            : this(width, height, 0f, 0f, 1f)
+        {
+            m_left = left;
+            m_top = top;
+            m_extentWidth = extent;
+            m_extentHeight = extent;
         }
 
         // The body mask a kind marks (None has none).
@@ -178,6 +221,7 @@ namespace Atlas
         public void Stroke(float x0, float y0, float x1, float y1, float width, float strength = 1f)
         {
             m_record?.Stroke(m_layer, x0, y0, x1, y1, width, strength, erase: false);
+            if (m_recordOnly) return;
             Pieces(x0, y0, x1, y1, width * m_penScale * m_scale, strength, erase: false);
         }
 
@@ -185,6 +229,7 @@ namespace Atlas
         public void Scrape(float x0, float y0, float x1, float y1, float width)
         {
             m_record?.Stroke(m_layer, x0, y0, x1, y1, width, 1f, erase: true);
+            if (m_recordOnly) return;
             Pieces(x0, y0, x1, y1, width * m_penScale * m_scale, 1f, erase: true);
         }
 
@@ -215,6 +260,7 @@ namespace Atlas
         public void Dot(float cx, float cy, float radius, float strength = 1f)
         {
             m_record?.Ellipse(m_layer, cx, cy, radius, radius, strength, erase: false);
+            if (m_recordOnly) return;
             Vector2 c = Point(new Vector2(cx, cy));
             Ellipse(c.x, c.y, radius * m_scale, radius * m_scale, strength, erase: false);
         }
@@ -222,6 +268,7 @@ namespace Atlas
         public void EraseEllipse(float cx, float cy, float rx, float ry)
         {
             m_record?.Ellipse(m_layer, cx, cy, rx, ry, 1f, erase: true, m_markBody, m_woodLand);
+            if (m_recordOnly) return;
             m_erasingPolygon = true;
             try
             {
@@ -237,6 +284,7 @@ namespace Atlas
         public void Ring(float cx, float cy, float rx, float ry, float width, float strength = 1f)
         {
             m_record?.Ring(m_layer, cx, cy, rx, ry, width, strength);
+            if (m_recordOnly) return;
             if (m_warp != null)
             {
                 // Traced round as pen strokes, so the ring wavers with the rest of the pin.
@@ -257,6 +305,7 @@ namespace Atlas
         public void Fill(IList<Vector2> polygon, float strength = 1f)
         {
             m_record?.Polygon(m_layer, polygon, strength, erase: false);
+            if (m_recordOnly) return;
             Polygon(polygon, strength, erase: false);
         }
 
@@ -268,6 +317,7 @@ namespace Atlas
         public void Pin(PinGlyph glyph, float left, float top, float size, bool struck)
         {
             m_record?.Pin(m_layer, glyph, left, top, size, struck);
+            if (m_recordOnly) return;
             // The waver and the scrape are seeded by the pin's sheet box, before a close-up
             // rescales it, so every close-up wavers and scrapes the pin as the sheet does.
             int seed = Noise.HashInt(Mathf.RoundToInt(left * 4f), Mathf.RoundToInt(top * 4f), 7411) | 1;
@@ -292,12 +342,12 @@ namespace Atlas
             for (int y = 0; y < pixels; y++)
             {
                 int py = y0 + y;
-                if (py < 0 || py >= m_height) continue;
+                if (py < m_top || py >= m_top + m_height) continue;
                 for (int x = 0; x < pixels; x++)
                 {
                     int px = x0 + x;
-                    if (px < 0 || px >= m_width) continue;
-                    int i = py * m_width + px, j = y * pixels + x;
+                    if (px < m_left || px >= m_left + m_width) continue;
+                    int i = (py - m_top) * m_width + px - m_left, j = y * pixels + x;
                     if (mark.m_body[j] > m_pinShield[i]) m_pinShield[i] = mark.m_body[j];
                     float keep = 1f - mark.m_body[j] / 255f;
                     if (keep < 1f)
@@ -320,6 +370,7 @@ namespace Atlas
         public void Erase(IList<Vector2> polygon)
         {
             m_record?.Polygon(m_layer, polygon, 1f, erase: true, body: m_markBody, land: m_woodLand);
+            if (m_recordOnly) return;
             Polygon(polygon, 1f, erase: true);
         }
 
@@ -331,6 +382,7 @@ namespace Atlas
         public void EraseOutline(IList<Vector2> outline, float grow)
         {
             m_record?.Outline(m_layer, outline, grow, m_markBody, m_woodLand);
+            if (m_recordOnly) return;
             m_erasingPolygon = true;
             try
             {
@@ -381,9 +433,14 @@ namespace Atlas
                 maxYf = Math.Max(maxYf, p.y);
             }
             float reach = Math.Max(grow, 0f) + 1f;
-            int minX = Math.Max(0, (int)(minXf - reach)), maxX = Math.Min(m_width - 1, (int)(maxXf + reach));
-            int minY = Math.Max(0, (int)(minYf - reach)), maxY = Math.Min(m_height - 1, (int)(maxYf + reach));
+            // The edge grid is laid over the outline's box on the whole sheet, so a window files
+            // every edge in the cells a canvas of the whole sheet does; only its pixels are drawn.
+            int minX = Math.Max(0, (int)(minXf - reach)), maxX = Math.Min(m_extentWidth - 1, (int)(maxXf + reach));
+            int minY = Math.Max(0, (int)(minYf - reach)), maxY = Math.Min(m_extentHeight - 1, (int)(maxYf + reach));
             if (minX > maxX || minY > maxY) return;
+            int fromX = Math.Max(minX, m_left), toX = Math.Min(maxX, m_left + m_width - 1);
+            int fromY = Math.Max(minY, m_top), toY = Math.Min(maxY, m_top + m_height - 1);
+            if (fromX > toX || fromY > toY) return;
             LoadEdges(polygon);
             // Beyond this distance from every edge a pixel's coverage is at least 1 inside and at
             // most 0 outside, so its exact distance changes nothing (OutlineSlack keeps rounding
@@ -395,7 +452,7 @@ namespace Atlas
             int[] cellStart = m_cellStart, cellEdges = m_cellEdges;
             if (m_crossings.Length < count) m_crossings = new float[count];
             float[] crossings = m_crossings;
-            for (int y = minY; y <= maxY; y++)
+            for (int y = fromY; y <= toY; y++)
             {
                 float py = y + 0.5f;
                 // The row's crossings, sorted: a pixel is inside when an odd number lie past it.
@@ -410,8 +467,8 @@ namespace Atlas
                 if (crossed > 1) Array.Sort(crossings, 0, crossed);
                 int passed = 0;
                 int cellRow = (y - minY) / OutlineCell * cellsX;
-                int row = y * m_width;
-                for (int x = minX; x <= maxX; x++)
+                int row = (y - m_top) * m_width - m_left;
+                for (int x = fromX; x <= toX; x++)
                 {
                     float px = x + 0.5f;
                     while (passed < crossed && !(px < crossings[passed])) passed++;
@@ -546,17 +603,8 @@ namespace Atlas
         public void Tint(IList<Vector2> polygon, BodyKind kind, float top, float depth, float drop)
         {
             m_record?.Tint(m_layer, polygon, kind, top, depth, drop);
-            float left = float.MaxValue, right = float.MinValue;
-            foreach (Vector2 p in polygon)
-            {
-                left = Math.Min(left, p.x);
-                right = Math.Max(right, p.x);
-            }
-            m_tintTop = top;
-            m_tintFade = Math.Max(depth, 0f);
-            m_tintDrop = Math.Max(drop, 0f);
-            m_tintCentre = 0.5f * (left + right);
-            m_tintHalf = Math.Max(0.5f * (right - left), 1e-3f);
+            if (m_recordOnly) return;
+            SetFade(polygon, top, depth, drop);
             if (kind == BodyKind.Keep)
             {
                 m_rampOn = true;
@@ -573,6 +621,32 @@ namespace Atlas
             }
         }
 
+        private void SetFade(IList<Vector2> polygon, float top, float depth, float drop)
+        {
+            float left = float.MaxValue, right = float.MinValue;
+            foreach (Vector2 p in polygon)
+            {
+                left = Math.Min(left, p.x);
+                right = Math.Max(right, p.x);
+            }
+            m_tintTop = top;
+            m_tintFade = Math.Max(depth, 0f);
+            m_tintDrop = Math.Max(drop, 0f);
+            m_tintCentre = 0.5f * (left + right);
+            m_tintHalf = Math.Max(0.5f * (right - left), 1e-3f);
+        }
+
+        // The fade a body-marking erase sees, as the sheet's painting left it (InkRecord's clipped
+        // replay): the last tint's arc, on when a Keep tint came after the last outline erase. A
+        // replay over part of the sheet may leave out the tint that set it.
+        internal void RestoreFade(IList<Vector2> polygon, float top, float depth, float drop)
+        {
+            SetFade(polygon, top, depth, drop);
+            m_rampOn = true;
+        }
+
+        internal void EndFade() => m_rampOn = false;
+
         // Set by a Keep tint: the next outline erase marks its body faded towards its base arc.
         private bool m_rampOn;
         // How far (sheet pixels) above a cone's base arc its body fades in from the ground's wash,
@@ -583,8 +657,8 @@ namespace Atlas
         // it TintSoft above, along a smoothstep.
         private float BaseKeep(int index)
         {
-            float sheetX = (index % m_width + 0.5f) / m_scale + m_originX;
-            float sheetY = (index / m_width + 0.5f) / m_scale + m_originY;
+            float sheetX = (index % m_width + m_left + 0.5f) / m_scale + m_originX;
+            float sheetY = (index / m_width + m_top + 0.5f) / m_scale + m_originY;
             float u = Math.Min(1f, Math.Abs(sheetX - m_tintCentre) / m_tintHalf);
             float arc = m_tintTop + m_tintDrop - (m_tintFade + m_tintDrop) * (1f - Mathf.Sqrt(1f - u * u));
             float keep = Mathf.Clamp01((arc - sheetY) / TintSoft);
@@ -634,10 +708,10 @@ namespace Atlas
             float r = width * 0.5f;
             float dx = x1 - x0, dy = y1 - y0;
             float lengthSqr = dx * dx + dy * dy;
-            int minX = Math.Max(0, (int)(Math.Min(x0, x1) - r - 1f));
-            int maxX = Math.Min(m_width - 1, (int)(Math.Max(x0, x1) + r + 1f));
-            int minY = Math.Max(0, (int)(Math.Min(y0, y1) - r - 1f));
-            int maxY = Math.Min(m_height - 1, (int)(Math.Max(y0, y1) + r + 1f));
+            int minX = Math.Max(m_left, (int)(Math.Min(x0, x1) - r - 1f));
+            int maxX = Math.Min(m_left + m_width - 1, (int)(Math.Max(x0, x1) + r + 1f));
+            int minY = Math.Max(m_top, (int)(Math.Min(y0, y1) - r - 1f));
+            int maxY = Math.Min(m_top + m_height - 1, (int)(Math.Max(y0, y1) + r + 1f));
             // Each row evaluates only the pixels within reach of the part of the segment level with
             // it, not the whole box: a long slanting stroke's box is mostly empty. A negative or NaN
             // strength would ink a pixel of negative coverage, so it keeps the box.
@@ -667,7 +741,7 @@ namespace Atlas
                     }
                     if (!Clip(lo - reach - 0.5, hi + reach, minX, maxX, out from, out to)) continue;
                 }
-                int row = y * m_width;
+                int row = (y - m_top) * m_width - m_left;
                 for (int x = from; x <= to; x++)
                 {
                     float px = x + 0.5f;
@@ -702,10 +776,10 @@ namespace Atlas
         private void RingPixels(float cx, float cy, float rx, float ry, float width, float strength)
         {
             float r = width * 0.5f;
-            int minX = Math.Max(0, (int)(cx - rx - r - 1f));
-            int maxX = Math.Min(m_width - 1, (int)(cx + rx + r + 1f));
-            int minY = Math.Max(0, (int)(cy - ry - r - 1f));
-            int maxY = Math.Min(m_height - 1, (int)(cy + ry + r + 1f));
+            int minX = Math.Max(m_left, (int)(cx - rx - r - 1f));
+            int maxX = Math.Min(m_left + m_width - 1, (int)(cx + rx + r + 1f));
+            int minY = Math.Max(m_top, (int)(cy - ry - r - 1f));
+            int maxY = Math.Min(m_top + m_height - 1, (int)(cy + ry + r + 1f));
             float scale = Math.Min(rx, ry);
             // Each row evaluates only the pixels near the ring, where the normalised radius lies
             // within (r + 0.5 + SpanSlack) / scale of 1, not the whole box: the frame's rings
@@ -749,7 +823,7 @@ namespace Atlas
 
         private void RingRow(int y, int from, int to, float cx, float rx, float ey, float r, float scale, float strength)
         {
-            int row = y * m_width;
+            int row = (y - m_top) * m_width - m_left;
             for (int x = from; x <= to; x++)
             {
                 float ex = (x + 0.5f - cx) / rx;
@@ -761,19 +835,20 @@ namespace Atlas
 
         private void Ellipse(float cx, float cy, float rx, float ry, float strength, bool erase)
         {
-            int minX = Math.Max(0, (int)(cx - rx - 1f));
-            int maxX = Math.Min(m_width - 1, (int)(cx + rx + 1f));
-            int minY = Math.Max(0, (int)(cy - ry - 1f));
-            int maxY = Math.Min(m_height - 1, (int)(cy + ry + 1f));
+            int minX = Math.Max(m_left, (int)(cx - rx - 1f));
+            int maxX = Math.Min(m_left + m_width - 1, (int)(cx + rx + 1f));
+            int minY = Math.Max(m_top, (int)(cy - ry - 1f));
+            int maxY = Math.Min(m_top + m_height - 1, (int)(cy + ry + 1f));
             float scale = Math.Min(rx, ry);
             for (int y = minY; y <= maxY; y++)
             {
+                int row = (y - m_top) * m_width - m_left;
                 for (int x = minX; x <= maxX; x++)
                 {
                     float ex = (x + 0.5f - cx) / rx, ey = (y + 0.5f - cy) / ry;
                     float coverage = (1f - Mathf.Sqrt(ex * ex + ey * ey)) * scale + 0.5f;
-                    if (erase) Lighten(y * m_width + x, coverage);
-                    else Darken(y * m_width + x, coverage * strength);
+                    if (erase) Lighten(row + x, coverage);
+                    else Darken(row + x, coverage * strength);
                 }
             }
         }
@@ -813,8 +888,8 @@ namespace Atlas
             }
             if (Math.Abs(area) < 1e-4f) return;
             float winding = Math.Sign(area);
-            int minX = Math.Max(0, (int)(minXf - 1f)), maxX = Math.Min(m_width - 1, (int)(maxXf + 1f));
-            int minY = Math.Max(0, (int)(minYf - 1f)), maxY = Math.Min(m_height - 1, (int)(maxYf + 1f));
+            int minX = Math.Max(m_left, (int)(minXf - 1f)), maxX = Math.Min(m_left + m_width - 1, (int)(maxXf + 1f));
+            int minY = Math.Max(m_top, (int)(minYf - 1f)), maxY = Math.Min(m_top + m_height - 1, (int)(maxYf + 1f));
             // The edges as arrays with their lengths (in the outline's squared-length array),
             // worked out once rather than per pixel; edges too short to have a direction are left
             // out. The division by the length stays a division: a multiplied inverse rounds
@@ -860,7 +935,7 @@ namespace Atlas
                     }
                     if (!(lo <= hi) || !Clip(lo - 0.5 - 1.0, hi + 1.0, minX, maxX, out from, out to)) continue;
                 }
-                int row = y * m_width;
+                int row = (y - m_top) * m_width - m_left;
                 for (int x = from; x <= to; x++)
                 {
                     float px = x + 0.5f;

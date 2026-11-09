@@ -16,9 +16,7 @@ namespace Atlas
     /// </summary>
     internal sealed partial class InkPainter
     {
-        // Pixels round a pin's box in the scratch canvas it is replayed on. Even, with the
-        // canvas's origin even too: Mathf.RoundToInt rounds halves to even, so only a shift by an
-        // even number of pixels puts the pin's box on the same pixels as on the sheet.
+        // Pixels round a pin's box in the window of the sheet it is replayed on.
         private const int RecheckMargin = 4;
 
         // Whether two pin lists are the same pins in the same order, at the same places with the
@@ -68,7 +66,9 @@ namespace Atlas
                 int x0 = Mathf.RoundToInt(box.x), y0 = Mathf.RoundToInt(box.y), pixels = Mathf.Max(4, Mathf.RoundToInt(box.z));
                 int left = (x0 - RecheckMargin) & ~1, top = (y0 - RecheckMargin) & ~1;
                 int width = x0 + pixels + RecheckMargin - left, height = y0 + pixels + RecheckMargin - top;
-                var canvas = new InkCanvas(width, height, left, top, 1f);
+                // A window of the sheet: a canvas with its own origin rounds the glyphs scraping
+                // the pin a hair differently.
+                InkCanvas canvas = InkCanvas.Window(n, left, top, width, height);
                 rechecked.Replay(canvas, x0 - 1, y0 - 1, x0 + pixels + 1, y0 + pixels + 1);
                 for (int y = Mathf.Max(0, y0); y < Mathf.Min(n, y0 + pixels); y++)
                     for (int x = Mathf.Max(0, x0); x < Mathf.Min(n, x0 + pixels); x++)

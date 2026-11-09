@@ -178,6 +178,13 @@ Velen (a 7 km disc: fog 285-359 ms laid against about 35 ms from disk, ink 344-3
 cache. Cold reads were not measured; both files are read while the world loads, about 2 s
 before the fog needs them in the last timing run.
 
+Ninth timing run (`f2bdd56`, everything through the fog and ink cache; Velen, the first
+session with this build, so fog and ink were laid, not read), *measured*, and confirmed by the
+user in game: pin-change repaints 1.04-1.06 s; 17 drawn close-ups kept on screen stale and none
+dropped per change; the ink patched on the GPU (18-23 tiles); the last stale close-up in view
+swapped 0.75 s after the change with the atlas open and 0.82 s with it closed (the closed
+catch-up redrew 17 tiles on every worker in 0.79 s).
+
 ## Why painting was slower in game than offline
 
 | Cause | Share | Evidence |

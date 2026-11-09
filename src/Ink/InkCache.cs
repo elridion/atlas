@@ -13,12 +13,13 @@ namespace Atlas
     /// seed and the drawing version, and carry the key of the pins drawn in; bump Version whenever the drawing changes, so old sheets are drawn again. The sea's
     /// marks, figures and stand-ins (their boxes, for the fog, and the glyph drawn, for its wash) and the marks
     /// the fog's edge shows or leaves out whole (SheetMarks) are kept in the header, ahead of the
-    /// sheet. Beside it lie the washed paper and the bare parchment, under the same checks.
+    /// sheet. Beside it lie the washed paper and the bare parchment, under the same checks, and
+    /// the last fog band and laid ink (LaidCache), which check Version too.
     /// </summary>
     internal static class InkCache
     {
         private const int Magic = 0x534C5441; // "ATLS"
-        private const int Version = 3;
+        internal const int Version = 3;
         // A file never holds more sea illustrations than this; more means it is damaged.
         private const int MostSeaMarks = 256;
         // Nor more marks of a kind (trees, glyphs, wave strokes) than this.

@@ -85,7 +85,7 @@ namespace Atlas
         // InkBlock sheet rows), not row by row, so a worker the game holds up stalls little.
         // The ink skips blocks of InkBlock sheet pixels wholly under opaque fog (FoggedBlocks).
         private const int FogRows = 32;
-        private const int InkBlock = 32;
+        internal const int InkBlock = 32;
 
         // The biome wash: per biome (in Land order) a tint and how far the paper is moved towards
         // it, the extra share in the woods, and the blur passes (each about 10 m) that soften it.
@@ -852,10 +852,15 @@ namespace Atlas
         // is that lay's own, or fromSheet with only the changed rectangles (sheet pixels) drawn
         // again (InkPainter.Repaint, Recheck). With no lay handed back, one laid from another
         // sheet, or a glimpse where it had none (or none where it had one), it is laid whole.
-        public static LaidInk LayInk(byte[] sheet, byte[] fromSheet, IList<RectInt> changed, IList<SeaMark> marks, byte[] glimpse, FogEdge edge)
+        public static LaidInk LayInk(byte[] sheet, byte[] fromSheet, IList<RectInt> changed, IList<SeaMark> marks, byte[] glimpse, FogEdge edge) =>
+            LayInkInto(null, sheet, fromSheet, changed, marks, glimpse, edge);
+
+        // LayInk, laid whole into spare (a buffer of InkBytes nothing else uses, or null for a
+        // new one) when no lay was handed back.
+        public static LaidInk LayInkInto(byte[] spare, byte[] sheet, byte[] fromSheet, IList<RectInt> changed, IList<SeaMark> marks, byte[] glimpse, FogEdge edge)
         {
             LaidInk last = Interlocked.Exchange(ref s_spareInk, null);
-            return Lay(last, last?.m_data, sheet, fromSheet, changed, marks, glimpse, edge);
+            return Lay(last, last?.m_data ?? spare, sheet, fromSheet, changed, marks, glimpse, edge);
         }
 
         /// <summary>
@@ -890,32 +895,71 @@ namespace Atlas
         public const int TilePixels = 256;
         public const int TilesAcross = InkPainter.CanvasSize / TilePixels;
         // The level whose premultiplied texels are kept with a lay: one texel per InkBlock block.
-        private const int KeptLevel = 5;
+        internal const int KeptLevel = 5;
         private static int s_laySerial;
+
+        // The bytes of a laid ink's pixels, every level.
+        public static int InkBytes
+        {
+            get
+            {
+                int total = 0;
+                for (int size = InkPainter.CanvasSize; size >= 1; size /= 2) total += size * size;
+                return total * 4;
+            }
+        }
+
+        // Worker thread. The ink InkWithMips lays, read back from the disk cache (LaidCache): its
+        // pixels and premultiplied level KeptLevel, laid for these inputs, with what a lay keeps
+        // of them worked out again (cleared ink, fogged blocks, sea washes), so the next lay goes
+        // on from it as from one laid here. null when data or coarse is not a laid ink's size.
+        public static LaidInk LoadedInk(byte[] data, byte[] coarse, byte[] sheet, IList<SeaMark> marks, byte[] glimpse, FogEdge edge)
+        {
+            int blocks = InkPainter.CanvasSize / InkBlock;
+            if (data == null || data.Length != InkBytes || coarse == null || coarse.Length != blocks * blocks * 4) return null;
+            LayInputs(null, marks, edge, out bool[] fogged, out byte[] hidden, out List<SeaMark> shown, out List<SeaWash> washes);
+            return new LaidInk
+            {
+                m_data = data,
+                m_serial = Interlocked.Increment(ref s_laySerial),
+                m_sheet = sheet,
+                m_glimpse = glimpse,
+                m_hidden = hidden,
+                m_fogged = fogged,
+                m_washMarks = shown,
+                m_washes = washes,
+                m_coarse = coarse,
+            };
+        }
+
+        // What a lay reads besides the sheet and the glimpse, worked out from the fog's decisions
+        // (edge): the blocks under opaque fog, the cleared ink, and the sea illustrations shown
+        // with their washes (last's where it showed the same mark).
+        private static void LayInputs(LaidInk last, IList<SeaMark> marks, FogEdge edge, out bool[] fogged, out byte[] hidden,
+            out List<SeaMark> shown, out List<SeaWash> washes)
+        {
+            fogged = FoggedBlocks(edge?.m_edge);
+            hidden = HiddenSeaInk(HiddenInk(edge), edge);
+            shown = new List<SeaMark>();
+            washes = new List<SeaWash>();
+            if (marks == null) return;
+            foreach (SeaMark mark in marks)
+            {
+                if (edge != null && edge.HidesSea(mark)) continue;
+                shown.Add(mark);
+                washes.Add(KeptWash(last, mark) ?? SeaWash.Build(mark));
+            }
+        }
 
         private static LaidInk Lay(LaidInk last, byte[] data, byte[] sheet, byte[] fromSheet, IList<RectInt> changed, IList<SeaMark> marks, byte[] glimpse, FogEdge edge)
         {
             int n = InkPainter.CanvasSize;
-            bool[] fogged = FoggedBlocks(edge?.m_edge);
             int blocks = n / InkBlock;
-            byte[] hidden = HiddenSeaInk(HiddenInk(edge), edge);
             int plane = n * n;
-            int total = 0;
-            for (int size = n; size >= 1; size /= 2) total += size * size;
             // Every byte is written below when laid whole, so a returned buffer serves as a new one.
-            if (data == null || data.Length != total * 4) data = new byte[total * 4];
+            if (data == null || data.Length != InkBytes) data = new byte[InkBytes];
             // The sea illustrations shown and their washes, each built once and kept with the lay.
-            var shown = new List<SeaMark>();
-            var washes = new List<SeaWash>();
-            if (marks != null)
-            {
-                foreach (SeaMark mark in marks)
-                {
-                    if (edge != null && edge.HidesSea(mark)) continue;
-                    shown.Add(mark);
-                    washes.Add(KeptWash(last, mark) ?? SeaWash.Build(mark));
-                }
-            }
+            LayInputs(last, marks, edge, out bool[] fogged, out byte[] hidden, out List<SeaMark> shown, out List<SeaWash> washes);
             // The blocks to lay again (rows from the south), or null for all.
             bool[] dirty = data == last?.m_data ? Unlaid(last, sheet, fromSheet, changed, glimpse, fogged, hidden, shown, washes) : null;
             Color32 peak = BodyColor(BodyKind.Mountain), northPeak = BodyColor(BodyKind.North);
@@ -1061,7 +1105,7 @@ namespace Atlas
         }
 
         // Each level's offset in a laid ink's pixels (RGBA), the first level first.
-        private static int[] LevelOffsets()
+        internal static int[] LevelOffsets()
         {
             int n = InkPainter.CanvasSize;
             var offsets = new List<int>();
@@ -1285,6 +1329,10 @@ namespace Atlas
         // caller must not touch it after.
         public static void ReturnInk(LaidInk laid) => Interlocked.Exchange(ref s_spareInk, laid);
 
+        // A lay handed back late (once the disk cache has written it), kept only if no later lay
+        // was handed back meanwhile. Any thread.
+        public static void ReturnInkIfNone(LaidInk laid) => Interlocked.CompareExchange(ref s_spareInk, laid, null);
+
         private static LaidInk s_spareInk;
 
         // Runs body(from, to) over a mip level's rows: in bands on the workers for the large
@@ -1402,12 +1450,11 @@ namespace Atlas
             var thin = new byte[n * n];
             // The glimpse's bare parchment: wherever the land is not explored (softened at the
             // explored edge); the fog lies over all of it but the band.
-            byte[] beyond = glimpse ?? new byte[n * n * 4];
+            var open = new byte[n * n];
             Bands(n, FogRows, (from, to) =>
             {
                 for (int i = from * n; i < to * n; i++)
                 {
-                    int o = i * 4, p = i * 3;
                     float a = 0f;
                     if (inside[i])
                     {
@@ -1427,6 +1474,28 @@ namespace Atlas
                         }
                     }
                     opacity[i] = ToByte(a * 255f);
+                    open[i] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
+                }
+            });
+            return FogOfBand(rgba, glimpse, parchment, new FogBase { m_opacity = opacity, m_thin = thin, m_unexplored = open, m_snapshot = snapshot },
+                marks, sheetMarks, glimpseBand);
+        }
+
+        // Worker thread. The fog Fog lays from its band (laid: opacity, thinning and the glimpse's
+        // opacity, a new FogBase with nothing else set but the snapshot), byte for byte: the
+        // buffers' colours from the parchment, then the marks judged. The disk cache keeps only
+        // the band (LaidCache), so a band read from it lays the same fog without working it out.
+        public static FogEdge FogOfBand(byte[] rgba, byte[] glimpse, byte[] parchment, FogBase laid, IList<SeaMark> marks, SheetMarks sheetMarks,
+            bool glimpseBand)
+        {
+            int n = FogSize;
+            byte[] opacity = laid.m_opacity, open = laid.m_unexplored;
+            byte[] beyond = glimpse ?? new byte[n * n * 4];
+            Bands(n, FogRows, (from, to) =>
+            {
+                for (int i = from * n; i < to * n; i++)
+                {
+                    int o = i * 4, p = i * 3;
                     rgba[o] = parchment[p];
                     rgba[o + 1] = parchment[p + 1];
                     rgba[o + 2] = parchment[p + 2];
@@ -1434,12 +1503,12 @@ namespace Atlas
                     beyond[o] = parchment[p];
                     beyond[o + 1] = parchment[p + 1];
                     beyond[o + 2] = parchment[p + 2];
-                    beyond[o + 3] = inside[i] ? ToByte(unexplored[i] * 255f) : (byte)0;
+                    beyond[o + 3] = open[i];
                 }
             });
             // Kept for Redecide; without the glimpse its alpha is overwritten below, so the marks
             // are judged against a copy of it.
-            var laid = new FogBase { m_opacity = opacity, m_thin = thin, m_snapshot = snapshot, m_beyond = glimpseBand ? null : (byte[])beyond.Clone() };
+            laid.m_beyond = glimpseBand ? null : (byte[])beyond.Clone();
             FogEdge result = Judge(laid, rgba, marks, sheetMarks, beyond);
             // Without the glimpse it takes the band's opacity: wherever it would show, the fog
             // lies over it. Not the fog's own once relief is lifted out of it: through the lift

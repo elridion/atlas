@@ -147,15 +147,18 @@ namespace Atlas
 
     /// <summary>
     /// The band Paper.Fog laid before judging any mark: its opacity before relief is lifted out
-    /// of it, its thinning, the snapshot the sea illustrations are judged on and, with the
-    /// Glimpse setting off, the glimpse as the marks are judged against it (with it on, that is
-    /// the laid glimpse itself). None of it depends on the sheet, so a new sheet's marks are
-    /// judged on it again (Paper.Redecide) instead of laying the band again. Read-only.
+    /// of it, its thinning, the glimpse's opacity (the unexplored land softened at the explored
+    /// edge, before the Glimpse setting is applied), the snapshot the sea illustrations are judged
+    /// on and, with the Glimpse setting off, the glimpse as the marks are judged against it (with
+    /// it on, that is the laid glimpse itself). None of it depends on the sheet, so a new sheet's
+    /// marks are judged on it again (Paper.Redecide) instead of laying the band again, and the
+    /// three planes are all the disk cache keeps of a fog (LaidCache). Read-only once laid.
     /// </summary>
     internal sealed class FogBase
     {
         public byte[] m_opacity;
         public byte[] m_thin;
+        public byte[] m_unexplored;
         public Snapshot m_snapshot;
         public byte[] m_beyond;
     }

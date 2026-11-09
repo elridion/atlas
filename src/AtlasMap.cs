@@ -94,6 +94,18 @@ namespace Atlas
         private static Snapshot s_fogSnapshot;
         private static Texture2D s_paper;
         private static Texture2D s_fog;
+        // The last fog band and laid ink on disk (LaidCache), read while the world loads; the
+        // first whole fog and the first ink lay take them when their keys match, else lay them.
+        private static Task<LaidCache.Band> s_bandFile;
+        private static Task<LaidCache.Ink> s_inkFile;
+        // The key of the band s_edge was judged on (null when unknown or the fog failed), and the
+        // keys of the band and ink on disk or being written, so the same is not written again.
+        private static byte[] s_bandKey;
+        private static byte[] s_bandSavedKey;
+        private static byte[] s_inkSavedKey;
+        // Whether the sheet stands for its pins in a later session (read from the disk cache, or
+        // drawn with the world's alt biome groves), so its laid ink may be cached as the sheet is.
+        private static bool s_sheetCacheable;
 
         // Close-ups: the decoded world and its sample cache, and the tiles drawn from them.
         private static readonly DetailTiles s_tiles = new DetailTiles();
@@ -289,6 +301,9 @@ namespace Atlas
                         m_paper = InkCache.LoadPaper(worldUid, seed),
                     };
                 });
+                // The fog and ink laid last, behind the sheet, for when their inputs turn out the same.
+                s_bandFile = Workers.RunFirst(() => LaidCache.LoadBand(LaidCache.BandPath(worldUid), seed));
+                s_inkFile = Workers.RunFirst(() => LaidCache.LoadInk(LaidCache.InkPath(worldUid), seed));
             }
             if (!s_dirt && s_dirtTask == null) s_dirtTask = Workers.Run(() => Paper.Dirt(seed));
             if (s_edgeStrips == null && s_edgeStripsTask == null) s_edgeStripsTask = Workers.Run(() => SheetEdge.Build(seed));
@@ -307,7 +322,7 @@ namespace Atlas
                 else if (s_cacheTask.Result != null && s_sheet == null)
                 {
                     CachedSheet cached = s_cacheTask.Result;
-                    SetSheet(cached.m_sheet, cached.m_marks, cached.m_sheetMarks, cached.m_density, cached.m_key);
+                    SetSheet(cached.m_sheet, cached.m_marks, cached.m_sheetMarks, cached.m_density, cached.m_key, true);
                     s_cachedKey = cached.m_key;
                     s_hasCachedKey = true;
                     s_cachedPaper = cached.m_paper;
@@ -462,6 +477,7 @@ namespace Atlas
                     return new PaintResult
                     {
                         m_ink = ink, m_record = record, m_density = density, m_key = key, m_saved = save, m_changed = changed, m_seed = source.m_seed,
+                        m_groves = source.m_grove != null,
                         m_from = redrawn != null ? sheetInk : null, m_redrawn = redrawn, m_tileChange = tileChange,
                     };
                 };
@@ -516,12 +532,13 @@ namespace Atlas
                 // (SetSheet with the same marks), and the ink is laid with the fog's decisions.
                 s_marks.m_key = result.m_key;
                 s_tiles.NewChecks(result.m_record, result.m_changed);
-                SetSheet(result.m_ink, s_sheetMarks, s_marks, result.m_density, result.m_key, result.m_from, result.m_redrawn);
+                SetSheet(result.m_ink, s_sheetMarks, s_marks, result.m_density, result.m_key, s_sheetCacheable, result.m_from, result.m_redrawn);
                 return;
             }
             s_tiles.NewRecord(result.m_record, result.m_tileChange);
             if (s_sheet != null && result.m_key == s_rawKey) return;
-            SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_record.m_marks, result.m_density, result.m_key, result.m_from, result.m_redrawn);
+            SetSheet(result.m_ink, result.m_record.m_seaMarks.ToArray(), result.m_record.m_marks, result.m_density, result.m_key, result.m_groves,
+                result.m_from, result.m_redrawn);
         }
 
         // A painted (or cached) sheet's planes, kept for the session so its ink texture can be
@@ -529,9 +546,10 @@ namespace Atlas
         // density and pins key, and the sheet it was redrawn from with the rectangles redrawn
         // (null when painted whole), so the ink is laid again only there. The fog judges the new
         // marks again (Paper.Redecide).
-        private static void SetSheet(byte[] sheet, SeaMark[] marks, SheetMarks sheetMarks, InkDensity density, long key,
+        private static void SetSheet(byte[] sheet, SeaMark[] marks, SheetMarks sheetMarks, InkDensity density, long key, bool cacheable,
             byte[] from = null, System.Collections.Generic.List<RectInt> redrawn = null)
         {
+            s_sheetCacheable = cacheable;
             // A sheet with the marks it replaces (pins ticked, InkPainter.Recheck) keeps the fog.
             if (sheetMarks != s_marks || marks != s_seaMarks) s_fogDirty = true;
             s_sheetFrom = from;
@@ -553,7 +571,7 @@ namespace Atlas
             if (s_wholeInk != null)
             {
                 if (s_uploaded) return;
-                Paper.LaidInk whole = s_wholeInk;
+                InkReady whole = s_wholeInk;
                 s_wholeInk = null;
                 UploadWhole(whole);
                 return;
@@ -597,20 +615,70 @@ namespace Atlas
             byte[] from = s_sheetFrom;
             System.Collections.Generic.List<RectInt> redrawn = s_sheetRedrawn;
             bool pack = !s_patchOff;
+            // The ink on disk (LaidCache) is keyed by the band the decisions were judged on and
+            // the sheet; a sheet that cannot stand for its pins next session is not cached.
+            byte[] bandKey = edge != null && glimpse != null && s_sheetCacheable ? s_bandKey : null;
+            long pinsKey = s_rawKey;
+            SheetMarks sheetMarks = s_marks;
+            int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
+            // Only the first lay of a session has no lay to go on from and takes it.
+            Task<LaidCache.Ink> inkFile = s_ink ? null : s_inkFile;
+            s_inkFile = null;
             // Laid again only where it can differ from the last lay (Paper.LayInk), and those
-            // tiles packed for the GPU copy (InkPatch).
-            s_mipsTask = Workers.RunFirst(() =>
+            // tiles packed for the GPU copy (InkPatch); or read back from disk.
+            s_mipsTask = Workers.AfterFirst(() =>
             {
-                Paper.LaidInk laid = Paper.LayInk(sheet, from, redrawn, marks, glimpse, edge);
-                return new InkReady { m_laid = laid, m_patch = pack ? InkPatch.Pack(laid) : null };
-            });
+                byte[] inkKey = bandKey != null ? LaidCache.InkKey(bandKey, seed, pinsKey, marks, sheetMarks) : null;
+                LaidCache.Ink file = inkFile != null && inkFile.Status == TaskStatus.RanToCompletion ? inkFile.Result : null;
+                Paper.LaidInk laid = null;
+                if (file != null && LaidCache.SameKey(file.m_key, inkKey)) laid = Paper.LoadedInk(file.m_data, file.m_coarse, sheet, marks, glimpse, edge);
+                if (laid != null) return new InkReady { m_laid = laid, m_key = inkKey, m_loaded = true };
+                // A file for other inputs still lends its pixels' buffer to a whole lay.
+                laid = Paper.LayInkInto(file?.m_data, sheet, from, redrawn, marks, glimpse, edge);
+                return new InkReady { m_laid = laid, m_patch = pack ? InkPatch.Pack(laid) : null, m_key = inkKey };
+            }, inkFile);
         }
 
-        // A laid ink and its changed tiles packed for the GPU (null: upload it whole).
+        // A laid ink and its changed tiles packed for the GPU (null: upload it whole), with its
+        // key on disk (LaidCache; null when not to be cached) and whether it was read from there.
         private sealed class InkReady
         {
             public Paper.LaidInk m_laid;
             public InkPatch m_patch;
+            public byte[] m_key;
+            public bool m_loaded;
+        }
+
+        // The texture holds the lay now, so the next lay starts from its pixels (Paper.ReturnInk).
+        // A lay the disk does not hold yet is written first, on a worker behind the opening's
+        // work, then handed back unless a later lay was meanwhile (a lay that finds none lays
+        // whole into a new buffer, as at login).
+        private static void HandBack(InkReady ready)
+        {
+            Paper.LaidInk laid = ready.m_laid;
+            byte[] key = ready.m_key;
+            if (ready.m_loaded) s_inkSavedKey = key;
+            if (key == null || ready.m_loaded || LaidCache.SameKey(key, s_inkSavedKey))
+            {
+                Paper.ReturnInk(laid);
+                return;
+            }
+            s_inkSavedKey = key;
+            string path = LaidCache.InkPath(s_worldUid);
+            int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
+            int order = LaidCache.Order();
+            Workers.Run(() =>
+            {
+                try
+                {
+                    LaidCache.SaveInk(path, seed, key, laid, order);
+                }
+                finally
+                {
+                    Paper.ReturnInkIfNone(laid);
+                }
+                return true;
+            });
         }
 
         // The serial of the lay the ink texture holds (Paper.LaidInk.m_serial), so a patch is
@@ -620,7 +688,7 @@ namespace Atlas
         // (for the game session; the warning is logged once).
         private static bool s_patchOff;
         // A lay to upload whole next frame, after a patch failed part way.
-        private static Paper.LaidInk s_wholeInk;
+        private static InkReady s_wholeInk;
         // The sheet the shown one was redrawn from and the rectangles redrawn (SetSheet).
         private static byte[] s_sheetFrom;
         private static System.Collections.Generic.List<RectInt> s_sheetRedrawn;
@@ -655,6 +723,8 @@ namespace Atlas
             // Whether the sheet is to be cached (InkCache.Save), and the seed it is cached for.
             public bool m_saved;
             public int m_seed;
+            // Whether the world's alt biome groves were read for it, as a sheet to be cached needs.
+            public bool m_groves;
             // The pixels of the pins drawn again when only ticks changed (InkPainter.Recheck), or
             // null for a whole paint.
             public System.Collections.Generic.List<RectInt> m_changed;
@@ -679,6 +749,9 @@ namespace Atlas
             // the one laid before, and the fog's texture changed only if m_fogChanged.
             public bool m_redecided;
             public bool m_fogChanged;
+            // A band laid whole: its key on disk (LaidCache) and whether it was read from there.
+            public byte[] m_key;
+            public bool m_loaded;
         }
 
         // Whether reading the world waits for the atlas to open: while the cache is still being
@@ -779,15 +852,14 @@ namespace Atlas
                     // The texture may be half patched, so the whole of it goes up next frame.
                     Jotunn.Logger.LogWarning($"The atlas could not patch its ink texture and uploads it whole from now on: {e.Message}");
                     s_patchOff = true;
-                    s_wholeInk = laid;
+                    s_wholeInk = ready;
                     s_uploaded = true;
                     return;
                 }
                 if (copied)
                 {
                     s_inkSerial = laid.m_serial;
-                    // The texture holds this lay now; the next lay starts from these pixels.
-                    Paper.ReturnInk(laid);
+                    HandBack(ready);
                     s_view.SetSheet(s_ink, s_density);
                     s_uploaded = true;
                     return;
@@ -795,11 +867,12 @@ namespace Atlas
                 Jotunn.Logger.LogWarning("The atlas cannot copy between textures on this device and uploads its ink whole.");
                 s_patchOff = true;
             }
-            UploadWhole(laid);
+            UploadWhole(ready);
         }
 
-        private static void UploadWhole(Paper.LaidInk laid)
+        private static void UploadWhole(InkReady ready)
         {
+            Paper.LaidInk laid = ready.m_laid;
             byte[] data = laid.m_data;
             Texture2D old = s_ink;
             s_ink = new Texture2D(InkPainter.CanvasSize, InkPainter.CanvasSize, TextureFormat.RGBA32, mipChain: true)
@@ -812,9 +885,9 @@ namespace Atlas
             s_ink.LoadRawTextureData(data);
             // Uploads once and drops the CPU copy; a new sheet is a new texture.
             s_ink.Apply(updateMipmaps: false, makeNoLongerReadable: true);
-            // The texture holds its own copy now; the next lay starts from these pixels.
+            // The texture holds its own copy now.
             s_inkSerial = laid.m_serial;
-            Paper.ReturnInk(laid);
+            HandBack(ready);
             s_view.SetSheet(s_ink, s_density);
             if (old) UnityEngine.Object.Destroy(old);
             s_uploaded = true;
@@ -835,11 +908,18 @@ namespace Atlas
                     s_fogFailed = true;
                     s_fogFull = true;
                     s_fogSnapshot = null;
+                    s_bandKey = null;
                     return;
                 }
                 s_parchment = done.Result.m_parchment;
                 s_edge = done.Result.m_edge;
                 s_fogMarks = s_fogTaskMarks;
+                // Judging the marks again keeps the band, and so its key.
+                if (!done.Result.m_redecided)
+                {
+                    s_bandKey = done.Result.m_key;
+                    SaveBand(done.Result);
+                }
                 if (done.Result.m_redecided) KeepDecisions(done.Result);
                 else UploadFog(done.Result);
             }
@@ -902,11 +982,21 @@ namespace Atlas
             byte[] oldGlimpse = s_glimpseCopy;
             FogEdge oldEdge = s_edge;
             SeaMark[] oldSea = s_fogMarks;
+            // The band on disk serves only the first whole fog of a session.
+            Task<LaidCache.Band> bandFile = s_bandFile;
+            s_bandFile = null;
             // The task hands the parchment back instead of storing it, so a task still running
             // when the world changes cannot leave its paper behind for the next world.
-            Func<byte[], FogLaid> lay = paper =>
+            Func<FogLaid> lay = () =>
             {
-                FogEdge edge = Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, sheetMarks, glimpseBand);
+                byte[] paper = parchment ?? parchmentTask.Result;
+                byte[] key = LaidCache.BandKey(seed, snapshot, glimpses, glimpseBand);
+                LaidCache.Band band = bandFile != null && bandFile.Status == TaskStatus.RanToCompletion ? bandFile.Result : null;
+                bool loaded = band != null && LaidCache.SameKey(band.m_key, key);
+                // The same inputs lay the same band: read back, only the marks are judged.
+                FogEdge edge = loaded
+                    ? Paper.FogOfBand(pixels, glimpse, paper, band.Base(snapshot), marks, sheetMarks, glimpseBand)
+                    : Paper.Fog(pixels, glimpse, paper, snapshot, marks, glimpses, sheetMarks, glimpseBand);
                 byte[] copy = (byte[])glimpse.Clone();
                 FogChange change = null;
                 try
@@ -918,11 +1008,36 @@ namespace Atlas
                     // Only the saving is lost: every close-up is drawn again, as with no change.
                     Jotunn.Logger.LogWarning($"The atlas could not compare its fog with the last: {e}");
                 }
-                return new FogLaid { m_edge = edge, m_parchment = paper, m_glimpse = copy, m_change = change };
+                return new FogLaid { m_edge = edge, m_parchment = paper, m_glimpse = copy, m_change = change, m_key = key, m_loaded = loaded };
             };
-            // Chained rather than waiting on the parchment: a worker blocked on a task queued
-            // behind it would never wake.
-            s_fogTask = parchment != null ? Workers.RunFirst(() => lay(parchment)) : Workers.ThenFirst(parchmentTask, lay);
+            // Chained rather than waiting on the parchment and the band on disk: a worker blocked
+            // on a task queued behind it would never wake.
+            s_fogTask = Workers.AfterFirst(lay, parchment == null ? parchmentTask : null, bandFile);
+        }
+
+        // Keeps a band laid whole on disk for the next session, unless it was read from there or
+        // is already written. Its planes are never written once laid, so a worker may read them
+        // while the fog is in use. The band does not depend on the sheet, so unlike the ink it is
+        // kept whichever sheet it was laid under.
+        private static void SaveBand(FogLaid laid)
+        {
+            byte[] key = laid.m_key;
+            if (key == null) return;
+            if (laid.m_loaded || LaidCache.SameKey(key, s_bandSavedKey))
+            {
+                s_bandSavedKey = key;
+                return;
+            }
+            s_bandSavedKey = key;
+            string path = LaidCache.BandPath(s_worldUid);
+            int seed = ZNet.World != null ? ZNet.World.m_seed : 0;
+            FogBase band = laid.m_edge?.m_base;
+            int order = LaidCache.Order();
+            Workers.Run(() =>
+            {
+                LaidCache.SaveBand(path, seed, key, band, order);
+                return true;
+            });
         }
 
         // The fog is laid on it, so it is the opening's work too.
@@ -1215,6 +1330,12 @@ namespace Atlas
             s_fogDirty = false;
             s_fogFull = true;
             s_fogSnapshot = null;
+            s_bandFile = null;
+            s_inkFile = null;
+            s_bandKey = null;
+            s_bandSavedKey = null;
+            s_inkSavedKey = null;
+            s_sheetCacheable = false;
             s_inkSerial = 0;
             s_wholeInk = null;
             s_sheetFrom = null;

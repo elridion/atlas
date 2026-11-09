@@ -54,6 +54,17 @@ namespace Atlas
         public static Task<TResult> ThenFirst<T, TResult>(Task<T> first, Func<T, TResult> work) =>
             first.ContinueWith(done => work(done.Result), CancellationToken.None, TaskContinuationOptions.DenyChildAttach, s_pool.m_first);
 
+        // RunFirst once every task of waits is done (nulls skipped), chained rather than waited
+        // on; work reads their results itself, so it decides what a faulted one means.
+        public static Task<T> AfterFirst<T>(Func<T> work, params Task[] waits)
+        {
+            var pending = new List<Task>();
+            foreach (Task wait in waits)
+                if (wait != null && !wait.IsCompleted) pending.Add(wait);
+            if (pending.Count == 0) return RunFirst(work);
+            return Task.Factory.ContinueWhenAll(pending.ToArray(), done => work(), CancellationToken.None, TaskContinuationOptions.DenyChildAttach, s_pool.m_first);
+        }
+
         // A loop's part waiting for the idle worker it was queued for, with the lane it runs in.
         private struct Part
         {
